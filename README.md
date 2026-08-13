@@ -195,33 +195,33 @@ Three properties are worth holding before reading the diagrams:
 
 ```mermaid
 flowchart TD
-    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet 5<br/>writes spec.md and proposal.md"]
-    B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions,<br/>asked in the chat"}}
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet 5 <br/> writes spec.md and proposal.md"]
+    B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
     Q -->|"answers"| B
-    B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the<br/>deltas and the decision"}}
-    S -->|"no"| REJ["stamp REJECTED, archive the folder,<br/>phase idle — the record is the deliverable"]
-    S -->|"yes"| P["PLAN — planner, Opus 5<br/>plan.md plus one file per milestone"]
-    P --> R["REVIEW — reviewer, Haiku 4.5<br/>reads the spec and every milestone file"]
+    B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
+    S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
+    S -->|"yes"| P["PLAN — planner, Opus 5 <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer, Haiku 4.5 <br/> reads the spec and every milestone file"]
     R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
     CON --> R
     R -->|"CHANGES_REQUESTED"| P
-    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet 5<br/>one fresh session per milestone"]
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet 5 <br/> one fresh session per milestone"]
     I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus 5"]
     ARCH --> I
     I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
     RE --> I
-    I -->|"IMPLEMENTED"| CM["orchestrator commits and pushes,<br/>then ends its turn"]
+    I -->|"IMPLEMENTED"| CM["orchestrator commits and pushes, <br/> then ends its turn"]
     CM --> G{{"THE GATE — Stop hook, outside the model"}}
-    G -->|"lint or trace, attempts 1-2<br/>a red test, attempt 1"| I
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
     G -->|"whatever survives that"| RE
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
     G -->|"green, and silent"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5<br/>verify the deltas landed,<br/>stamp SHIPPED, archive"]
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
     G2 -->|"gap in the specs' wording"| F
     G2 -->|"gap in code or tests"| RE
-    G2 -->|"green"| D["DONE — phase done,<br/>archive the telemetry, print the stats"]
+    G2 -->|"green"| D["DONE — phase done, <br/> archive the telemetry, print the stats"]
 ```
 
 Both human gates sit in the spec phase, and that is the point: it is the last
@@ -250,27 +250,27 @@ planner and the reviewer entirely and costs one implementer pass.
 
 ```mermaid
 flowchart TD
-    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet 5<br/>phase spec, gate disarmed"]
-    T --> C1["case 1 — UNSPECIFIED<br/>nothing lied, there was no claim"]
-    T --> C2["case 2 — WEAK-TEST<br/>the requirement is right,<br/>its test proved too little"]
-    T --> C3["case 3 — WRONG-SPEC<br/>the code obeyed, the requirement was wrong"]
-    T --> C4["case 4 — INFRA<br/>outside the contract's proof surface"]
-    T --> C5["case 5 — NOT-A-FIX<br/>this changes behaviour: it is a feature"]
-    C3 --> H{{"HITL — a human confirms the<br/>old requirement was actually wrong"}}
-    C5 --> REJ["stamp REJECTED, archive,<br/>phase idle — it belongs to /spec-flow"]
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet 5 <br/> phase spec, gate disarmed"]
+    T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
+    T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
+    T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
+    T --> C4["case 4 — INFRA <br/> outside the contract's proof surface"]
+    T --> C5["case 5 — NOT-A-FIX <br/> this changes behaviour: it is a feature"]
+    C3 --> H{{"HITL — a human confirms the <br/> old requirement was actually wrong"}}
+    C5 --> REJ["stamp REJECTED, archive, <br/> phase idle — it belongs to /spec-flow"]
     H -->|"confirmed"| W
     H -->|"it was right after all"| T
     C1 --> W
     C2 --> W
     C4 --> W
-    W["WORK ORDER — the orchestrator writes it itself<br/>plan.md + milestones/M1.md, phase implement"]
+    W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
     W --> I["FIX — implementer, Sonnet 5"]
     I --> CM["commit, push, end the turn"]
     CM --> G{{"the same GATE"}}
-    G -->|"lint or trace, attempts 1-2<br/>a red test, attempt 1"| I
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
     G -->|"whatever survives that"| T
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
-    G -->|"green"| F["FOLD — spec-writer<br/>stamp SHIPPED, archive"]
+    G -->|"green"| F["FOLD — spec-writer <br/> stamp SHIPPED, archive"]
     F --> D["DONE"]
 ```
 
@@ -293,16 +293,16 @@ flowchart TD
     S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement?"}
     P -->|"no"| ALLOW["allow the stop, record nothing"]
     P -->|"yes"| CFG{"contract readable?"}
-    CFG -->|"no"| BLK1["BLOCK — a human fixes<br/>.spec-flow/config.json"]
-    CFG -->|"yes"| DIRTY{"tree clean?<br/>ignoring .claude/state/"}
-    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop —<br/>an implementer may still be writing"]
-    DIRTY -->|"clean"| RUN["lint over the changed files<br/>the FULL test suite<br/>spec-trace, then every extra_check"]
-    RUN -->|"all green"| PASS["allow the stop, silently.<br/>attempts reset to 0"]
-    RUN -->|"red"| CLS{"which class,<br/>which attempt?"}
-    CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits<br/>are being judged: fix exactly these"]
+    CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
+    CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
+    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing"]
+    DIRTY -->|"clean"| RUN["lint over the changed files <br/> the FULL test suite <br/> spec-trace, then every extra_check"]
+    RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
+    RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
+    CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
     CLS -->|"a red test, attempt 1"| FIX
-    CLS -->|"anything that survives that"| REPLAN["re-plan this milestone —<br/>in /spec-fix, re-triage instead"]
-    CLS -->|"the 5th failure"| CAP["write phase blocked,<br/>hand it to a human"]
+    CLS -->|"anything that survives that"| REPLAN["re-plan this milestone — <br/> in /spec-fix, re-triage instead"]
+    CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
 ```
 
 Four things this diagram is really saying:
