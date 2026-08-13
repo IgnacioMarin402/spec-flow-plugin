@@ -1,0 +1,55 @@
+name: CI
+
+# This is the engine's own gate. It has no consuming repo to check against —
+# see conformance/ once step 4 of docs/spec-flow-as-a-plugin.md lands — so
+# what it verifies is narrower and different in kind: that the engine is
+# internally consistent (lint, types), that it holds under its own documented
+# failure modes (gate-fixture, run against a throwaway repo), and that it
+# carries no coupling to the one repo it was extracted from (no-repo-refs).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: lint · typecheck · no-repo-refs · gate-fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # This is shell-lint's replacement: once every hook is .mjs there is no
+      # .sh left to shellcheck, and plain type-checking over the engine's own
+      # source does the same job — catching what a behaviour fixture cannot,
+      # because a source that fails at runtime is not what tsc looks for
+      # either, but a wrong argument count or a typo'd property name is.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The reversed arrow, made checkable — see the file's own header for
+      # what it bans and why the archive check is narrower than a path ban.
+      - name: No repo-specific coupling
+        run: npm run check
+
+      # Builds throwaway repos, installs the engine at a SEPARATE path (the
+      # way it actually ships), and asserts the gate's documented behaviour
+      # holds — including the split this whole extraction exists to make
+      # correct. git is preinstalled on the runner; nothing else is required.
+      - name: Gate behaviour
+        run: npm run gate:check

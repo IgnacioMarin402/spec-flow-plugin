@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "spec-flow",
+  "displayName": "spec-flow",
+  "version": "0.1.0",
+  "description": "Spec-driven multi-agent pipeline: free-text requirement -> spec (HITL) -> plan -> review -> implement per milestone, gated by an external lint/test/spec-trace loop that runs outside the model. Requires a consuming repo to declare its own .spec-flow/config.json — see this repo's README.",
+  "author": {
+    "name": "Ignacio Marín"
+  },
+  "keywords": ["spec-driven-development", "multi-agent", "workflow"]
+}
