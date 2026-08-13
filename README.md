@@ -65,6 +65,17 @@ how your own project-specific checks
 `unscoped_denied` is what the engine redirects when an agent tries to run the
 whole suite mid-milestone instead of the scoped form.
 
+**`trace.proof_dir` and `trace.proof_suffix` do two jobs, not one.** They are
+what `spec-trace` searches, and they are also where the planner and the
+implementer are told to *put* a new test: a proof file is one whose path
+contains a segment named `proof_dir` and whose name ends in `proof_suffix`, and
+an agent that writes its test anywhere else produces a requirement that reads
+as unproven and a gate that blocks on a test which exists and passes. So these
+two values are a placement policy as much as a search pattern — set `proof_dir`
+to the directory your tests actually live in (`test`, `tests`, `spec`, or your
+source root if you genuinely colocate), and the agents will follow it. Nothing
+in the engine overrides it, and nothing guesses it.
+
 **`verify.test` is invoked with no extra arguments — the full suite, every
 time it runs at all.** Only `verify.lint` is scoped to the files this branch
 changed. Do not add a flag like `--passWithNoTests` to `verify.test` to work

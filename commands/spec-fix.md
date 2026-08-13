@@ -63,7 +63,7 @@ Do not chain into `/spec-flow` yourself. "Fix this" is not authorisation to chan
 Write `implement` to `.claude/state/phase`, then write two small files yourself:
 
 - `specflow/<SLUG>/plan.md` — a handful of lines: the triage case, the root cause, and "one milestone: M1".
-- `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it, and a **Spec deltas** section (the deltas from the triage, or `none`).
+- `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it — **by path, on the contract's proof surface** (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`), since a test written anywhere else is invisible to `spec-trace` and the fix reads as unproven — and a **Spec deltas** section (the deltas from the triage, or `none`).
 
 Those exact two paths, with those exact names, because the implementer reads exactly them and is told not to read `spec.md`. Reusing that contract verbatim is what lets this flow skip the planner without a second implementer agent that would drift from the first one.
 
