@@ -55,10 +55,37 @@ Nothing below is optional if you want to run `/spec-flow` or `/spec-fix`:
 Put this at `.spec-flow/config.json` in the repo root. `verify` says how to
 lint and test; `trace` says where specs live and what a proof file looks like
 — `spec-trace` uses this to bind a requirement id to the test that proves it,
-in both directions; `extra_checks` is how your own project-specific checks
+in both directions, and **a test that does not run is not proof**: a title
+tagged with a requirement id under `it.skip`, `it.todo`, `xit` or `xtest`
+counts as unproven, exactly as if it were absent. Skipping a test is the
+cheapest way to silence a red suite, and accepting it as proof would leave
+the requirement reading as covered while nothing executes; `extra_checks` is
+how your own project-specific checks
 (an architecture rule, a boundary check) plug into the same gate;
 `unscoped_denied` is what the engine redirects when an agent tries to run the
 whole suite mid-milestone instead of the scoped form.
+
+**`verify.test` is invoked with no extra arguments — the full suite, every
+time it runs at all.** Only `verify.lint` is scoped to the files this branch
+changed. Do not add a flag like `--passWithNoTests` to `verify.test` to work
+around a runner that exits non-zero on an empty match: that class of problem
+no longer exists once the gate stops appending file paths to the test
+command, and a flag that makes an empty run exit 0 makes an EVERY run that
+happens to match nothing exit 0 too — a green gate over zero executed tests,
+which is worse than the slow-and-loud failure it would be "fixing". This is
+not a contradiction of `unscoped_denied` above: that setting stops the AGENT
+from running the whole suite mid-milestone to keep irrelevant output out of
+its context; the gate itself runs out-of-model and truncates before anything
+reaches a model, so the two rules protect different things and both stand.
+
+**Also required: `.claude/state/` must be in the consuming repo's
+`.gitignore`.** The gate writes its own history and failure logs there on
+every run. If that directory is tracked, the tree is never clean again after
+the first pass, and the gate's quiescence guard (`skip-dirty`) silently skips
+every run after that — forever, with nothing in the output to say why. The
+gate itself now filters `.claude/state/` out of its dirty check as a second
+line of defense, but gitignoring it is still what keeps a human's `git
+status` legible.
 
 **There is no fallback that guesses these for you.** A repo this engine has
 never seen has no safe default test runner or proof directory — see
@@ -133,13 +160,15 @@ relying on it.
 
 ```bash
 npm install
-npm run lint        # eslint over hooks/ and scripts/
+npm run lint         # eslint over hooks/ and scripts/
 npm run typecheck    # tsc --noEmit --checkJs — this repo's own type check
 npm run check        # no-repo-refs.mjs — no coupling to the origin repo
-npm run gate:check    # gate-fixture.mjs — the gate holds under its own failure modes
+npm run gate:check   # gate-fixture.mjs — the gate holds under its own failure modes
+npm run trace:check  # spec-trace-fixture.mjs — the requirement/proof binding holds
+npm run hooks:check  # hook-smoke.mjs — the other eight hooks
 ```
 
-All four run in CI on every push and PR.
+All six run in CI on every push and PR.
 
 ## Design history
 

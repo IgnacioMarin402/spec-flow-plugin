@@ -56,8 +56,13 @@ if (files.length === 0) {
   const lintRes = spawnSync(lintArgv[0], [...lintArgv.slice(1), ...files], { cwd: root, stdio: 'inherit' });
   lintRc = lintRes.status ?? 1;
 
+  // NOT scoped to `files` — same reason as hooks/gate.mjs: this alias and the
+  // gate hook run the SAME file, so "same files, same commands, same result"
+  // stays structural rather than a promise two copies keep only while they
+  // happen to agree (see this file's own header). A trailing path filters
+  // TEST files to these runners, not "run what's related to these sources".
   console.log(`\n--- ${config.verify.test_name} ---`);
-  const testRes = spawnSync(config.verify.test[0], [...config.verify.test.slice(1), ...files], { cwd: root, stdio: 'inherit' });
+  const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), { cwd: root, stdio: 'inherit' });
   testRc = testRes.status ?? 1;
   console.log('');
 }

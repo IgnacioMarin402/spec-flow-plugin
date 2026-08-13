@@ -61,9 +61,19 @@ await run(async () => {
     // Fall back to scanning the stringified response. Labeled match first;
     // the bare match caps at 32 so a full 40-char commit sha never registers
     // as a session.
+    //
+    // The bare match is the weakest link — any 16-32 char hex run wins,
+    // including an MD5 that happens to sit in an error message. So it is
+    // skipped entirely when the response looks like a failure: registering
+    // a wrong id there is worse than registering none, because a wrong
+    // entry in the registry silently attributes a LATER SendMessage to the
+    // wrong agent, and opus-budget would charge (or fail to charge) against
+    // it. No id at all just logs a miss and fails open, which is this
+    // hook's documented posture anyway.
     const text = typeof res === 'string' ? res : JSON.stringify(res ?? '');
     const labeled = /(?:agent[_ ]?id|session[_ ]?id|session|agent|id|name)[^0-9a-f]{0,5}([0-9a-f]{16,32})\b/i.exec(text);
-    const bare = /\b[0-9a-f]{16,32}\b/.exec(text);
+    const looksLikeFailure = /\b(error|failed|failure|exception|traceback)\b/i.test(text);
+    const bare = looksLikeFailure ? null : /\b[0-9a-f]{16,32}\b/.exec(text);
     id = labeled ? labeled[1] : bare ? bare[0] : '';
   }
 

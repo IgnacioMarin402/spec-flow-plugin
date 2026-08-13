@@ -18,6 +18,22 @@
  *
  * Cases run concurrently: each builds its own two temp directories and its
  * own child process, nothing is shared.
+ *
+ * ---- the fixture's own history ----------------------------------------
+ * Every case here used to build a repo with a single commit and no base
+ * branch to diff against: `resolveBase` had nothing to find, fell through to
+ * `HEAD`, and `changedFiles(root, globs, HEAD)` is empty by construction
+ * (a diff against yourself is always empty). That made `files.length === 0`
+ * on every single case, which routes straight through the "no files in
+ * scope" short-circuit in gate.mjs — meaning this fixture asserted the
+ * gate's block/pass behaviour around `verify.lint` and `verify.test` for
+ * years WITHOUT EVER ONCE INVOKING either of them. The fixture reproduced,
+ * inside itself, the exact class of failure this whole engine exists to
+ * catch: a check that looks armed and is not. `fixture()` now creates a real
+ * base branch (`main`) plus a second commit on `feature` that changes a
+ * tracked file, so `files.length > 0` for every case below — and the
+ * "a green run reports the real scope" case exists specifically to keep that
+ * true, by breaking loudly if it ever regresses back to empty.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
@@ -27,6 +43,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
+
+// A test/lint stand-in that always exits clean and does nothing else.
+const NOOP = ['node', '-e', 'process.exit(0)'];
+// Exits 1 unconditionally — a red check.
+const RED = ['node', '-e', 'process.exit(1)'];
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
@@ -62,6 +83,17 @@ function have(cmd) {
  * under test that never had this engine's own file, `spec-trace.mjs`,
  * present gets a deterministic stand-in instead of the real check, so a case
  * can force green or red without depending on this plugin repo's own specs.
+ *
+ * The repo gets a real two-commit history on two branches: a baseline commit
+ * on `main`, then `feature` branched off it with one more commit that
+ * changes `changedFile` (default `b.ts`) — never `a.ts`, which stays as
+ * committed-and-untouched debt on both branches, so a case that inspects
+ * `verify.lint`'s argv can assert the untouched file is NOT in it. The
+ * branch is created via `symbolic-ref` right after `init`, not `git init -b`
+ * (needs git >= 2.28) and not left to `init.defaultBranch` (a per-machine
+ * config this fixture must not depend on) — it must be named `main` on every
+ * machine this runs on, because `resolveBase` falls back to that literal
+ * name once `origin/main` (no remote here) is absent.
  */
 async function fixture({
   phase = 'implement',
@@ -70,6 +102,11 @@ async function fixture({
   extraChecks = [],
   contractVersion = 1,
   sabotage = null,
+  gateAttempts = '0',
+  lint = NOOP,
+  test = NOOP,
+  changedFile = 'b.ts',
+  omitSpecTrace = false,
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
@@ -83,15 +120,20 @@ async function fixture({
   for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs']) {
     copyFileSync(join(ROOT, 'scripts', f), join(engineDir, 'scripts', f));
   }
+
   // A deterministic stand-in for spec-trace, green or red on demand — the
   // real one depends on this plugin repo's own specs/, which is not what
-  // this fixture is testing.
-  writeFileSync(
-    join(engineDir, 'scripts/spec-trace.mjs'),
-    specTrace === 'green'
-      ? 'console.log("spec-trace: OK — fixture");\n'
-      : 'console.log("spec-trace: FAIL — REQ-FIX-001 has no test");\nprocess.exit(1);\n',
-  );
+  // this fixture is testing. `omitSpecTrace` skips writing it entirely, to
+  // exercise the "plugin install is broken/partial" path in
+  // unscoped-checks.mjs instead.
+  if (!omitSpecTrace) {
+    writeFileSync(
+      join(engineDir, 'scripts/spec-trace.mjs'),
+      specTrace === 'green'
+        ? 'console.log("spec-trace: OK — fixture");\n'
+        : 'console.log("spec-trace: FAIL — REQ-FIX-001 has no test");\nprocess.exit(1);\n',
+    );
+  }
 
   // Injects a runtime throw into one of the engine's own modules, to stand in
   // for a defect nothing static could catch. Applied to the COPY, so the real
@@ -103,6 +145,8 @@ async function fixture({
 
   const git = (...args) => run('git', args, { cwd: repoDir });
   await git('init', '-q', '.');
+  // See this function's own header: must be `main`, on every machine.
+  await git('symbolic-ref', 'HEAD', 'refs/heads/main');
   await git('config', 'user.email', 'fixture@example.com');
   await git('config', 'user.name', 'fixture');
   // core.autocrlf false: on Windows the global default rewrites line endings
@@ -120,9 +164,9 @@ async function fixture({
         contract_version: contractVersion,
         verify: {
           scope_globs: ['*.ts'],
-          lint: ['node', '-e', 'process.exit(0)'],
-          lint_no_fix: ['node', '-e', 'process.exit(0)'],
-          test: ['node', '-e', 'process.exit(0)'],
+          lint,
+          lint_no_fix: NOOP,
+          test,
           test_name: 'fixture-test',
           lint_name: 'fixture-lint',
           lint_config_hint: 'fixture.config',
@@ -139,12 +183,23 @@ async function fixture({
   writeFileSync(join(repoDir, '.gitignore'), '.claude/state/\n');
   writeFileSync(join(repoDir, 'a.ts'), 'export const a = 1;\n');
   await git('add', '-A');
-  await git('commit', '-qm', 'fixture');
+  await git('commit', '-qm', 'baseline on main');
+
+  // The base every case diffs against — a real ancestor commit, never HEAD
+  // itself. `changedFile` is null for a case that wants zero files in scope
+  // on purpose (kept rare; most of this engine's own history shows what
+  // happens when that is the ONLY path exercised).
+  if (changedFile) {
+    await git('checkout', '-q', '-b', 'feature');
+    writeFileSync(join(repoDir, changedFile), 'export const changed = 1;\n');
+    await git('add', '-A');
+    await git('commit', '-qm', `change ${changedFile}`);
+  }
 
   if (dirty) writeFileSync(join(repoDir, 'dirty.txt'), 'uncommitted\n');
 
   writeFileSync(join(repoDir, '.claude/state/phase'), phase);
-  writeFileSync(join(repoDir, '.claude/state/gate_attempts'), '0');
+  writeFileSync(join(repoDir, '.claude/state/gate_attempts'), gateAttempts);
 
   return { engineDir, repoDir };
 }
@@ -162,6 +217,7 @@ async function runGate({ engineDir, repoDir }) {
   const res = await run('node', [join(engineDir, 'hooks/gate.mjs')], { cwd: tmpdir(), input: '{}', env });
   const histPath = join(repoDir, '.claude/state/gate-history.log');
   const failPath = join(repoDir, '.claude/state/gate-failure.log');
+  const lintArgvPath = join(repoDir, '.claude/state/lint-argv.log');
 
   return {
     status: res.status,
@@ -170,13 +226,14 @@ async function runGate({ engineDir, repoDir }) {
     blocked: res.stdout.includes('"decision":"block"'),
     history: existsSync(histPath) ? readFileSync(histPath, 'utf8').trim() : '',
     failureLog: existsSync(failPath) ? readFileSync(failPath, 'utf8').trim() : '',
+    lintArgv: existsSync(lintArgvPath) ? readFileSync(lintArgvPath, 'utf8').trim() : null,
   };
 }
 
 async function withFixture(opts, assert) {
   const { engineDir, repoDir } = await fixture(opts);
   try {
-    return assert(await runGate({ engineDir, repoDir }));
+    return assert(await runGate({ engineDir, repoDir }), repoDir);
   } finally {
     rmSync(engineDir, { recursive: true, force: true });
     rmSync(repoDir, { recursive: true, force: true });
@@ -195,6 +252,17 @@ await Promise.all([
       if (r.blocked) return `the gate blocked a green tree — stderr: ${r.stderr}`;
       if (!/result=pass/.test(r.history)) {
         return `no pass recorded in the REPO's own state — the hook wrote state somewhere else, or did not run against the repo at all. stdout: ${r.stdout} stderr: ${r.stderr}`;
+      }
+      return null;
+    }),
+  ),
+
+  // ---- the fixture's own signature failure, closed: it must actually reach verify.lint/verify.test ----
+  check('a green run against real changes reports the real scope (files=1), not the empty short-circuit', () =>
+    withFixture({ specTrace: 'green' }, (r) => {
+      if (r.blocked) return `the gate blocked a green tree — stderr: ${r.stderr}`;
+      if (!/files=1\b/.test(r.history)) {
+        return `expected files=1 in the history line — if this reads files=0, resolveBase() stopped finding the 'main' branch and every case in this fixture is back to never invoking verify.lint/verify.test. history: ${r.history}`;
       }
       return null;
     }),
@@ -235,6 +303,20 @@ await Promise.all([
     withFixture({ specTrace: 'green', contractVersion: 999 }, (r) => {
       if (!r.blocked) return 'a contract version this engine does not understand did not block the stop';
       if (!/fail:contract/.test(r.history)) return `history did not record a contract failure: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  // ---- a spec-trace missing from the ENGINE install is a broken plugin, not a green run ----
+  //
+  // Unlike a repo's own extra_checks (a script the repo has not written yet,
+  // which degrades quietly by design), spec-trace ships INSIDE this package.
+  // Missing here can only mean a broken or partial install — see
+  // unscoped-checks.mjs's own header.
+  check('a missing spec-trace (broken/partial plugin install) blocks the stop, not passes it', () =>
+    withFixture({ omitSpecTrace: true }, (r) => {
+      if (!r.blocked) return 'the gate passed with the engine\'s own spec-trace.mjs entirely absent — a broken install reads as a clean milestone';
+      if (!/spec=1/.test(r.history)) return `expected the spec-trace field to record rc=1, got: ${r.history}`;
       return null;
     }),
   ),
@@ -293,6 +375,95 @@ await Promise.all([
       (r) => {
         if (r.blocked) return `an all-green tree with a declared extra check blocked: ${r.stderr}`;
         if (!/extra=0/.test(r.history)) return `the declared extra check's field did not appear in history: ${r.history}`;
+        return null;
+      },
+    ),
+  ),
+
+  // ---- the regression this milestone fixes: verify.test must run UNSCOPED ----
+  //
+  // Before the fix, gate.mjs appended the changed SOURCE files to
+  // `verify.test`'s argv. A runner that treats trailing paths as a filter
+  // over TEST files (documented in this repo's own README) would then match
+  // nothing and exit non-zero on a milestone that never touched a test file
+  // — a false RED that burns an Opus REPLAN for a defect that does not
+  // exist. This stand-in exits 1 only if it received any argv beyond the
+  // interpreter itself, so it reproduces exactly that shape of bug: green
+  // proves no file argument reached it, red means the regression is back.
+  check('verify.test runs with no file arguments — a changed source file alone must not turn it red', () =>
+    withFixture(
+      { specTrace: 'green', test: ['node', '-e', 'process.exit(process.argv.length > 1 ? 1 : 0)'] },
+      (r) => {
+        if (r.blocked) return `the gate blocked because the test command received unexpected argv — verify.test is scoped to changed files again. stderr: ${r.stderr}, failure log: ${r.failureLog}`;
+        if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
+        return null;
+      },
+    ),
+  ),
+
+  // ---- the invariant that must survive the fix above: lint stays scoped ----
+  check('verify.lint stays scoped to changed files (b.ts), and never receives untouched debt (a.ts)', () =>
+    withFixture(
+      {
+        specTrace: 'green',
+        lint: [
+          'node',
+          '-e',
+          'require("fs").writeFileSync(".claude/state/lint-argv.log", process.argv.slice(1).join(","))',
+        ],
+      },
+      (r) => {
+        if (r.blocked) return `an all-green tree blocked unexpectedly: ${r.stderr}`;
+        if (r.lintArgv === null) return 'the lint stand-in never ran — verify.lint received no invocation at all';
+        if (!r.lintArgv.includes('b.ts')) return `verify.lint's argv did not include the changed file: "${r.lintArgv}"`;
+        if (r.lintArgv.includes('a.ts')) return `verify.lint's argv included a.ts, an UNTOUCHED file — lint scoping regressed to whole-repo: "${r.lintArgv}"`;
+        return null;
+      },
+    ),
+  ),
+
+  // ---- the new routing: a red test on attempt 1 goes to the implementer, not to REPLAN ----
+  check('a red test on attempt 1 routes to the implementer directly — no REPLAN yet', () =>
+    withFixture({ specTrace: 'green', test: RED, gateAttempts: '0' }, (r) => {
+      if (!r.blocked) return 'a red test did not block the stop';
+      if (!/result=fail:behaviour/.test(r.history)) return `expected fail:behaviour on attempt 1, got: ${r.history}`;
+      if (/MODE=REPLAN/.test(r.stdout)) return `attempt 1 already told the orchestrator to REPLAN — should have routed to the implementer first. stdout: ${r.stdout}`;
+      if (!/attempt 1/.test(r.stdout)) return `the block message did not name attempt 1: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ---- and only a SECOND red attempt is evidence the plan itself is wrong ----
+  check('a red test that survives one attempt (attempt 2) routes to REPLAN', () =>
+    withFixture({ specTrace: 'green', test: RED, gateAttempts: '1' }, (r) => {
+      if (!r.blocked) return 'a red test did not block the stop';
+      if (!/result=fail:behaviour/.test(r.history)) return `expected fail:behaviour on attempt 2, got: ${r.history}`;
+      if (!/MODE=REPLAN/.test(r.stdout)) return `attempt 2 did not route to REPLAN: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ---- a repo's own extra_checks can force the behaviour class too, not just a red test ----
+  check("an extra_check declared class:'behaviour' routes like a red test, not like lint", () =>
+    withFixture(
+      {
+        specTrace: 'green',
+        gateAttempts: '0',
+        extraChecks: [
+          {
+            name: 'fixture-behaviour-check',
+            field: 'beh',
+            green: '(ok)',
+            hint: 'fixture hint',
+            cmd: ['node', '-e', 'process.exit(1)'],
+            class: 'behaviour',
+          },
+        ],
+      },
+      (r) => {
+        if (!r.blocked) return 'a red behaviour-classed check did not block the stop';
+        if (!/result=fail:behaviour/.test(r.history)) return `expected fail:behaviour (the test itself was green, only the declared check was red), got: ${r.history}`;
+        if (/MODE=REPLAN/.test(r.stdout)) return `attempt 1 of a behaviour-classed check already routed to REPLAN: ${r.stdout}`;
         return null;
       },
     ),

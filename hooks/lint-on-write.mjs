@@ -14,10 +14,10 @@
  *
  * Like the gate, this only fires while the flow is in `implement`.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 const MAX_LINES = 30;
@@ -55,13 +55,42 @@ await run(async () => {
   // The linter binary is the argv element after the interpreter, if there is
   // one — mirrors the bash form's `${SF_LINT_NO_FIX[1]:-${SF_LINT_NO_FIX[0]}}`.
   const binPath = args[0] ?? bin;
+  // Only a PATH-shaped binPath (absolute, or a repo-relative path like
+  // `node_modules/.bin/eslint`) can be checked against a location at all. A
+  // bare command name (`lint_no_fix: ["eslint"]`, meaning "resolve through
+  // PATH") has no repo-relative file to find — `existsSync(join(root,
+  // 'eslint'))` was always false for that shape, which silently disarmed
+  // this hook on every write. spawnSync below reports an unresolvable
+  // binary on its own; this guard exists only to skip a repo mid-`install`
+  // without blocking every write on a binary that has a real, checkable path.
   if (binPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(binPath)) {
     if (!existsSync(binPath)) return;
-  } else if (!existsSync(join(root, binPath))) {
-    return; // a repo mid-`install` must not have every write blocked by a missing binary
+  } else if (/[\\/]/.test(binPath) && !existsSync(join(root, binPath))) {
+    return;
   }
 
-  const res = spawnSync(bin, [...args, '--format', 'stylish', file], { cwd: root, encoding: 'utf8' });
+  // No `--format` flag here: that is an ESLint-specific option, and this
+  // hook is declared agnostic of which linter `lint_no_fix` names. The raw
+  // output is truncated and shown as-is below, which every linter's default
+  // output already supports.
+  const res = spawnSync(bin, [...args, file], { cwd: root, encoding: 'utf8' });
+  if (res.error) {
+    // The binary could not be spawned at all (ENOENT, EACCES, ...) — not the
+    // same as "lint passed clean", and falling through to the status-0
+    // return below would have silently disarmed this hook for good on that
+    // repo. Logged like opus-budget's and register-agent's misses, once per
+    // distinct binary, instead of failing open with no trace.
+    try {
+      const spawnErr = /** @type {NodeJS.ErrnoException} */ (res.error);
+      const line = `${bin} ${args.join(' ')}: ${spawnErr.code ?? spawnErr.message}`;
+      const path = join(stateDir(root), 'lint-on-write-unmatched.log');
+      const existing = existsSync(path) ? readFileOrDefault(path, '').split('\n') : [];
+      if (!existing.includes(line)) appendFileSync(path, `${line}\n`);
+    } catch {
+      /* logging must never be why this hook fails */
+    }
+    return;
+  }
   if ((res.status ?? 0) === 0) return;
 
   const out = `${res.stdout ?? ''}${res.stderr ?? ''}`;

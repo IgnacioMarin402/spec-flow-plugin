@@ -53,26 +53,48 @@ export function buildChecklist(config) {
 
 /**
  * Runs every declared check against `root` and returns each result plus the
- * aggregate. Mirrors the bash version's degrade-quietly rule for a check
- * whose script is not present: that means "this repo does not have that
- * check", not "the run should be blocked".
+ * aggregate. Mirrors the bash version's degrade-quietly rule for a REPO'S
+ * OWN `extra_checks`: a script the repo declared but has not written yet
+ * means "this repo does not have that check", not "the run should be
+ * blocked" — a repo mid-adoption should not be blocked by its own
+ * not-yet-written check.
+ *
+ * `spec-trace` does NOT get that grace. It ships INSIDE this package, next
+ * to this file, at a path this file computes itself (`SPEC_TRACE_CHECK.cmd`
+ * above) — it is never something the consuming repo could have "not written
+ * yet". Missing here means the plugin install is broken or partial, and
+ * degrading that to green is exactly the silent-disarm this engine exists to
+ * refuse: `specs/` would stop being authoritative with no message anywhere.
  */
 export function runUnscopedChecks(root, config) {
   const checks = buildChecklist(config).map((check) => {
     const argv = [...check.cmd];
-    // A relative script path (argv[1]) resolves against the repo root, so a
-    // check declared as `scripts/x.mjs` works whichever directory the hook
-    // runs from. Absolute paths and anything with a `:` (a URL, or a Windows
-    // drive letter) pass through unresolved.
-    if (argv.length >= 2 && !argv[1].startsWith('/') && !argv[1].includes(':')) {
+    // A relative script path in argv[1] resolves against the repo root, so a
+    // check declared as `['node', 'scripts/x.mjs']` works whichever
+    // directory the hook runs from. Not every declared check HAS one:
+    // `['node', '-e', '<code>']` has no file at all — the code is inline,
+    // argv[1] is the `-e` flag — and `['npx', 'tsc']` names a binary PATH
+    // resolves, not a path this repo owns. Treating either shape as "resolve
+    // argv[1] against root, then check existsSync" made every such check
+    // fall into the not-present branch below on EVERY run, silently and
+    // permanently green — the "not yet written" grace meant for a repo's own
+    // pending check, applied instead to a check that runs fine and was never
+    // given the chance. Only a path-SHAPED argv[1] — contains a separator or
+    // a `.`, and is not itself a flag — is eligible for that grace; anything
+    // else is spawned directly and left to fail on its own terms.
+    const looksLikePath = argv.length >= 2 && !argv[1].startsWith('-') && /[\\/.]/.test(argv[1]);
+    if (looksLikePath && !argv[1].startsWith('/') && !argv[1].includes(':')) {
       argv[1] = join(root, argv[1]);
     }
 
     let out, rc;
-    if (argv.length >= 2 && existsSync(argv[1])) {
+    if (!looksLikePath || existsSync(argv[1])) {
       const res = spawnSync(argv[0], argv.slice(1), { cwd: root, encoding: 'utf8' });
       out = `${res.stdout ?? ''}${res.stderr ?? ''}`.trim();
       rc = res.status ?? 1;
+    } else if (check === SPEC_TRACE_CHECK) {
+      out = `(${argv[1] ?? '?'} not present — the plugin install is broken or partial: spec-trace ships with the engine itself, it is never a repo-provided script)`;
+      rc = 1;
     } else {
       out = `(${argv[1] ?? '?'} not present)`;
       rc = 0;

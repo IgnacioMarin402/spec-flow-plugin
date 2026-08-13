@@ -12,6 +12,13 @@
  * in `.spec-flow/config.json` — its own check command, and any invocation
  * that names a path — stay allowed. Only the unscoped variants are
  * redirected, and only while the phase is `implement`.
+ *
+ * This is a consistency guard, not a security boundary: the classifier below
+ * splits on `&&|;|` and whitespace, which `sh -c '...'`, a subshell, a
+ * heredoc, or `npm t` (an alias `wholeRepoScripts`/`tools` do not name)
+ * trivially evade. That is acceptable because `hooks/gate.mjs` re-runs the
+ * real scoped checks on Stop regardless of what the agent ran mid-turn — an
+ * evasion here wastes context on unscoped output, it does not skip the gate.
  */
 import { join } from 'node:path';
 import { projectDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
