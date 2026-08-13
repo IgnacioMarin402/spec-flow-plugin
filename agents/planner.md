@@ -78,8 +78,8 @@ When a milestone delivers a delta, order its Steps **test-first**: the failing R
   contract's proof surface (a `trace.proof_dir` segment, a `trace.proof_suffix`
   filename); each test proving a delta names its REQ id>
 - Lint/type notes: <linter/type-checker gotchas for this milestone>
-- Definition of done: the gate passes (the project's lint and test commands
-  on the changed files, plus spec-trace)
+- Definition of done: the gate passes (the project's lint command on the
+  changed files, its test command on the whole suite, plus spec-trace)
 - Depends on: <M0 / none>
 ```
 
