@@ -63,7 +63,14 @@ function have(cmd) {
  * present gets a deterministic stand-in instead of the real check, so a case
  * can force green or red without depending on this plugin repo's own specs.
  */
-async function fixture({ phase = 'implement', specTrace = 'green', dirty = false, extraChecks = [], contractVersion = 1 }) {
+async function fixture({
+  phase = 'implement',
+  specTrace = 'green',
+  dirty = false,
+  extraChecks = [],
+  contractVersion = 1,
+  sabotage = null,
+}) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
 
@@ -85,6 +92,14 @@ async function fixture({ phase = 'implement', specTrace = 'green', dirty = false
       ? 'console.log("spec-trace: OK — fixture");\n'
       : 'console.log("spec-trace: FAIL — REQ-FIX-001 has no test");\nprocess.exit(1);\n',
   );
+
+  // Injects a runtime throw into one of the engine's own modules, to stand in
+  // for a defect nothing static could catch. Applied to the COPY, so the real
+  // engine is untouched.
+  if (sabotage) {
+    const target = join(engineDir, sabotage.file);
+    writeFileSync(target, readFileSync(target, 'utf8').replace(sabotage.find, sabotage.replace));
+  }
 
   const git = (...args) => run('git', args, { cwd: repoDir });
   await git('init', '-q', '.');
@@ -183,6 +198,36 @@ await Promise.all([
       }
       return null;
     }),
+  ),
+
+  // ---- the failure this engine keeps having, in whatever language it is written ----
+  //
+  // In bash it was `set -u` plus a missing source file killing the hook. In
+  // node it is any uncaught exception. Both end the same way: a Stop hook
+  // that exits without printing a block ALLOWS the stop, so a milestone
+  // nothing checked is indistinguishable from one that passed. This case is
+  // what keeps the catch-all in gate.mjs from being quietly deleted as
+  // defensive noise — it is load-bearing, and this proves it.
+  check('an unexpected throw inside the engine blocks the stop and records it', () =>
+    withFixture(
+      {
+        specTrace: 'green',
+        sabotage: {
+          file: 'scripts/unscoped-checks.mjs',
+          find: 'export function runUnscopedChecks(root, config) {',
+          replace: 'export function runUnscopedChecks(root, config) {\n  throw new Error("simulated engine defect");',
+        },
+      },
+      (r) => {
+        if (!r.blocked) {
+          return 'the gate threw and ALLOWED the stop — a milestone nothing checked would read as a clean pass';
+        }
+        if (!/result=fail:hook-error/.test(r.history)) {
+          return `blocked, but left no hook-error line, so the failure is invisible after the fact: ${r.history}`;
+        }
+        return null;
+      },
+    ),
   ),
 
   // ---- the one deliberate fail-CLOSED case ----

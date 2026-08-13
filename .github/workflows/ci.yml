@@ -53,3 +53,10 @@ jobs:
       # correct. git is preinstalled on the runner; nothing else is required.
       - name: Gate behaviour
         run: npm run gate:check
+
+      # The other eight hooks. Shallower than the gate fixture, and that is
+      # the right trade: they are eight small adapters over one protocol, and
+      # what a port breaks in them is coarse — a hook that crashes, or fires
+      # when it should be transparent.
+      - name: Hook behaviour
+        run: npm run hooks:check

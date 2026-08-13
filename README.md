@@ -107,11 +107,27 @@ promise kept by two copies that happen to agree today. See
 - `agents/` — `spec-writer` (Sonnet), `planner` (Opus), `reviewer` (Haiku),
   `implementer` (Sonnet), `architect` (Opus).
 
-`implementer.md` preloads two skill names in its frontmatter
-(`where-does-it-live`, `write-path`) as an artifact of the repo this engine
-was extracted from. A consuming repo that provides its own
-`.spec-flow/skills.md` decision table should override this agent's frontmatter
-with its own skill names — see the comment at the top of that file.
+### Skills: the one capability this engine gives up on purpose
+
+The agents here declare **no** `skills:` frontmatter, and cannot. Preloading
+happens before an agent reads anything, so it has to name specific skills —
+and a skill encodes how one codebase is built, which is exactly what this
+engine has no business knowing. The repo this was extracted from preloaded
+two (`where-does-it-live`, a layer router; `write-path`, guarding a mistake
+that is expensive to unwind); shipping those names here would fail
+`no-repo-refs.mjs` on sight, correctly.
+
+So `implementer.md` and `planner.md` carry the `Skill` *tool* and are told to
+read `.spec-flow/skills.md` — a decision→skill table the consuming repo
+writes — and load whatever it routes them to, on demand.
+
+**This is a real capability loss, not a neutral refactor.** On-demand loading
+fires only once the agent already suspects it needs the skill, which is
+precisely the case a preload was protecting. A consuming repo that wants it
+back adds its own `agents/implementer.md` with a `skills:` line naming its own
+skills. Whether a project-level agent cleanly overrides a plugin-shipped one
+of the same name is **not something this repo has verified** — check it before
+relying on it.
 
 ## Development
 
