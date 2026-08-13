@@ -78,7 +78,8 @@ Those exact two paths, with those exact names, because the implementer reads exa
 3. Gate outcomes, same triage as `/spec-flow`:
    - *stale log*: `.claude/state/gate-failure.log` may describe a tree that moved on while a background implementer kept writing. Re-check the flagged files with `git status` before routing anything.
    - *lint only, attempts 1-2*: `SendMessage` the lint output to `IMPL_SESSION`. Do not touch the phase.
-   - *test failure, or lint-only from the third attempt*: **re-run the triage** (step 1) with `.claude/state/gate-failure.log`. A fix whose test will not go green is a fix aimed at the wrong case — most often a case 3 that was filed as a case 1.
+   - *a red test, attempt 1*: `SendMessage` the log to `IMPL_SESSION` and have it fix the code. Do not re-triage yet — the gate routes the first red suite back as a direct fix whichever flow is running, and here that matters more than in `/spec-flow`: a re-triage is this flow's only heavy step, and the first red test after a one-milestone fix is usually just the fix being wrong, not the case being wrong.
+   - *a red test that survives that, or lint-only from the third attempt*: **re-run the triage** (step 1) with `.claude/state/gate-failure.log`. A fix whose test will not go green is a fix aimed at the wrong case — most often a case 3 that was filed as a case 1.
    - *attempt cap*: the gate has already written `blocked`. Summarize for the human and stop. On their answer, write `implement` back and `SendMessage` to `IMPL_SESSION`.
    - *pass* (silent — the hook allows the stop and prints nothing): continue to step 5. If a `send_later`-style tool is available, schedule a ~2 minute self check-in before the gate-triggering stop: "if `.claude/state/gate_attempts` is `0`, `.claude/state/gate-failure.log` is empty and the tree is clean, the gate passed — go to FOLD."
 

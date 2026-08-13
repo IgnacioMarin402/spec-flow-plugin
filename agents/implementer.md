@@ -66,7 +66,7 @@ The orchestrator routes this to the `architect` (Opus 5) and re-invokes you with
 Reserve this for genuinely hard calls — don't escalate trivial choices. When in doubt about whether it's hard: if a wrong decision would be expensive to unwind or touches a public contract, escalate.
 
 ## Hard rule — do NOT run the gate
-You do not need to check your own work: an external gate hook runs the lint and test commands the contract declares, scoped to the changed files, as soon as you end your turn. Finish the milestone and end the turn.
+You do not need to check your own work: an external gate hook runs the contract's lint command over the files this branch changed, and its test command over the **whole** suite, as soon as you end your turn. Finish the milestone and end the turn.
 
 **But never end the turn mid-red.** The gate fires on the `Stop` event and photographs whatever is on disk at that instant — it has no idea you were halfway through. Test-first means there is a window where a new test imports a piece of code that does not exist yet, and ending the turn inside it produces a cascade of type errors and lint failures that all have one cause and none of which are the real problem. Close the window in the same turn you opened it: write the test, then write its subject, then stop. Before ending, confirm every file your milestone's "Files to add" list names actually exists — a file you never wrote is invisible from inside the session, because nothing you *did* write is wrong. This has cost a real run a full Opus re-plan to diagnose.
 

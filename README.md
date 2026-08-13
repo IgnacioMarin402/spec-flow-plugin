@@ -167,6 +167,226 @@ skills. Whether a project-level agent cleanly overrides a plugin-shipped one
 of the same name is **not something this repo has verified** — check it before
 relying on it.
 
+## The flow, end to end
+
+Both commands drive the same state machine, and its spine is one file:
+`.claude/state/phase`. The orchestrator writes the current phase before each
+step, and every enforcement hook decides whether it is armed by reading it.
+Nothing else coordinates a run — no queue, no daemon, no shared memory between
+agents. A subagent finishes, the orchestrator's turn ends, and a `Stop` hook
+runs the checks outside the model and either allows the stop or blocks with
+the instruction for what to do next.
+
+Three properties are worth holding before reading the diagrams:
+
+- **The orchestrator never writes code.** It routes. Everything that produces
+  an artifact is a subagent pinned to the model its job needs.
+- **The gate is not a step in the pipeline — it is what happens when the
+  pipeline stops.** It fires on `Stop`, judges whatever is on disk at that
+  instant, and its block message *is* the orchestrator's next instruction.
+- **A pass is silent.** The gate allows the stop and prints nothing, so
+  nothing wakes the orchestrator back up. Both commands work around that by
+  scheduling a self check-in a couple of minutes out when the session provides
+  a scheduling tool; where it does not, a green milestone simply waits for the
+  human's next message. A run that looks stalled after a milestone is usually
+  a run that passed.
+
+### `/spec-flow` — a feature
+
+```mermaid
+flowchart TD
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet 5 <br/> writes spec.md and proposal.md"]
+    B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
+    Q -->|"answers"| B
+    B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
+    S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
+    S -->|"yes"| P["PLAN — planner, Opus 5 <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer, Haiku 4.5 <br/> reads the spec and every milestone file"]
+    R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
+    CON --> R
+    R -->|"CHANGES_REQUESTED"| P
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet 5 <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus 5"]
+    ARCH --> I
+    I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
+    RE --> I
+    I -->|"IMPLEMENTED"| CM["orchestrator commits and pushes, <br/> then ends its turn"]
+    CM --> G{{"THE GATE — Stop hook, outside the model"}}
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
+    G -->|"whatever survives that"| RE
+    G -->|"5 failures"| BLK["phase blocked — a human decides"]
+    G -->|"green, and silent"| MORE{"another milestone?"}
+    MORE -->|"yes, Mk+1"| I
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
+    F --> G2{{"the gate again, on the fold commit"}}
+    G2 -->|"gap in the specs' wording"| F
+    G2 -->|"gap in code or tests"| RE
+    G2 -->|"green"| D["DONE — phase done, <br/> archive the telemetry, print the stats"]
+```
+
+Both human gates sit in the spec phase, and that is the point: it is the last
+moment at which "no" costs nothing, and the gate is disarmed there, so waiting
+for a person is free. A rejection is stamped and archived rather than deleted
+— the archived "no" is what somebody re-proposing the same idea in three
+months needs to find.
+
+Two things the diagram cannot show. Each milestone gets a **fresh** implementer
+session, but every follow-up within that milestone — architect guidance, a
+lint fix, a re-implementation after a re-plan — goes back to the *same*
+session. A new session re-reads the plan, `CLAUDE.md` and every touched file
+from a cold context and a cold prompt cache, and that repeated re-reading
+across gate retries is where most of a run's token cost goes. And the
+implementer works **test-first per requirement**: the failing REQ-named test,
+run alone to see it fail, then the code. The gate only ever sees the final
+state, so that ordering lives in the contract and nowhere else.
+
+### `/spec-fix` — a defect
+
+A feature is an open question about what the system should do. A defect is a
+closed question: the system already claims a behaviour and something disagrees
+with the claim, so the whole job is finding out **which side is wrong**. That
+is a triage, not a planning exercise — which is why this flow drops the
+planner and the reviewer entirely and costs one implementer pass.
+
+```mermaid
+flowchart TD
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet 5 <br/> phase spec, gate disarmed"]
+    T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
+    T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
+    T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
+    T --> C4["case 4 — INFRA <br/> outside the contract's proof surface"]
+    T --> C5["case 5 — NOT-A-FIX <br/> this changes behaviour: it is a feature"]
+    C3 --> H{{"HITL — a human confirms the <br/> old requirement was actually wrong"}}
+    C5 --> REJ["stamp REJECTED, archive, <br/> phase idle — it belongs to /spec-flow"]
+    H -->|"confirmed"| W
+    H -->|"it was right after all"| T
+    C1 --> W
+    C2 --> W
+    C4 --> W
+    W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
+    W --> I["FIX — implementer, Sonnet 5"]
+    I --> CM["commit, push, end the turn"]
+    CM --> G{{"the same GATE"}}
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
+    G -->|"whatever survives that"| T
+    G -->|"5 failures"| BLK["phase blocked — a human decides"]
+    G -->|"green"| F["FOLD — spec-writer <br/> stamp SHIPPED, archive"]
+    F --> D["DONE"]
+```
+
+Only cases 3 and 5 stop for a human. Rewriting a requirement so it agrees with
+the code is indistinguishable, from the diff alone, from rewriting it so it
+agrees with the *bug* — and the second one quietly turns the source of truth
+into a description of whatever the system happens to do. Cases 1, 2 and 4
+touch nobody's claim about the system, so they run through.
+
+The work order is the one place an orchestrator does work instead of routing
+it, and it writes the same two paths `/spec-flow` produces (`plan.md`,
+`milestones/M1.md`) because the implementer contract is reused verbatim. Note
+where a surviving failure goes: back to the **triage**, not to a planner. A
+fix whose test will not go green is usually a fix aimed at the wrong case.
+
+### The gate — what happens when a turn ends
+
+```mermaid
+flowchart TD
+    S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement?"}
+    P -->|"no"| ALLOW["allow the stop, record nothing"]
+    P -->|"yes"| CFG{"contract readable?"}
+    CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
+    CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
+    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing"]
+    DIRTY -->|"clean"| RUN["lint over the changed files <br/> the FULL test suite <br/> spec-trace, then every extra_check"]
+    RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
+    RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
+    CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
+    CLS -->|"a red test, attempt 1"| FIX
+    CLS -->|"anything that survives that"| REPLAN["re-plan this milestone — <br/> in /spec-fix, re-triage instead"]
+    CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
+```
+
+Four things this diagram is really saying:
+
+- **A dirty tree is not judged.** Implementer subagents run in the background,
+  so a `Stop` can fire mid-write; judging that snapshot manufactures failures.
+  Dirty trees belong to the environment's git check, clean ones to the gate.
+- **Lint is scoped to the branch's changed files, tests never are.**
+  `lint(file)` is a total predicate over one file, so scoping it is exact. A
+  suite's outcome is a property of the system, not of a file — a scoped run
+  can stay green while the change breaks a consumer outside the diff, which is
+  the exact silent-pass this engine exists to close.
+- **The failure class decides the route, not the severity.** A traceability
+  gap groups with lint because its usual cause is a test that proves the
+  requirement and never named it — an edit, not a re-think. A red test always
+  routes as behaviour, and so does any `extra_check` that declared itself
+  `class: "behaviour"`.
+- **It fails closed, alone among the hooks.** Every other hook here allows the
+  tool call if it crashes, which is no worse than not existing. A `Stop` hook
+  that exits 0 without printing *allows the stop* — so an unhandled throw
+  would not skip the gate, it would report a clean milestone. Code written
+  with the gate off looks exactly like code that passed it, so an internal
+  error blocks and says so.
+
+### Phases, and what each one arms
+
+| phase | written by | what it arms |
+|---|---|---|
+| `spec` | the orchestrator, at intake | Opus budget, `done-guard`, `arm-gate` |
+| `plan` | the orchestrator | Opus budget, `done-guard`, `arm-gate` |
+| `review` | the orchestrator | Opus budget, `done-guard`, `arm-gate` |
+| `implement` | the orchestrator — or `arm-gate`, if it forgot | **the gate**, **lint-on-write**, **the whole-repo command deny**, Opus budget, `done-guard` |
+| `blocked` | the **gate itself**, at the attempt cap | Opus budget, `done-guard`, `arm-gate` |
+| `done` | the orchestrator, if `done-guard` lets it through | nothing |
+| `idle` | the orchestrator on a rejection; `session-start` on an abandoned run | nothing |
+
+**This vocabulary is a closed set — never extend it.** Every hook falls
+through to "not my business" on a value it does not recognise, so inventing a
+phase like `triage` or `fix` runs the flow with the gate, the write-time
+linter, the command deny and the Opus budget **all disarmed at once**, and
+nothing anywhere says so.
+
+Two transitions are backstopped rather than trusted, and both for the same
+reason — the failure they prevent is invisible. `arm-gate` writes `implement`
+itself if an implementer is engaged without it. `done-guard` denies writing
+`done` while any unscoped check is red or `specflow/` still holds an
+unarchived change folder: `done` disarms everything, so it has to be earned
+rather than declared.
+
+### The hooks
+
+| hook | event | fires on | what it does |
+|---|---|---|---|
+| `session-start` | `SessionStart` | — | resets a phase left at `implement`/`blocked` for 6h+ to `idle`, so an abandoned run cannot gate an unrelated session |
+| `no-gate-cmds` | `PreToolUse` | `Bash` | denies whole-repo lint/test runs while implementing; the scoped forms the contract declares stay allowed |
+| `done-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | denies an unearned `done` |
+| `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | counts every planner/architect call — spawns *and* follow-up messages — and denies past the cap |
+| `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | writes `implement` when the implementer is engaged without it |
+| `lint-on-write` | `PostToolUse` | `Write`, `Edit` | lints the single file just written and blocks with the violations, while the file is still in context |
+| `register-agent` | `PostToolUse` | `Task`, `Agent` | maps opaque session ids back to the agent type, so `opus-budget` can charge a `SendMessage` |
+| `run-trace` | `PostToolUse` | `Write`, `Edit`, `Read`, `Bash`, `Task`, `Agent` | the run's observable timeline. Enforces nothing, always exits 0 |
+| `gate` | `Stop` | — | the external gate above |
+
+Only `gate`, `lint-on-write` and `no-gate-cmds` are armed exclusively by the
+`implement` phase. `opus-budget`, `arm-gate` and `done-guard` stand down only
+outside a run (`idle`/`done`), and `register-agent`, `run-trace` and
+`session-start` never enforce anything at all.
+
+### The second config file
+
+`.spec-flow/config.json` is the contract, and it is the one every hook reads.
+There is exactly one setting that lives elsewhere:
+
+```json
+{ "max_opus_calls": 6 }
+```
+
+at `.claude/spec-flow.config.json`. It caps how many planner + architect calls
+one run may make, defaults to 6 if the file is absent, and is deliberately not
+part of the contract: it is a run-scoped budget, not an architectural fact
+about the repo. When it runs out, the spawn is denied and the orchestrator is
+told to stop and summarize for a human — which is exactly what the budget is
+for, so do not work around it. The counter lives in `.claude/state/opus_calls`.
+
 ## Development
 
 ```bash
