@@ -54,6 +54,14 @@ jobs:
       - name: Gate behaviour
         run: npm run gate:check
 
+      # spec-trace is the check that makes specs/ authoritative rather than
+      # decorative, and it is ~270 lines of regex that the gate fixture
+      # deliberately stubs out. This runs the real one against throwaway
+      # repos: both directions of the requirement/proof binding, and the
+      # rule that a test which does not RUN (skip/todo/xit) is not proof.
+      - name: spec-trace behaviour
+        run: npm run trace:check
+
       # The other eight hooks. Shallower than the gate fixture, and that is
       # the right trade: they are eight small adapters over one protocol, and
       # what a port breaks in them is coarse — a hook that crashes, or fires

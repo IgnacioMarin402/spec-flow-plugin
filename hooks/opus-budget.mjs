@@ -25,6 +25,24 @@
  *
  * Counts only while a run is actually in progress (phase != idle/done), so
  * asking the architect a one-off question outside the flow is never charged.
+ *
+ * Two known inaccuracies, both accepted rather than fixed, because the fix
+ * costs more than the error:
+ *
+ *   - It counts the INTENT to spawn, not the spawn. This is a PreToolUse
+ *     hook: it runs before the call and never learns whether it succeeded,
+ *     so a spawn that errors out is still charged. Correcting it would take
+ *     a second PostToolUse hook that decrements on failure — a second piece
+ *     of state, able to drift from this one, to recover at most a call or
+ *     two per run.
+ *   - Read-then-write is not atomic, so two spawns racing in the same
+ *     instant can read the same count and undercharge by one. The flow is
+ *     sequential by construction (the orchestrator waits on each subagent),
+ *     so this needs concurrency the pipeline does not currently have.
+ *
+ * Both err small against a default budget of 6, and the failure they cause
+ * is a budget that stops a run one call early or late — recoverable, and
+ * visible in `state/opus_calls`. Neither can silently disarm the budget.
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -35,7 +35,7 @@
 // makes `specs/` authoritative rather than decorative, so it is deliberately
 // NOT in `.spec-flow/config.json`'s `extra_checks`. See `unscoped-checks.mjs`.
 
-import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, lstatSync, realpathSync, existsSync } from 'node:fs';
 import { join, relative, basename } from 'node:path';
 import { loadConfig } from './spec-flow-config.mjs';
 
@@ -47,10 +47,30 @@ const REQ_HEADING = /^###\s+(REQ-[A-Z0-9-]+-\d{3})\b\s*[—:-]?\s*(.*)$/;
 const REQ_TAG = /\bREQ-[A-Z0-9-]+-\d{3}\b/g;
 
 // A tag proves a requirement only when it sits in a test TITLE — the string
-// argument of `it(...)` / `test(...)` (plus `.only`/`.skip`/`.each` variants;
-// the second alternative catches the curried `it.each(...)('title')` form).
+// argument of `it(...)` / `test(...)`, including the curried
+// `it.each(table)('title')` form, which the inner alternative catches.
+//
+// Both alternatives are anchored to the test function's own name, and that
+// anchoring is load-bearing. The curried branch used to be a bare `)\s*(\s*`
+// — ANY `)(` followed by a string, anywhere in the file — so an ordinary
+// curried call or an IIFE whose argument merely mentioned a requirement id
+// registered as proof for a requirement no test runs.
+//
+// Group 1 is the modifier chain (`.only`, `.each`, `.skip.each`, ...), kept
+// so the caller can reject the ones that do not RUN. `xit`/`xtest` are
+// absent from the name list for the same reason `.skip` and `.todo` are
+// rejected below: they are skipped-test forms, and a test that never
+// executes proves nothing. Accepting them let the cheapest possible way of
+// silencing a red test — skip it — leave the requirement reading as covered.
+//
+// Known limitation: the curried branch's `[^()]*` does not span nested
+// parentheses, so `it.each([foo(1)])('...')` is not matched. Widening it
+// costs the anchoring above, which is the more valuable property.
 const TEST_TITLE =
-  /(?:\b(?:it|xit|fit|test|xtest)(?:\.\w+)*\s*\(|\)\s*\(\s*)(['"`])((?:(?!\1)[\s\S])*?)\1/g;
+  /\b(?:it|fit|test)((?:\.\w+)*)\s*\(\s*(?:(['"`])((?:(?!\2)[\s\S])*?)\2|[^()]*\)\s*\(\s*(['"`])((?:(?!\4)[\s\S])*?)\4)/g;
+
+/** `.skip` / `.todo` anywhere in the modifier chain means the test does not run. */
+const NOT_RUN = /\.(skip|todo)\b/;
 const SCOPE_MARKER = /^<!--\s*spec-scope:\s*(.+?)\s*-->$/m;
 
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
@@ -73,14 +93,52 @@ const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
 const NEVER_WALK = new Set(['node_modules']);
 const skipDir = (name) => name.startsWith('.') || NEVER_WALK.has(name);
 
-/** Every file under `dir` matching `test`, walked without extra dependencies. */
-function walk(dir, test, found = []) {
+/**
+ * Every file under `dir` matching `test`, walked without extra dependencies.
+ *
+ * Uses `lstatSync` on each entry, not `statSync`: a symlink must be told
+ * apart from an ordinary directory before it is safe to descend into. `seen`
+ * holds the REAL (symlink-resolved) path of every directory already walked —
+ * a circular symlink (a consuming repo linking one package back into
+ * another) would otherwise recurse until the stack overflows. That still
+ * fails this check closed, via `gate.mjs`'s catch-all, but as a stack trace
+ * blocking every run instead of a named problem. A broken symlink (dangling
+ * target) fails to resolve with ENOENT; that entry is skipped, not fatal to
+ * the walk.
+ */
+function walk(dir, test, found = [], seen = new Set()) {
   if (!existsSync(dir)) return found;
+
+  let real;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    return found; // dangling symlink, or removed between existsSync and here
+  }
+  if (seen.has(real)) return found;
+  seen.add(real);
+
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+    let st;
+    try {
+      st = lstatSync(full);
+    } catch {
+      continue; // vanished between readdir and lstat
+    }
+
+    let isDir = st.isDirectory();
+    if (st.isSymbolicLink()) {
+      try {
+        isDir = statSync(full).isDirectory(); // resolve the target
+      } catch {
+        continue; // dangling symlink
+      }
+    }
+
+    if (isDir) {
       if (skipDir(entry)) continue;
-      walk(full, test, found);
+      walk(full, test, found, seen);
     } else if (test(full)) {
       found.push(full);
     }
@@ -155,7 +213,11 @@ for (const file of testFiles) {
   const rel = relative(root, file);
   const text = readFileSync(file, 'utf8');
   for (const match of text.matchAll(TEST_TITLE)) {
-    for (const id of match[2].match(REQ_TAG) ?? []) {
+    const [, modifiers, , directTitle, , curriedTitle] = match;
+    if (NOT_RUN.test(modifiers)) continue; // a skipped or todo test executes nothing
+    const title = directTitle ?? curriedTitle ?? '';
+
+    for (const id of title.match(REQ_TAG) ?? []) {
       if (!proofs.has(id)) proofs.set(id, []);
       if (!proofs.get(id).includes(rel)) proofs.get(id).push(rel);
     }

@@ -3,9 +3,18 @@
  * External lint/test/spec gate. Runs OUTSIDE the model on the Stop event.
  *
  * - Only enforces while the flow is in the `implement` phase.
- * - Scopes lint and tests to the files CHANGED on this branch (vs the base
- *   branch), so a milestone is never blocked by pre-existing debt in files it
- *   never touched. Which files count is declared in `.spec-flow/config.json`.
+ * - Scopes LINT to the files CHANGED on this branch (vs the base branch), so
+ *   a milestone is never blocked by pre-existing lint debt in files it never
+ *   touched. Which files count is declared in `.spec-flow/config.json`.
+ * - Does NOT scope tests the same way, on purpose. `lint(file)` is a total,
+ *   local predicate over one file — file-scoping it is exact. A test suite's
+ *   outcome is not a property of one file; it is a property of the system. A
+ *   scoped test run can stay green while this change breaks a consumer
+ *   outside the diff — silent-pass through the import graph, which is the
+ *   exact failure this engine exists to close, reintroduced one level up in
+ *   the test command's argv. `verify.test` runs unscoped whenever at least
+ *   one file in scope changed; a red suite routes to the implementer first
+ *   (attempt 1) before it is treated as evidence the plan is wrong.
  * - Also runs the unscoped checks, so a milestone cannot close while the specs
  *   and the tests that prove them disagree.
  * - Skips entirely (allowing the stop) while the tree is dirty: implementers
@@ -47,13 +56,25 @@ function truncate(text, max) {
   return total > max ? `${kept}\n... [${total - max} more lines — see .claude/state/gate-failure.full.log]` : kept;
 }
 
-/** Only the failure blocks and the totals carry signal in a full test run. */
+/**
+ * Only the failure blocks and the totals carry signal in a full test run.
+ * When no runner-specific marker matches (a runner whose summary format
+ * differs from the ones below), fall back to the TAIL rather than the
+ * head `truncate` uses elsewhere: a runner's own summary prints last, and
+ * with tests no longer scoped to a handful of changed files (see this file's
+ * header), a full-suite run's head is pass spew with zero signal — spent on
+ * the planner, the most expensive model in the flow.
+ */
 function summarizeTests(text, max) {
   const picked = text
     .split('\n')
     .filter((l) => /^\s*(●|✕|Tests:|Suites:|Test Suites:)/.test(l))
     .join('\n');
-  return truncate(picked || text, max);
+  if (picked) return truncate(picked, max);
+
+  const lines = text.split('\n');
+  if (lines.length <= max) return text;
+  return `... [${lines.length - max} more lines above — see .claude/state/gate-failure.full.log]\n${lines.slice(-max).join('\n')}`;
 }
 
 /**
@@ -109,7 +130,15 @@ await run(
     // therefore not evidence of a failed milestone, it is evidence of an
     // unfinished write, so it is not judged.
     const statusRes = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
-    const dirty = statusRes.status === 0 ? statusRes.stdout : '';
+    // Exclude .claude/state/ itself: the gate's own writes (gate-history.log
+    // and friends) land there, so a consuming repo that forgot to gitignore
+    // it would otherwise see this guard trip on every run FOREVER, right
+    // after the first pass — silently disarming the gate with no message
+    // anywhere, since skip-dirty is not a failure. The README asks repos to
+    // gitignore this directory; this line is what happens when they don't.
+    const dirty = statusRes.status === 0
+      ? statusRes.stdout.split('\n').filter((l) => l.trim() && !/\.claude[\\/]state[\\/]/.test(l)).join('\n')
+      : '';
     if (dirty.trim()) {
       hist('skip-dirty', '-', '-', histDashes(config), dirty.trim().split('\n').length);
       return;
@@ -142,7 +171,14 @@ await run(
       lintOut = `${lintRes.stdout ?? ''}${lintRes.stderr ?? ''}`;
       lintRc = lintRes.status ?? 1;
 
-      const testRes = spawnSync(config.verify.test[0], [...config.verify.test.slice(1), ...files], {
+      // NOT scoped to `files` — see this file's header. A trailing path
+      // argument is a per-FILE filter to the runners this contract
+      // documents (positional args match against TEST file paths), not
+      // "run what's related to these sources"; appending changed source
+      // files here either matches nothing (a false RED that burns an Opus
+      // REPLAN on a milestone that touched no test file) or silently
+      // narrows coverage to whichever test happens to share a path segment.
+      const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), {
         cwd: root,
         encoding: 'utf8',
       });
@@ -163,8 +199,13 @@ await run(
 
     // A traceability failure groups with lint, not with behaviour: its common
     // cause is a test that proves the requirement but never named it, which is
-    // an edit, not a re-think.
-    const failureClass = testRc === 0 ? 'lint/trace' : 'behaviour';
+    // an edit, not a re-think. A red test always means `behaviour` — and so
+    // does any unscoped check that declared itself `class: 'behaviour'` in
+    // the contract (spec-flow-config.mjs validates the field; this is what
+    // reads it — previously nothing did, so a repo's own declaration was
+    // accepted and silently ignored).
+    const behaviourCheck = result.checks.some((c) => c.rc !== 0 && c.class === 'behaviour');
+    const failureClass = testRc !== 0 || behaviourCheck ? 'behaviour' : 'lint/trace';
 
     const checkSections = result.checks
       .map((c) => `--- ${c.name} (rc=${c.rc}) ---\n${c.out}`)
@@ -222,6 +263,20 @@ await run(
       const hints = failedHints(result);
       emitBlock(
         `GATE FAILED on lint and/or the unscoped checks (lint rc=${lintRc}, ${summary(result)}); the tests pass, so the plan is NOT in question. Do NOT re-plan and do NOT change the phase. Route the fix back to the session whose edits are being checked — the implementer of the CURRENT milestone, or the spec-writer if you just ran the FOLD step — with the output in .claude/state/gate-failure.log, and have it fix exactly those violations — nothing else. Note that the linter already applied everything auto-fixable, so what remains needs a real edit; if a violation comes from a project rule in ${config.verify.lint_config_hint}, read its message, which explains what it protects. ${hints} Then end your turn so the gate runs again.`,
+      );
+      return;
+    }
+
+    // Cheap route: a red test (or a check the contract declared `behaviour`),
+    // FIRST attempt only. The first red test after a milestone is
+    // overwhelmingly a bug in the code just written, not a flaw in the plan —
+    // spending an Opus REPLAN on it before anyone has even tried a direct fix
+    // is the expensive-first mistake this branch exists to skip. Only a
+    // failure that SURVIVES one direct attempt is evidence the plan itself is
+    // wrong, which is what REPLAN below is actually for.
+    if (failureClass === 'behaviour' && attempts === 1) {
+      emitBlock(
+        `GATE FAILED (lint rc=${lintRc}, test rc=${testRc}, ${summary(result)}), attempt 1/${MAX_ATTEMPTS}. Do NOT re-plan yet and do NOT change the phase. Route the fix back to the implementer of the CURRENT milestone with the output in .claude/state/gate-failure.log: fix the code (and any lint violation alongside it) so everything passes. Do NOT skip, delete, or weaken the failing test to make this pass — spec-trace does not catch a test that still exists but no longer asserts anything. If you believe the PLAN itself is wrong rather than the code, say so in your reply instead of patching around the test. Then end your turn so the gate runs again.`,
       );
       return;
     }
