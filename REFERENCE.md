@@ -162,10 +162,21 @@ it was killed. The next armed gate finds it, records `fail:killed`, and blocks
 once with what to do about it. The stop it happened on was still allowed and
 that milestone was still unverified; what changed is that you find out.
 
-**The engine assumes a feature-branch workflow.** Scope is the merge-base diff
-with your base branch, so work committed directly onto the base branch has an
-empty scope and `verify.lint` has nothing to run on. The suite and the
-unscoped checks still run.
+**The engine assumes a feature-branch workflow, and now checks the
+assumption.** Scope is the merge-base diff with your base branch, so work
+committed directly onto the base branch resolves a base equal to HEAD: the
+diff is empty by construction, and `verify.lint` — the one scoped check — has
+nothing to run on, for that milestone and every one after it. The suite,
+spec-trace and the extra checks are unscoped and do run, so this was never a
+disarmed gate; it was one check quietly sitting out a whole run while
+`lint=-` in the history said so in a way nothing read.
+
+The gate now **blocks** on it instead, naming both repairs: do the run's work
+on its own branch, or declare `base_ref`. This is the same argument the
+section below makes for refusing to fall back to `HEAD` — that comparing HEAD
+against itself is indistinguishable from "this milestone touched nothing" —
+applied to the case where the fallback is not a fallback but the honest
+answer.
 
 ---
 
@@ -178,6 +189,14 @@ then `origin/main`, `main`, `origin/master`, `master`, `origin/develop`,
 If none resolves, `preflight` **refuses to start the run** at the first
 subagent, and the gate **blocks** if a run is somehow already underway. Both
 name the field to add. `spec-flow init` reports it too, at setup.
+
+If one resolves but resolves to **HEAD itself**, only the gate blocks —
+`preflight` deliberately does not. At run start the two situations are the
+same commit: a correctly created feature branch sits at its base's tip until
+its first commit, so refusing there would refuse every properly set up run.
+By the time the gate judges a milestone the tree is clean, and nothing
+committed above the base means either the base is the branch you are on or
+the milestone produced nothing.
 
 It does not fall back, because the only available fallback — comparing HEAD
 against itself — yields an empty changed-file list, which is indistinguishable
@@ -217,9 +236,10 @@ what they need.
 carries a `Skills:` field, and the planner fills it while reading the whole
 milestone with nothing written yet. The implementer loads what that field
 names **before its first edit**. `/spec-fix` does the same in the work order
-it writes itself. `spec-trace` fails a live milestone that has no such field —
-`none` is the answer when nothing applies, and the only one a project shipping
-no skills will ever write.
+it writes itself. `spec-trace` fails a live milestone whose field is missing
+**or empty** — `none` is the answer when nothing applies, and the only one a
+project shipping no skills will ever write; a bare `Skills:` answers nothing
+and is treated as the absent field it is.
 
 That ordering is the point, and it is worth being exact about what on-demand
 loading actually costs, because it is not blindness. Claude Code lists every

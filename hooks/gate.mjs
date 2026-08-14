@@ -239,6 +239,43 @@ await run(
       return;
     }
 
+    // ---- the base that resolved, and resolved to the tip ---------------------
+    // `resolveBase` throws when it cannot NAME a base; this is the case where
+    // it names one successfully and the answer is HEAD. A repo doing its work
+    // directly on the base branch — no feature branch, commonly no remote —
+    // gets `merge-base HEAD main == HEAD`, so the diff against it is empty by
+    // construction and stays empty for every commit of every milestone.
+    //
+    // What that costs is exactly one check, and only because the rest were
+    // deliberately unscoped: the suite, spec-trace and the extra checks run on
+    // every armed gate regardless of the diff, so this is not the disarmed
+    // gate the old `'HEAD'` fallback produced. `verify.lint` is the one check
+    // scoped to the changed files, and it never runs — for any milestone, for
+    // the whole run — while the history records `lint=-`, which is true and
+    // reads exactly like the milestone that honestly touched nothing in scope.
+    // An engine built to refuse checks that look armed and are not does not
+    // get to keep that one on a technicality.
+    //
+    // Deliberately NOT hoisted into `preflight`: at run start a correctly
+    // branched repo looks identical — a fresh branch sits at the base's tip
+    // until its first commit — so the same condition there would refuse every
+    // properly set up run. It only becomes evidence here, where the tree is
+    // clean and a milestone is being judged: nothing committed above the base
+    // at that point means either the base is the branch, or the milestone
+    // produced nothing. Both are refusals, and the message names both.
+    const headRes = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+    if (headRes.status === 0 && headRes.stdout.trim() === base) {
+      const branchRes = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, encoding: 'utf8' });
+      const branch = branchRes.status === 0 ? branchRes.stdout.trim() : '(unknown)';
+      hist('fail:base', '-', '-', histDashes(config), '-');
+      emitBlock(
+        `GATE FAILED — the base resolved to HEAD itself, so the changed-file scope is empty by construction and ${config.verify.lint_name} was never invoked. ` +
+          `Branch "${branch}" has no commit the base does not already have. Either this work is being done directly ON the base branch, in which case the scope will be empty for every milestone of this run, or this milestone committed nothing at all. ` +
+          `Do not proceed and do not change the phase. Nothing was linted, so treat NOTHING as verified. A human fixes this by doing the run's work on its own branch, or by declaring the ref this work is judged against as "base_ref" under "verify" in .spec-flow/config.json.`,
+      );
+      return;
+    }
+
     // ---- the unscoped checks — run even when no file in scope changed ---------
     const result = runUnscopedChecks(root, config);
 

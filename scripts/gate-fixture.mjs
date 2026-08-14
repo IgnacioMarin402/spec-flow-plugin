@@ -125,6 +125,7 @@ async function fixture({
   omitSpecTrace = false,
   baseBranch = 'main',
   baseRef = undefined,
+  stayOnBase = false,
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
@@ -209,14 +210,27 @@ async function fixture({
   await git('commit', '-qm', `baseline on ${baseBranch}`);
 
   // The base every case diffs against — a real ancestor commit, never HEAD
-  // itself. `changedFile` is null for a case that wants zero files in scope
-  // on purpose (kept rare; most of this engine's own history shows what
-  // happens when that is the ONLY path exercised).
-  if (changedFile) {
+  // itself. THAT is what the branch below buys, and for a while this fixture
+  // only bought it when `changedFile` was set: `changedFile: null` skipped
+  // the branch entirely, so HEAD stayed on the base and `merge-base` returned
+  // HEAD. The two cases written against it therefore said "a milestone that
+  // changed no file in scope" and built "a repo whose base IS its tip" — a
+  // different situation with a different right answer, and the one the gate
+  // could not see at all. The branch is now unconditional; `changedFile:
+  // null` commits something OUTSIDE `scope_globs` instead, which is what an
+  // empty scope honestly looks like: real work, none of it in scope.
+  //
+  // `stayOnBase` is the other situation, kept as its own explicit knob rather
+  // than as a side effect of a file name.
+  if (!stayOnBase) {
     await git('checkout', '-q', '-b', 'feature');
-    writeFileSync(join(repoDir, changedFile), 'export const changed = 1;\n');
+    const file = changedFile ?? 'notes.md';
+    writeFileSync(
+      join(repoDir, file),
+      file.endsWith('.ts') ? 'export const changed = 1;\n' : '# notes\n\nReal work, none of it matching scope_globs.\n',
+    );
     await git('add', '-A');
-    await git('commit', '-qm', `change ${changedFile}`);
+    await git('commit', '-qm', `change ${file}`);
   }
 
   if (dirty) writeFileSync(join(repoDir, 'dirty.txt'), 'uncommitted\n');
@@ -584,6 +598,59 @@ await Promise.all([
       if (/\(clean\)/.test(r.failureLog)) {
         return `the failure log reports the linter as "(clean)" over files it never received: ${r.failureLog}`;
       }
+      return null;
+    }),
+  ),
+
+  // ---- the empty scope that is not a fact about the milestone -------------
+  //
+  // `resolveBase` was taught to throw rather than fall back to `'HEAD'`,
+  // because a base it cannot resolve yields an empty diff by construction.
+  // This is the same empty diff arriving through the door that fix left open:
+  // the ladder RESOLVES, successfully, to a commit that happens to be HEAD.
+  // It is what a repo gets when the work is being done directly on the base
+  // branch — no remote, no feature branch, `merge-base HEAD main` == HEAD —
+  // and it is permanent, not transient: every further commit lands on the
+  // base too, so the scope is empty for the whole run and for every run after
+  // it.
+  //
+  // The consequence is narrower than the old `'HEAD'` fallback (`cba77ef`
+  // made the suite, spec-trace and the extra checks run on every armed gate
+  // regardless of scope, so this is not a disarmed gate) and it is not
+  // nothing: `verify.lint` is the one check scoped to the diff, so it never
+  // runs, for any milestone, while nothing anywhere says the linter is not
+  // participating. `lint=-` in the history is honest and reads identically to
+  // the milestone that genuinely touched no `.ts` file.
+  check('a base that resolves to HEAD itself is refused, not read as an empty milestone', () =>
+    withFixture({ specTrace: 'green', stayOnBase: true }, (r) => {
+      if (!r.blocked) {
+        return `the base resolved to HEAD, so the scope is empty by construction and verify.lint can never run — and the gate passed the milestone anyway. history: ${r.history}`;
+      }
+      if (!/result=fail:base/.test(r.history)) return `expected fail:base, got: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  // The message has to name the repair, because the repo cannot see the cause
+  // from the outside: everything looks normal, the suite even runs.
+  check('the refusal names the branch it is standing on, and what to do about it', () =>
+    withFixture({ specTrace: 'green', stayOnBase: true }, (r) => {
+      if (!/base_ref/.test(r.stdout)) return `the block does not point at the contract field that fixes it: ${r.stdout}`;
+      if (!/branch/i.test(r.stdout)) return `the block does not mention branching, the other repair: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // The distinction the previous two cases exist to draw: an empty scope on a
+  // real branch is a fact about the milestone and must still pass. Without
+  // this, "refuse an empty scope" would be indistinguishable from the fix.
+  check('an empty scope on a real branch still passes — the diff, not the base, is what is empty', () =>
+    withFixture({ specTrace: 'green', changedFile: null }, (r) => {
+      if (r.blocked) {
+        return `a milestone that committed real work outside scope_globs was refused as a degenerate base: ${r.stdout} ${r.stderr}`;
+      }
+      if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
+      if (!/files=0\b/.test(r.history)) return `expected files=0, got: ${r.history}`;
       return null;
     }),
   ),

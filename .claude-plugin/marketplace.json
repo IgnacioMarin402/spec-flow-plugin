@@ -14,6 +14,7 @@
       "author": {
         "name": "Ignacio Marín"
       },
+      "license": "MIT",
       "source": "./",
       "category": "development"
     }

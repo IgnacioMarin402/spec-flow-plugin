@@ -242,9 +242,16 @@ await Promise.all([
   // ---- the Skills field, enforced rather than described ----
   //
   // `none` is a legitimate answer; absent is not the same answer, because it
-  // cannot be told apart from a planner that never looked. Only checked where
-  // the repo declares a skills table — a project with no skills has nothing
-  // for the field to route.
+  // cannot be told apart from a planner that never looked. Checked on every
+  // live milestone, unconditionally: the field lives in an artifact this flow
+  // writes, and Claude Code lists the available skills to the planner by
+  // itself, so there is nothing for a repo to declare first.
+  //
+  // A field present with NOTHING after the colon is the third case, and it is
+  // the one the check was blind to: it satisfies "the field is there" while
+  // answering none of the three questions the field exists to answer. It
+  // collapses back into exactly what an absent field is — a milestone whose
+  // routing nobody can read — so it fails the same way.
   check('a live milestone with no Skills field fails', () =>
     withRepo(
       {
@@ -271,6 +278,40 @@ await Promise.all([
       },
       (r) => {
         if (r.status !== 0) return `"none" was rejected, though it is what a planner writes when nothing applies: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('a Skills field with nothing after the colon fails, like the absent one it is', () =>
+    withRepo(
+      {
+        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
+        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Skills:\n- Files to add/change: lib/a.ts\n',
+      },
+      (r) => {
+        if (r.status === 0) {
+          return `an empty Skills field passed. The check then asserts only that someone typed the word: it cannot tell "no skills apply" from "the planner never looked", which is the single distinction it exists to draw. out: ${r.out}`;
+        }
+        if (!/Skills/.test(r.out)) return `the failure does not name the field: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // Trailing whitespace is the same case wearing a disguise, and the likelier
+  // one in practice: an editor that strips nothing leaves `Skills: ` behind
+  // when the planner deleted a value it meant to replace.
+  check('a Skills field holding only whitespace fails too', () =>
+    withRepo(
+      {
+        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
+        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- **Skills**:   \n',
+      },
+      (r) => {
+        if (r.status === 0) return `"Skills:" plus spaces passed as an answer: ${r.out}`;
         return null;
       },
     ),
