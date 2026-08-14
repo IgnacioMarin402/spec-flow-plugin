@@ -54,7 +54,21 @@ const files = changedFiles(root, config.verify.scope_globs, base);
 let lintRc = 0;
 
 if (files.length === 0) {
-  console.log(`No changed files in scope vs ${base} — skipping lint.`);
+  // Two different facts print the same sentence otherwise. When the resolved
+  // base IS HEAD there is no diff to be empty: this branch has nothing the
+  // base does not, so the scope is empty by construction and will stay empty
+  // for every commit made this way. The gate REFUSES that (see hooks/gate.mjs);
+  // this command reports it and keeps going, deliberately — the gate's job is
+  // to withhold a pass, this one's is to tell a human what it looked at, and
+  // the suite and unscoped checks below are still worth running.
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  if (head.status === 0 && head.stdout.trim() === base) {
+    console.log(
+      `No changed files in scope: the base resolved to HEAD itself, so the diff is empty by construction — ${config.verify.lint_name} is not sitting this out because nothing changed. Work on a branch off your base, or declare verify.base_ref in .spec-flow/config.json. The gate blocks on this.`,
+    );
+  } else {
+    console.log(`No changed files in scope vs ${base} — skipping lint.`);
+  }
 } else {
   console.log(`Checking ${files.length} changed file(s) vs ${base}:`);
   for (const f of files) console.log(`  ${f}`);

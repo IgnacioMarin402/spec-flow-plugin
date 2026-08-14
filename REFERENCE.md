@@ -53,6 +53,7 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 | `proof_dir` | yes | Directory segment that marks a test as proof, e.g. `test` |
 | `proof_suffix` | yes | Test filename suffix, e.g. `.test.ts` |
 | `not_a_capability` | no | Filenames under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
+| `require_skills_field` | no | Fail a live milestone with no `Skills:` field. Default `false` |
 
 `proof_dir` and `proof_suffix` do two jobs: they are what `spec-trace`
 searches, **and** where the planner and implementer are told to put a new
@@ -163,10 +164,21 @@ it was killed. The next armed gate finds it, records `fail:killed`, and blocks
 once with what to do about it. The stop it happened on was still allowed and
 that milestone was still unverified; what changed is that you find out.
 
-**The engine assumes a feature-branch workflow.** Scope is the merge-base diff
-with your base branch, so work committed directly onto the base branch has an
-empty scope and `verify.lint` has nothing to run on. The suite and the
-unscoped checks still run.
+**The engine assumes a feature-branch workflow, and now checks the
+assumption.** Scope is the merge-base diff with your base branch, so work
+committed directly onto the base branch resolves a base equal to HEAD: the
+diff is empty by construction, and `verify.lint` — the one scoped check — has
+nothing to run on, for that milestone and every one after it. The suite,
+spec-trace and the extra checks are unscoped and do run, so this was never a
+disarmed gate; it was one check quietly sitting out a whole run while
+`lint=-` in the history said so in a way nothing read.
+
+The gate now **blocks** on it instead, naming both repairs: do the run's work
+on its own branch, or declare `base_ref`. This is the same argument the
+section below makes for refusing to fall back to `HEAD` — that comparing HEAD
+against itself is indistinguishable from "this milestone touched nothing" —
+applied to the case where the fallback is not a fallback but the honest
+answer.
 
 ---
 
@@ -179,6 +191,14 @@ then `origin/main`, `main`, `origin/master`, `master`, `origin/develop`,
 If none resolves, `preflight` **refuses to start the run** at the first
 subagent, and the gate **blocks** if a run is somehow already underway. Both
 name the field to add. `spec-flow init` reports it too, at setup.
+
+If one resolves but resolves to **HEAD itself**, only the gate blocks —
+`preflight` deliberately does not. At run start the two situations are the
+same commit: a correctly created feature branch sits at its base's tip until
+its first commit, so refusing there would refuse every properly set up run.
+By the time the gate judges a milestone the tree is clean, and nothing
+committed above the base means either the base is the branch you are on or
+the milestone produced nothing.
 
 It does not fall back, because the only available fallback — comparing HEAD
 against itself — yields an empty changed-file list, which is indistinguishable
@@ -242,9 +262,26 @@ what they need.
 carries a `Skills:` field, and the planner fills it while reading the whole
 milestone with nothing written yet. The implementer loads what that field
 names **before its first edit**. `/spec-fix` does the same in the work order
-it writes itself. `spec-trace` fails a live milestone that has no such field —
-`none` is the answer when nothing applies, and the only one a project shipping
-no skills will ever write.
+it writes itself. `none` is the answer when nothing applies, and the only one
+a project shipping no skills will ever write.
+
+**Nothing is required of a project that does not use skills.** The reviewer
+checks the field the same way it checks `Spec deltas`, `Tests` and every other
+milestone field — that is where plan completeness is judged. `spec-trace` will
+*fail* a live milestone whose field is missing or empty only where the
+contract sets `trace.require_skills_field: true`; a bare `Skills:` is treated
+as the absent field it is, since it answers none of the questions the field
+exists to answer.
+
+That switch is off by default, and cannot be inferred. Skills reach a session
+from the project's `.claude/skills/`, from installed plugins, and from the
+user's own `~/.claude/skills/`, so no file this engine reads says whether a
+project routes them — and a default that guesses wrong does not degrade, it
+fails a gate over a field the project was never going to use. Inferring it
+from whether some milestone already names a skill was rejected for a sharper
+reason: that arms the check from an absence, so the first milestone that
+should have routed one and did not is exactly the milestone that arms
+nothing.
 
 That ordering is the point, and it is worth being exact about what on-demand
 loading actually costs, because it is not blindness. Claude Code lists every

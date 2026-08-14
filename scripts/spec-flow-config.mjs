@@ -89,6 +89,28 @@ const DEFAULTS = {
     proof_dir: '',
     proof_suffix: '',
     not_a_capability: ['README.md', 'glossary.md'],
+    // Off by default, and that default is the honest one rather than the
+    // lenient one. Skills reach a session from three places — the project's
+    // `.claude/skills/`, an installed plugin, and the user's own
+    // `~/.claude/skills/` — so nothing this engine can read tells it whether
+    // a repo routes skills at all. A default that guesses WRONG here does not
+    // degrade, it fails a gate over a field the project was never going to
+    // use, and it does so on a repo that has just adopted the engine.
+    //
+    // What the check is worth turning on for: a project that does route
+    // skills gets "every live milestone states its routing" as a machine
+    // fact instead of a review habit. That is a real guarantee, and it is the
+    // project's to ask for. Until it asks, the field stays exactly where its
+    // siblings live — `Spec deltas`, `Tests`, `Objective` are all in the
+    // planner's template and checked by the reviewer, none of them by
+    // spec-trace, and `Skills:` was the lone exception.
+    //
+    // Deliberately NOT inferred from whether some milestone already names a
+    // skill: that arms the check from an absence, so the first milestone that
+    // should have routed one and did not is precisely the milestone that
+    // arms nothing. Inferring a state from an absence is the reasoning this
+    // engine removed from both commands.
+    require_skills_field: false,
   },
   extra_checks: [],
   unscoped_denied: {
@@ -161,6 +183,16 @@ function validate(config, source) {
   }
   if (!nonEmptyString(config.trace.proof_suffix)) {
     problems.push('trace.proof_suffix must name the test-file suffix spec-trace looks for, e.g. ".spec.ts" or ".test.ts".');
+  }
+  // A string here — `"true"`, `"yes"` — is the shape that would otherwise
+  // arm the check by truthiness while the author believed they had written a
+  // boolean, or worse, `"false"` disarming nothing. Rejected loudly instead:
+  // this field decides whether a gate can fail, so a value this engine has to
+  // interpret is not a value.
+  if (typeof config.trace.require_skills_field !== 'boolean') {
+    problems.push(
+      'trace.require_skills_field, when present, must be true or false (a JSON boolean, not a quoted string). Omit it to leave the check off: the planner still fills the milestone\'s `Skills:` field and the reviewer still checks it — this only decides whether spec-trace fails a live milestone that lacks one.',
+    );
   }
 
   if (problems.length > 0 && source === 'defaults') {

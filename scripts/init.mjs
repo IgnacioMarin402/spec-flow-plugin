@@ -357,6 +357,13 @@ export function buildContract(root) {
       proof_dir: proof.dir,
       proof_suffix: proof.suffix,
       not_a_capability: ['README.md', 'glossary.md'],
+      // Written out at its default rather than omitted, so the choice is
+      // visible in the file instead of being a behaviour of the engine the
+      // repo would have to read the reference to discover. Off is the default
+      // this engine can honestly hold: whether a project routes skills is not
+      // something any file here can detect, since skills also come from
+      // installed plugins and the user's own directory.
+      require_skills_field: false,
     },
     extra_checks: [],
     unscoped_denied: {

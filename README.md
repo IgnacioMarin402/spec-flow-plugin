@@ -230,6 +230,7 @@ flowchart TD
     DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing"]
     DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
+    BASE -->|"resolves to HEAD"| BLK2
     BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> spec-trace, then every extra_check"]
     RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
     RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
@@ -246,7 +247,9 @@ flowchart TD
   file; a suite's outcome is a property of the system.
 - **An unresolvable base is a refusal, not an empty scope.** "Nothing changed"
   and "I could not tell" must never produce the same outcome, because one of
-  them is a pass.
+  them is a pass. A base that resolves *to HEAD* is refused for the same
+  reason: work committed straight onto the base branch has an empty diff by
+  construction, so the scoped linter never runs for the whole run.
 - **The failure class decides the route, not the severity.** A traceability
   gap is usually a test that proves the requirement and never named it — an
   edit, not a re-think.

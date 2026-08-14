@@ -328,19 +328,40 @@ for (const slug of live) {
   // `none` is a legitimate and common answer, and the only one a project that
   // ships no skills will ever write. An ABSENT field is not the same thing:
   // it cannot be told apart from a planner that never looked, and the
-  // implementer has no way to know which it is either. Same distinction the
+  // implementer has no way to know which it is either. An EMPTY one — the
+  // label with nothing after the colon — is the absent case with the word
+  // typed in front of it, and is checked as such below. Same distinction the
   // gate draws between `spec=0` and `spec=-`.
   //
-  // Unconditional, because the field lives in an artifact this flow writes
-  // and Claude Code lists the available skills to the planner by itself.
-  // There is nothing to declare and no file to check for first.
+  // Off unless the contract asks for it. This was unconditional for one
+  // commit, on the reasoning that the field lives in an artifact this flow
+  // writes and so needs nothing declared first. True, and it answered the
+  // wrong question: what a repo has to declare is not where the field lives,
+  // it is whether it routes skills at all — which no file this engine can
+  // read will tell it, since skills also arrive from plugins and from the
+  // user's own directory. `require_skills_field` is that declaration. See
+  // spec-flow-config.mjs for why the default is off and why it is not
+  // inferred.
+  //
+  // Nothing else about the field changed: the planner's template still has
+  // it, the planner still fills it, and the reviewer still checks it — which
+  // is exactly where `Spec deltas`, `Tests` and `Objective` are checked. This
+  // was the only milestone field spec-trace enforced.
+  if (!CONFIG.trace.require_skills_field) continue;
+
   const milestonesDir = join(SPECFLOW_DIR, slug, 'milestones');
   if (!existsSync(milestonesDir)) continue; // no plan yet — a run mid-spec is not a failure
 
   for (const file of readdirSync(milestonesDir).filter((f) => f.endsWith('.md')).sort()) {
-    if (!/^[-*]?\s*\**Skills\**\s*:/m.test(readFileSync(join(milestonesDir, file), 'utf8'))) {
+    // The trailing `\S` is the whole check, not a tidiness detail. Matching
+    // the label alone accepts `Skills:` with nothing after it — which is the
+    // ABSENT case with the word typed in front of it: same silence about
+    // whether the planner looked, same nothing for the implementer to load.
+    // A check that fails "no field" and passes "empty field" is not enforcing
+    // the distinction it was written for, it is enforcing the spelling.
+    if (!/^[-*]?\s*\**Skills\**\s*:[ \t]*\S/m.test(readFileSync(join(milestonesDir, file), 'utf8'))) {
       problems.push(
-        `specflow/${slug}/milestones/${file} has no \`Skills:\` field. Every milestone says which skills it needs — \`none\` when the answer is none, which is what a project shipping no skills always writes. Absent is not the same answer: the implementer cannot tell it apart from a planner that never looked, and loads nothing either way.`,
+        `specflow/${slug}/milestones/${file} has no \`Skills:\` field, or has one with nothing after the colon. Every milestone says which skills it needs — \`none\` when the answer is none, which is what a project shipping no skills always writes. Neither absent nor empty is that answer: the implementer cannot tell either apart from a planner that never looked, and loads nothing in all three cases.`,
       );
     }
   }

@@ -6,5 +6,6 @@
   "author": {
     "name": "Ignacio Marín"
   },
+  "license": "MIT",
   "keywords": ["spec-driven-development", "multi-agent", "workflow"]
 }
