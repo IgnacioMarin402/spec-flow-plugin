@@ -17,15 +17,29 @@ feels like finishing the investigation, and it is the point at which the
 investigation has barely started. An alternative covering *part* of a job is
 evidence about that part and says nothing about the rest.
 
-The concrete case: `.spec-flow/skills.md` was proposed for deletion because
-Claude Code already lists every skill's name and description to the model, so
-the table was "redundant for discovery". That was true and irrelevant.
-Discovery was one of three jobs the table does — it also maps a project
-DECISION to a skill, records which skills a project preloads through an agent
-override, and converts "Claude uses skills when relevant" into an instruction
-the agent must follow. Two doc quotes supported deleting it; nobody checked
-what would have contradicted that, which is the same shape of error the
-engine's gate exists to prevent.
+The concrete case is worth the whole story, because it ends somewhere
+surprising.
+
+`.spec-flow/skills.md` was proposed for deletion because Claude Code already
+lists every skill's name and description to the model, so the table was
+"redundant for discovery". That was true and irrelevant: discovery was one of
+three jobs the table did. Two doc quotes supported removal; nothing was
+checked that could have contradicted them. The proposal was withdrawn.
+
+**And the file was deleted anyway, two days later, for reasons the first
+proposal never touched.** Nothing read it — no script parsed it, and the one
+check that mentioned it only tested that the file existed — so it could name
+skills that had been renamed or deleted and nobody would learn. Its three jobs
+each turned out to have an owner elsewhere: a skill's own `description` maps
+the decision, the project's agent frontmatter records what it preloads, and
+the milestone's `Skills:` field is the instruction. None of that was known
+when removal was first proposed.
+
+So the lesson is not "do not remove things". It is that **being right about
+the conclusion is not the same as having verified it**, and the first version
+of this argument would have been indistinguishable from the second to anyone
+reading only the outcome. What separated them was whether anyone had gone
+looking for the half that disagreed.
 
 ## Proving a fix
 
