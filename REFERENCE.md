@@ -52,6 +52,7 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 | `proof_dir` | yes | Directory segment that marks a test as proof, e.g. `test` |
 | `proof_suffix` | yes | Test filename suffix, e.g. `.test.ts` |
 | `not_a_capability` | no | Filenames under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
+| `require_skills_field` | no | Fail a live milestone with no `Skills:` field. Default `false` |
 
 `proof_dir` and `proof_suffix` do two jobs: they are what `spec-trace`
 searches, **and** where the planner and implementer are told to put a new
@@ -236,10 +237,26 @@ what they need.
 carries a `Skills:` field, and the planner fills it while reading the whole
 milestone with nothing written yet. The implementer loads what that field
 names **before its first edit**. `/spec-fix` does the same in the work order
-it writes itself. `spec-trace` fails a live milestone whose field is missing
-**or empty** — `none` is the answer when nothing applies, and the only one a
-project shipping no skills will ever write; a bare `Skills:` answers nothing
-and is treated as the absent field it is.
+it writes itself. `none` is the answer when nothing applies, and the only one
+a project shipping no skills will ever write.
+
+**Nothing is required of a project that does not use skills.** The reviewer
+checks the field the same way it checks `Spec deltas`, `Tests` and every other
+milestone field — that is where plan completeness is judged. `spec-trace` will
+*fail* a live milestone whose field is missing or empty only where the
+contract sets `trace.require_skills_field: true`; a bare `Skills:` is treated
+as the absent field it is, since it answers none of the questions the field
+exists to answer.
+
+That switch is off by default, and cannot be inferred. Skills reach a session
+from the project's `.claude/skills/`, from installed plugins, and from the
+user's own `~/.claude/skills/`, so no file this engine reads says whether a
+project routes them — and a default that guesses wrong does not degrade, it
+fails a gate over a field the project was never going to use. Inferring it
+from whether some milestone already names a skill was rejected for a sharper
+reason: that arms the check from an absence, so the first milestone that
+should have routed one and did not is exactly the milestone that arms
+nothing.
 
 That ordering is the point, and it is worth being exact about what on-demand
 loading actually costs, because it is not blindness. Claude Code lists every

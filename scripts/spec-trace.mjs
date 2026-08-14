@@ -333,9 +333,22 @@ for (const slug of live) {
   // typed in front of it, and is checked as such below. Same distinction the
   // gate draws between `spec=0` and `spec=-`.
   //
-  // Unconditional, because the field lives in an artifact this flow writes
-  // and Claude Code lists the available skills to the planner by itself.
-  // There is nothing to declare and no file to check for first.
+  // Off unless the contract asks for it. This was unconditional for one
+  // commit, on the reasoning that the field lives in an artifact this flow
+  // writes and so needs nothing declared first. True, and it answered the
+  // wrong question: what a repo has to declare is not where the field lives,
+  // it is whether it routes skills at all — which no file this engine can
+  // read will tell it, since skills also arrive from plugins and from the
+  // user's own directory. `require_skills_field` is that declaration. See
+  // spec-flow-config.mjs for why the default is off and why it is not
+  // inferred.
+  //
+  // Nothing else about the field changed: the planner's template still has
+  // it, the planner still fills it, and the reviewer still checks it — which
+  // is exactly where `Spec deltas`, `Tests` and `Objective` are checked. This
+  // was the only milestone field spec-trace enforced.
+  if (!CONFIG.trace.require_skills_field) continue;
+
   const milestonesDir = join(SPECFLOW_DIR, slug, 'milestones');
   if (!existsSync(milestonesDir)) continue; // no plan yet — a run mid-spec is not a failure
 

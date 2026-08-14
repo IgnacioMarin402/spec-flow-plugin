@@ -71,6 +71,18 @@ const CONFIG = {
   unscoped_denied: { scripts: [], tools: [], scoped_allowed: [], scoped_alternative: '', scoped_examples: [] },
 };
 
+/**
+ * The contract of a project that DOES route skills and has asked for the
+ * milestone field to be enforced. Written out by the cases that test the
+ * check, so none of them depends on what the default happens to be — the
+ * default is a decision with its own case, not scaffolding for these.
+ */
+const SKILLS_REQUIRED = JSON.stringify(
+  { ...CONFIG, trace: { ...CONFIG.trace, require_skills_field: true } },
+  null,
+  2,
+);
+
 /** A capability spec declaring one requirement, with the scope marker spec-trace requires. */
 function spec(id = 'REQ-USER-001', title = 'the user can do the thing', scope = 'modules/user') {
   return `<!-- spec-scope: ${scope} -->\n\n# User\n\n### ${id} — ${title}\n\nThe system does the thing.\n`;
@@ -239,25 +251,28 @@ await Promise.all([
     ),
   ),
 
-  // ---- the Skills field, enforced rather than described ----
+  // ---- the Skills field, when the contract asks for it ----
   //
   // `none` is a legitimate answer; absent is not the same answer, because it
-  // cannot be told apart from a planner that never looked. Checked on every
-  // live milestone, unconditionally: the field lives in an artifact this flow
-  // writes, and Claude Code lists the available skills to the planner by
-  // itself, so there is nothing for a repo to declare first.
+  // cannot be told apart from a planner that never looked.
   //
   // A field present with NOTHING after the colon is the third case, and it is
   // the one the check was blind to: it satisfies "the field is there" while
   // answering none of the three questions the field exists to answer. It
   // collapses back into exactly what an absent field is — a milestone whose
   // routing nobody can read — so it fails the same way.
+  //
+  // Every case in this group declares `require_skills_field` explicitly,
+  // because the default is off and a case that relied on the default would be
+  // testing the default rather than the check. The default has its own case,
+  // last in the group.
   check('a live milestone with no Skills field fails', () =>
     withRepo(
       {
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Files to add/change: lib/a.ts\n',
+        '.spec-flow/config.json': SKILLS_REQUIRED,
       },
       (r) => {
         if (r.status === 0) {
@@ -275,6 +290,7 @@ await Promise.all([
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Skills: none\n',
+        '.spec-flow/config.json': SKILLS_REQUIRED,
       },
       (r) => {
         if (r.status !== 0) return `"none" was rejected, though it is what a planner writes when nothing applies: ${r.out}`;
@@ -289,6 +305,7 @@ await Promise.all([
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Skills:\n- Files to add/change: lib/a.ts\n',
+        '.spec-flow/config.json': SKILLS_REQUIRED,
       },
       (r) => {
         if (r.status === 0) {
@@ -309,9 +326,62 @@ await Promise.all([
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- **Skills**:   \n',
+        '.spec-flow/config.json': SKILLS_REQUIRED,
       },
       (r) => {
         if (r.status === 0) return `"Skills:" plus spaces passed as an answer: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // ---- and the default, which is the decision this group hangs off --------
+  //
+  // A repo that never asked for the check is not a repo that failed it. This
+  // is the same milestone as the first case in the group, on the DEFAULT
+  // contract: skills reach a session from plugins and the user's own
+  // directory as well as the project's, so nothing this engine reads can tell
+  // it whether a project routes them, and a default that guesses wrong fails
+  // a gate over a field the project was never going to use.
+  //
+  // The field is not gone: the planner's template still carries it, the
+  // planner still fills it, and the reviewer still checks it — which is where
+  // `Spec deltas`, `Tests` and `Objective` have always been checked. What
+  // changed is that `Skills:` stopped being the only one of them that could
+  // fail a gate on its own.
+  check('a milestone with no Skills field passes when the contract never asked for one', () =>
+    withRepo(
+      {
+        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
+        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Files to add/change: lib/a.ts\n',
+      },
+      (r) => {
+        if (r.status !== 0) {
+          return `a project that ships no skills was failed for not answering a question about them, on the contract it gets by default: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // The flag decides whether a gate can fail, so a value the engine has to
+  // interpret is refused rather than coerced — `"true"` reading as true and
+  // `"false"` also reading as true is the whole reason.
+  check('a non-boolean require_skills_field is refused, not coerced', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, require_skills_field: 'false' } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+        'tests/user.test.ts': `it('REQ-USER-001 lets the user do the thing', () => {});\n`,
+      },
+      (r) => {
+        if (r.status === 0) return `a quoted "false" was accepted, and JS would have read it as true: ${r.out}`;
+        if (!/require_skills_field/.test(r.out)) return `the failure does not name the field: ${r.out}`;
         return null;
       },
     ),
