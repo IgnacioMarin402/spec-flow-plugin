@@ -59,6 +59,20 @@ test. An agent that writes its test elsewhere produces a requirement that
 reads as unproven and a gate that blocks on a test which exists and passes.
 Set them to where your tests actually live.
 
+**An empty `specs_dir` passes, but only until your first ship.** With no
+capability specs there are no requirements, so "every requirement is proven"
+is true of the empty set. That is correct while adopting — capability specs
+are written *by* the flow, as milestones fold their deltas in, so requiring
+them before the first run completes would block adoption on an artifact the
+run produces.
+
+The grace ends at the first change stamped `**Status:** SHIPPED`. That stamp
+is the fold asserting its deltas landed in `specs_dir`, so SHIPPED with an
+empty spec layer is two records contradicting each other and `spec-trace`
+fails. If you hit that and your specs do exist, check `trace.specs_dir` —
+they are somewhere this contract does not look. `REJECTED` and `SUPERSEDED`
+assert nothing landed, so they keep the grace.
+
 ### `extra_checks`
 
 Your own project checks, run at every gate and again at `done`. Each entry:
@@ -124,8 +138,11 @@ unscoped checks still run.
 
 Resolved in this order: `verify.base_ref`, then `refs/remotes/origin/HEAD`,
 then `origin/main`, `main`, `origin/master`, `master`, `origin/develop`,
-`develop`, `origin/trunk`, `trunk`. If none resolves, the gate **blocks** and
-names the field to add.
+`develop`, `origin/trunk`, `trunk`.
+
+If none resolves, `preflight` **refuses to start the run** at the first
+subagent, and the gate **blocks** if a run is somehow already underway. Both
+name the field to add. `spec-flow init` reports it too, at setup.
 
 It does not fall back, because the only available fallback — comparing HEAD
 against itself — yields an empty changed-file list, which is indistinguishable

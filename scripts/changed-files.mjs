@@ -5,9 +5,8 @@
  *
  * One resolver, every caller imports it, so "same files, same commands, same
  * result" is structural rather than a promise kept by two copies that agree
- * only while someone remembers to edit both — the exact drift step 0 of
- * docs/spec-flow-as-a-plugin.md closed the first time, and the reason it is
- * an import here instead of a second bash script.
+ * only while someone remembers to edit both. That is why this is an import
+ * rather than a second script each caller keeps its own copy of.
  *
  *   import { resolveBase, changedFiles } from './changed-files.mjs';
  *
@@ -76,9 +75,10 @@ function mergeBase(root, ref) {
  *      would think: CI checkouts frequently do not set it, so this is a good
  *      first rung and a terrible only one.
  *   3. The candidate list above.
- *   4. Throw. The caller decides what a loud failure means for IT — the gate
- *      blocks the stop, the CLI exits non-zero — but nobody gets to continue
- *      with a base that silently matches nothing.
+ *   4. Throw. The caller decides what a loud failure means for IT — `preflight`
+ *      refuses to start the run, the gate blocks the stop, the CLI exits
+ *      non-zero — but nobody gets to continue with a base that silently
+ *      matches nothing.
  *
  * @param {string} root Absolute path to the repo being judged.
  * @param {{verify?: {base_ref?: string}}} [config] The loaded contract, if the caller has one.

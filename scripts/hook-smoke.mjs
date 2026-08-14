@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Smoke test for the 8 hooks `gate-fixture.mjs` does not cover.
+ * Smoke test for the 9 hooks `gate-fixture.mjs` does not cover.
  *
  * `gate.mjs` earns a fixture of its own because it is the hook every other
- * guarantee depends on. The other eight were, for a while, verified by
+ * guarantee depends on. The other nine were, for a while, verified by
  * nothing at all — read carefully and shipped, which is exactly the standard
  * this engine refuses to accept from the code it gates.
  *

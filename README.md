@@ -100,6 +100,9 @@ file. If this is green, the gate will be too.
 
 What happens:
 
+0. **The run refuses to start** if the contract does not load or the base
+   branch does not resolve. That check costs nothing — no agent has run yet —
+   and it is why step 3 of the install matters.
 1. **The spec-writer asks you questions** if the requirement is ambiguous.
    Answer in the chat.
 2. **You sign off.** It shows the requirement deltas and the decision, and

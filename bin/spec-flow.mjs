@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * The CLI half of "two manifests, one source"
- * (docs/spec-flow-as-a-plugin.md in the engine repo, "Two manifests, one
- * source"). `${CLAUDE_PLUGIN_ROOT}/hooks/*.mjs` is how Claude Code itself
+ * The CLI half of "two manifests, one source".
+ * `${CLAUDE_PLUGIN_ROOT}/hooks/*.mjs` is how Claude Code itself
  * reaches this engine; this is how everything else does — a human's
  * terminal, and CI, neither of which has `${CLAUDE_PLUGIN_ROOT}` or Claude
  * Code installed. A consuming repo's package.json aliases through it:

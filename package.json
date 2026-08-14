@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "spec-flow, extracted: the engine half of a spec-driven multi-agent pipeline for Claude Code. Ships as a plugin (hooks/commands/agents) AND as an installable CLI (bin/spec-flow), so the same checks run from Claude Code, a human's terminal, and CI — see docs/spec-flow-as-a-plugin.md.",
+  "description": "spec-flow: the engine half of a spec-driven multi-agent pipeline for Claude Code. Ships as a plugin (hooks/commands/agents) AND as an installable CLI (bin/spec-flow), so the same checks run from Claude Code, a human's terminal, and CI.",
   "bin": {
     "spec-flow": "./bin/spec-flow.mjs"
   },

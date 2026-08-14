@@ -15,9 +15,9 @@ import { join } from 'node:path';
  * `import.meta.url` answers "where am I", which is the right question for
  * finding a sibling module and the wrong one for finding the project: once
  * this code ships inside an installed plugin, its own location and the
- * consuming repo's root are different directories. See
- * docs/spec-flow-as-a-plugin.md in the engine repo, "Fix first", for what
- * conflating the two used to do.
+ * consuming repo's root are different directories, so resolving the project
+ * from a script's own location silently reads the PLUGIN's files and writes
+ * the PLUGIN's state.
  */
 export function projectDir() {
   return process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -100,7 +100,7 @@ export function emitBlock(reason) {
  * it merely fails to say anything. That is the exact silent-disarm failure
  * this whole engine exists to close, one level down in the hook's own code
  * instead of in the contract it reads. `onError` lets a hook say something
- * appropriate for ITS protocol instead of one generic message for all nine.
+ * appropriate for ITS protocol instead of one generic message for all ten.
  */
 export async function run(main, onError) {
   try {

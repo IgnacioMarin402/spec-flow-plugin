@@ -17,9 +17,7 @@
  * `state/agent-registry`, written at spawn time by register-agent.mjs.
  *
  * `max_opus_calls` is deliberately NOT read from `.spec-flow/config.json` —
- * the Opus budget is one of the things this engine's own plugin plan left
- * untouched by the contract (see docs/spec-flow-as-a-plugin.md, "Not
- * touched"). It lives in the consuming repo's `.claude/spec-flow.config.json`
+ * the Opus budget is deliberately outside the contract. It lives in the consuming repo's `.claude/spec-flow.config.json`
  * instead, next to nothing else — a run-scoped number, not an architectural
  * fact about the repo.
  *
