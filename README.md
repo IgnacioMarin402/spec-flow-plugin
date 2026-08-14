@@ -270,3 +270,9 @@ npm run hooks:check   # the other nine hooks
 ```
 
 All eight run in CI on every push and PR.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
