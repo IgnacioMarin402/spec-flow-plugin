@@ -117,10 +117,15 @@ await Promise.all([
     }),
   ),
 
-  check('an empty spec layer FAILS once a change is stamped SHIPPED', () =>
+  // The archived spec has to NAME a requirement, because that is what makes
+  // this a contradiction: the change asserts REQ-USER-001 landed in specs/,
+  // and specs/ is empty. A SHIPPED stamp with no id claims nothing — see the
+  // wiring-only case below.
+  check('an empty spec layer FAILS once a change ships a requirement it claims landed', () =>
     withRepo(
       {
-        'specflow/archive/add-users/spec.md': '# Spec — add users\n\n**Status:** SHIPPED 2026-07-30\n\nDeltas.\n',
+        'specflow/archive/add-users/spec.md':
+          '# Spec — add users\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- ADDED REQ-USER-001 — the user can do the thing\n',
         'specflow/archive/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
       },
@@ -129,6 +134,72 @@ await Promise.all([
           return `a change claims its deltas landed in specs/, which holds nothing, and spec-trace reported green — every requirement check here is vacuous and the gate would pass over a spec layer that does not exist. out: ${r.out}`;
         }
         if (!/SHIPPED/.test(r.out)) return `the failure does not name what makes this a contradiction: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // A change that shipped without claiming a requirement asserts nothing
+  // about specs/. `/spec-fix` case 4 (INFRA) and any wiring-only change do
+  // exactly that, by contract — and the first one in a repo used to block
+  // every gate afterwards, with no way out but writing a capability spec the
+  // change never needed.
+  check('a SHIPPED change with no requirement deltas keeps the grace', () =>
+    withRepo(
+      {
+        'specflow/archive/wiring-only/spec.md':
+          '# Fix — wiring only\n\n**Status:** SHIPPED 2026-08-14\n\n## Case\ncase 4 — INFRA\n\n## Requirement deltas\n- none — infrastructure only\n',
+        'specflow/archive/wiring-only/proposal.md': '# Proposal\n\nWhy.\n',
+        'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
+      },
+      (r) => {
+        if (r.status !== 0) {
+          return `an infrastructure fix that legitimately has no deltas blocked the gate, and no capability spec would ever satisfy it: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // ---- build output is not proof ----
+  //
+  // A compiled or copied test under dist/ matches the same suffix as its
+  // source and registers as proof — and keeps registering after the SOURCE is
+  // deleted, leaving the requirement proven by an artifact nobody runs.
+  check('a test surviving only in build output does not prove a requirement', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'dist/tests/user.test.ts': `it('REQ-USER-001 lets the user do the thing', () => {});\n`,
+      },
+      (r) => {
+        if (r.status === 0) {
+          return `a build artifact counted as proof: delete the source test and the requirement stays green forever. out: ${r.out}`;
+        }
+        if (!/REQ-USER-001/.test(r.out)) return `the failure does not name the unproven requirement: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('the declared proof surface outranks the build-output list', () =>
+    withRepo(
+      {
+        // A repo whose contract says its proofs live in a directory named
+        // `dist`. Unusual, and its to declare — the engine's heuristic must
+        // not quietly exclude the surface the repo chose.
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, proof_dir: 'dist' } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+        'dist/user.test.ts': `it('REQ-USER-001 lets the user do the thing', () => {});\n`,
+      },
+      (r) => {
+        if (r.status !== 0) {
+          return `the contract declared proof_dir "dist" and the walk skipped it anyway, so nothing in this repo can ever be proof: ${r.out}`;
+        }
         return null;
       },
     ),

@@ -373,7 +373,66 @@ export function buildContract(root) {
   return { contract, detected, review, missing };
 }
 
-/** Creates the directories and the gitignore line. Returns what it changed. */
+/**
+ * The contract for writing a capability spec, scaffolded into the repo.
+ *
+ * Two agent contracts tell their reader that "`specs/README.md` has the
+ * contract" — the spec-writer before writing one, the implementer before
+ * creating a capability spec that does not exist yet. Nothing shipped or
+ * created that file, so both deferred to a document that was not there, and
+ * the three rules `spec-trace` actually enforces (the heading shape, the
+ * filename→prefix binding, the scope marker) were written down only as
+ * regexes. A human writing their first spec by hand met three validations
+ * with no documentation behind any of them.
+ *
+ * `trace.not_a_capability` excludes this filename by default, so the engine
+ * already assumed it would exist.
+ */
+const SPECS_README = `# Capability specs
+
+One file per capability, describing what the system does **today** as numbered
+requirements. \`specs/\` is the source of truth for behaviour; a change under
+\`specflow/\` is a delta against it.
+
+\`spec-trace\` enforces the rules below at every gate, in both directions: a
+requirement with no test fails, and a test naming an id no spec declares fails
+too.
+
+## The file
+
+Each spec starts with a scope marker naming the code it is about:
+
+\`\`\`markdown
+<!-- spec-scope: modules/user -->
+
+# User
+
+### REQ-USER-001 — the user can reset their password by email
+
+The system sends a single-use link, valid for one hour.
+\`\`\`
+
+## The rules
+
+- **The id prefix comes from the filename.** \`specs/user.md\` declares
+  \`REQ-USER-\` ids; \`specs/user-profile.md\` declares \`REQ-USER-PROFILE-\`.
+  A mismatch fails.
+- **The number is exactly three digits.** \`REQ-USER-001\`, not \`REQ-USER-1\`.
+- **Requirements are headings**, at \`###\`, with the id first. The separator
+  after it may be an em dash, a hyphen or a colon.
+- **Ids are permanent.** Never renumber, never reuse a removed one. New ids
+  continue that capability's sequence.
+- **Every requirement needs a test whose TITLE contains its id**, on the proof
+  surface \`.spec-flow/config.json\` declares (\`trace.proof_dir\` +
+  \`trace.proof_suffix\`). A test under \`it.skip\`, \`it.todo\`, \`xit\` or
+  \`xtest\` does not count — a test that never executes proves nothing.
+- **Write in the present tense**: what the system does, not what a change did.
+
+This file is excluded from the check by \`trace.not_a_capability\`, so it is
+documentation rather than a spec.
+`;
+
+/** Creates the directories, the specs contract and the gitignore line. Returns what it changed. */
 export function scaffold(root) {
   const done = [];
 
@@ -382,6 +441,14 @@ export function scaffold(root) {
       mkdirSync(join(root, dir), { recursive: true });
       done.push(`created ${dir.replace(/\\/g, '/')}/`);
     }
+  }
+
+  // Never overwritten: a repo that has written its own conventions here keeps
+  // them, and this is documentation rather than engine state.
+  const specsReadme = join(root, 'specs', 'README.md');
+  if (!existsSync(specsReadme)) {
+    writeFileSync(specsReadme, SPECS_README);
+    done.push('created specs/README.md — the capability-spec contract');
   }
 
   const gitignore = join(root, '.gitignore');

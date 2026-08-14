@@ -66,7 +66,7 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // hold the values the engine refuses to know. `scripts/init.mjs` generates
 // that file from the adopting repo instead, which needs no exemption: it
 // names nothing, it reads what the repo already declares.
-const SCAN_FILES = ['README.md', 'REFERENCE.md'];
+const SCAN_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md'];
 
 // Whole-word or path-shaped tokens — a substring match on "application" would
 // also flag the English word inside unrelated prose ("the application of
