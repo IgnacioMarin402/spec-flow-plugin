@@ -43,7 +43,7 @@ Match the comment density of the file you are editing and of its neighbours. A r
 What survives is the ordinary case — a line about why a non-obvious decision was made, in the places the repo already writes those.
 
 ## Skills — load what the milestone names, before you start
-**`Mk.md` has a `Skills:` field. Load everything it names before your first edit**, not when you run into the decision it covers. The planner read the whole milestone against `.spec-flow/skills.md` with nothing written yet, which is the only moment that routing can be decided rather than guessed — a skill that arrives after your first guess arrives too late to have prevented it.
+**`Mk.md` has a `Skills:` field. Load everything it names before your first edit**, not when you run into the decision it covers. The planner read the whole milestone against `.spec-flow/skills.md` with nothing written yet, which is the only moment that routing is decided rather than judged mid-work. You can see every skill's name and description on your own; what the field adds is your project's statement that this milestone REQUIRES these ones, and it does so before you have framed the problem your own way.
 
 If the field says `none`, the planner looked and found nothing that applies. If the field is absent, the milestone predates this contract or was written by hand: fall back to the paragraph below.
 

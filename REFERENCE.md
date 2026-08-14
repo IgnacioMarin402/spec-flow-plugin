@@ -190,13 +190,22 @@ against the whole milestone before anything is written. The implementer loads
 what that field names **before its first edit**. `/spec-fix` does the same in
 the work order it writes itself.
 
-That ordering is the point. On-demand loading fires only once an agent already
-suspects it needs a skill — which is precisely the moment a preload was there
-to protect, because by then it has usually started and a skill arriving after
-the first guess arrives too late to prevent it. Moving the decision to the
-planner does not restore preloading, but it moves the suspicion to the one
-agent that is reading the whole milestone with nothing written yet, and it
-records the answer in a file the implementer cannot skip.
+That ordering is the point, and it is worth being exact about what on-demand
+loading actually costs, because it is not blindness. Claude Code lists every
+skill's **name and description** to the model automatically, so an agent
+always knows what is available and roughly when each applies. Two things it
+does not have: the skill's *body*, which is where the actual procedure lives,
+and any statement from your project that a given decision **requires** a given
+skill. Descriptions drive invocation when the model judges it relevant; a
+`Skills:` field and `.spec-flow/skills.md` turn that "when relevant" into an
+instruction.
+
+So the weakness is timing rather than ignorance. The implementer decides
+whether a skill applies after it has already framed the problem its own way,
+which is the point at which a wrong frame is cheapest to form and dearest to
+undo. Moving the decision to the planner does not restore preloading; it moves
+the judgement to the one agent reading the whole milestone with nothing
+written yet, and records the answer where the implementer cannot skip it.
 
 The implementer keeps the on-demand path as a fallback, for a milestone
 written by hand or one whose routing missed something, and reports the miss in
