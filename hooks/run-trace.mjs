@@ -19,7 +19,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readFileOrDefault, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 function appendUnique(path, line) {
@@ -95,12 +95,15 @@ function traceAgent(input, res, payload, missLog) {
 
 await run(async () => {
   const root = projectDir();
+  // Phase first, through a path that creates nothing: this hook fires on
+  // almost every tool call, and standing down must leave no directory behind
+  // in a repo that never adopted the flow.
+  const phase = readFileOrDefault(phasePath(root), '');
+  if (['', 'idle', 'done'].includes(phase)) return;
+
   const state = stateDir(root);
   const traceFile = join(state, 'run-trace.log');
   const missLog = join(state, 'run-trace-unmatched.log');
-
-  const phase = readFileOrDefault(join(state, 'phase'), '');
-  if (['', 'idle', 'done'].includes(phase)) return;
 
   const payload = await readPayload();
   const tool = String(payload.tool_name ?? payload.toolName ?? '');

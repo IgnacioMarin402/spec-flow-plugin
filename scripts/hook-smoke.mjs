@@ -15,7 +15,7 @@
  *
  *   node scripts/hook-smoke.mjs [engine-root]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -138,6 +138,63 @@ t(
   },
   { withContract: false, git: false, phase: 'idle' },
 );
+
+t(
+  'session-start resets a stale plan phase, not just implement/blocked',
+  (repo) => {
+    // `preflight` arms on every run phase, so an abandoned `plan` makes it
+    // validate — and potentially DENY — every subagent spawn in that repo
+    // forever. session-start used to skip these as "already harmless".
+    const phaseFile = join(repo, '.claude/state/phase');
+    const old = Date.now() / 1000 - 60 * 60 * 24 * 3;
+    utimesSync(phaseFile, old, old);
+    const r = runHook('session-start.mjs', {}, repo);
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    const phase = readFileSync(phaseFile, 'utf8');
+    if (phase !== 'idle') return `a three-day-old 'plan' survived as "${phase}"`;
+    return null;
+  },
+  { phase: 'plan' },
+);
+
+t('no hook creates .claude/state/ in a repo that is not running the flow', () => {
+  // Every hook reads the phase before deciding it has nothing to do. Routing
+  // that read through `stateDir` (which mkdirs) meant standing down still
+  // left a directory behind — in every repository the user ever opened.
+  const bare = mkdtempSync(join(tmpdir(), 'smoke-bare-'));
+  try {
+    writeFileSync(join(bare, 'package.json'), '{}');
+    for (const hook of readdirSync(join(ENGINE, 'hooks')).filter((f) => f.endsWith('.mjs'))) {
+      runHook(hook, { tool_name: 'Task', tool_input: { subagent_type: 'planner', command: 'ls' } }, bare);
+    }
+    if (existsSync(join(bare, '.claude'))) {
+      return 'the hooks created .claude/ in a repo with no phase file and no contract';
+    }
+    return null;
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+t('arm-gate matches an agent name whatever its casing', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'plan');
+  const r = runHook('arm-gate.mjs', { tool_input: { subagent_type: 'Implementer' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const phase = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+  if (phase !== 'implement') {
+    return `phase is "${phase}" — a capitalised agent type left the gate, the write-time linter and the command deny all disarmed, silently`;
+  }
+  return null;
+});
+
+t('the whole-repo denial does not hand the agent a way to disarm the flow', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
+  if (r.status !== 2) return `expected a denial, got exit ${r.status}`;
+  if (/state[\\/]phase/.test(r.stderr)) {
+    return `the denial quotes the phase file to an agent mid-milestone: ${r.stderr}`;
+  }
+  return null;
+});
 
 t('arm-gate flips phase on an implementer spawn', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'plan');

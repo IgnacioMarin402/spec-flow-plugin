@@ -49,7 +49,7 @@
  */
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { run, emitBlock, projectDir, stateDir, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
+import { run, emitBlock, projectDir, stateDir, phasePath, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
 import { resolveBase, changedFiles } from '../scripts/changed-files.mjs';
@@ -108,15 +108,19 @@ await run(
     await readPayload(); // consumed, unused — this hook does not act on it
 
     const root = projectDir();
+
+    // Phase first, without creating anything: a Stop fires in every session,
+    // and a gate that is not armed must leave no trace in a repo that does
+    // not use this engine.
+    const phaseFile = phasePath(root);
+    const phase = readFileOrDefault(phaseFile, '');
+    if (phase !== 'implement') return; // spec/plan/review/blocked/done -> allow the stop, nothing recorded
+
     const state = stateDir(root);
-    const phaseFile = join(state, 'phase');
     const attFile = join(state, 'gate_attempts');
     const logFile = join(state, 'gate-failure.log');
     const fullLogFile = join(state, 'gate-failure.full.log');
     const histFile = join(state, 'gate-history.log');
-
-    const phase = readFileOrDefault(phaseFile, '');
-    if (phase !== 'implement') return; // spec/plan/review/blocked/done -> allow the stop, nothing recorded
 
     const attemptsNow = () => readFileOrDefault(attFile, '0');
     const hist = (result, lintRc, testRc, unscopedFields, filesField) =>

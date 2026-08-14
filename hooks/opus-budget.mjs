@@ -44,7 +44,7 @@
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 
 function readRegistry(path) {
@@ -71,13 +71,15 @@ function logUnmatched(path, shape) {
 
 await run(async () => {
   const root = projectDir();
-  const state = stateDir(root);
-  const phaseFile = join(state, 'phase');
-  const countFile = join(state, 'opus_calls');
   const configPath = join(root, '.claude', 'spec-flow.config.json');
 
-  const phase = readFileOrDefault(phaseFile, 'idle');
+  // Read through a path that creates nothing — outside a run this hook is
+  // transparent, and transparent should mean on disk too.
+  const phase = readFileOrDefault(phasePath(root), 'idle');
   if (phase === '' || phase === 'idle' || phase === 'done') return;
+
+  const state = stateDir(root);
+  const countFile = join(state, 'opus_calls');
 
   const payload = await readPayload();
   const input = payload.tool_input ?? {};

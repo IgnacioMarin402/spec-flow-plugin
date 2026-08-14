@@ -14,6 +14,8 @@ If `$ARGUMENTS` is empty, ask the user in this chat to paste the requirement and
 
 Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
 
+Before your first subagent, a `preflight` hook checks two things and **denies the spawn** if either fails: that `.spec-flow/config.json` loads, and that the base branch resolves in this clone. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
+
 ## 1. SPEC  (subagent: spec-writer · Sonnet 5) + HITL
 - Invoke `spec-writer`, passing the requirement text.
 - If it returns `STATUS: NEEDS_INPUT`: **ask the human directly in this chat** — post the `OPEN_QUESTIONS` as a plain message (use the `AskUserQuestion` tool if your client provides one; otherwise just write the questions) and **stop your turn to wait for their reply**. This is safe: phase is `spec`, so the lint/test gate does not run. When the human answers, re-invoke `spec-writer` passing those answers. Repeat until `STATUS: SPEC_READY`.

@@ -250,6 +250,19 @@ whether it is armed.
 | `done` | orchestrator, if `done-guard` allows | nothing |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
 
+**Standing the flow down.** Writing `idle` into `.claude/state/phase` disarms
+every hook at once — the gate, the write-time linter, the whole-repo command
+deny, `preflight` and the Opus budget:
+
+```bash
+printf 'idle' > .claude/state/phase
+```
+
+That is a human's call, and it is deliberately not offered to the agents: no
+denial message quotes it, and nothing guards the write the way `done-guard`
+guards `done`. Use it to take the repo back mid-run; re-run `/spec-flow` to
+resume.
+
 **This vocabulary is a closed set — never extend it.** Every hook falls
 through to "not my business" on a value it does not recognise, so inventing a
 phase like `triage` runs the flow with the gate, the write-time linter, the

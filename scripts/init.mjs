@@ -35,6 +35,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, appendFileSync } from 'node:fs';
 import { join, extname, sep } from 'node:path';
 import { resolveBase } from './changed-files.mjs';
+import { RUNTIMES, stripTargets } from './argv.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'out', 'vendor', '.claude']);
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
@@ -45,16 +46,13 @@ const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
 const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 const SUBCOMMANDS = new Set(['run', 'exec']);
 
-/**
- * Interpreters, which are not test runners even when they are the first token
- * of the test script. `node <a-script>` runs the tests, but "node" is a
- * terrible answer to "what runs your tests": it labels the gate's log
- * sections, `run-trace` matches it against every Bash command to spot a test
- * run, and it lands in `unscoped_denied.tools`, where it would deny EVERY
- * node invocation while implementing. The argv is still correct — only the
- * NAME is undeterminable, so it is reported rather than filled with this.
- */
-const RUNTIMES = new Set(['node', 'bun', 'deno', 'python', 'python3', 'ruby', 'php', 'go', 'cargo', 'dotnet', 'java']);
+// `RUNTIMES` comes from ./argv.mjs, shared with lint-on-write.mjs. An
+// interpreter is not a test runner even when it is the first token of the
+// test script: `node <a-script>` runs the tests, but "node" labels the gate's
+// log sections, is matched against every Bash command by run-trace to spot a
+// test run, and lands in `unscoped_denied.tools` — where it would deny EVERY
+// node invocation while implementing. The argv stays correct; only the NAME
+// is undeterminable, so it is reported rather than filled with this.
 
 /** Every source file in the repo, repo-relative, skipping the noise directories. */
 function sourceFiles(root, dir = root, found = []) {
@@ -115,11 +113,29 @@ function parseScript(script) {
   return { bin, args, named };
 }
 
-/** The argv the contract should carry for a parsed script, preferring the local binary. */
-function toArgv(root, parsed) {
+/**
+ * The argv the contract should carry for a parsed script, preferring the
+ * local binary.
+ *
+ * `stripTargets` is applied for `verify.lint` and `verify.lint_no_fix` only,
+ * because those are the two the engine APPENDS changed file paths to. A lint
+ * script is almost always written with a target — `eslint .` — and carrying
+ * that target into the contract produces `eslint . <changed-file>`, which
+ * lints the whole repo. Not a slow lint: a disarmed one, since the scoping
+ * exists precisely so a milestone is never judged on files it never touched.
+ *
+ * `verify.test` runs with no arguments appended, so its own targets are the
+ * repo's deliberate choice and are left exactly as written.
+ */
+function toArgv(root, parsed, { stripTrailingTargets = false } = {}) {
+  const args = stripTrailingTargets
+    ? stripTargets(parsed.args, root)
+    : { argv: parsed.args, stripped: [], remaining: [] };
   const local = join('node_modules', '.bin', parsed.bin);
-  if (existsSync(join(root, local))) return ['node', local, ...parsed.args];
-  return [parsed.bin, ...parsed.args];
+  const argv = existsSync(join(root, local))
+    ? ['node', local, ...args.argv]
+    : [parsed.bin, ...args.argv];
+  return { argv, stripped: args.stripped, remaining: args.remaining };
 }
 
 /** A root-level config file belonging to `bin`, e.g. `<bin>.config.*` or `.<bin>rc*`. */
@@ -223,7 +239,7 @@ export function buildContract(root) {
   let test = [];
   let testName = '';
   if (testScript) {
-    test = toArgv(root, testScript);
+    test = toArgv(root, testScript).argv;
     detected.push(`verify.test — from the "test" script: ${test.join(' ')}`);
     if (testScript.named) {
       testName = testScript.bin;
@@ -253,8 +269,28 @@ export function buildContract(root) {
         `verify.lint_name — the lint script runs through "${base.bin}", an interpreter rather than a linter, so nothing here can name it.`,
       );
     }
-    lintNoFix = toArgv(root, lintScript ?? base);
-    lint = fixScript ? toArgv(root, fixScript) : lintNoFix;
+    const noFix = toArgv(root, lintScript ?? base, { stripTrailingTargets: true });
+    const withFix = fixScript ? toArgv(root, fixScript, { stripTrailingTargets: true }) : noFix;
+    lintNoFix = noFix.argv;
+    lint = withFix.argv;
+
+    const stripped = [...new Set([...noFix.stripped, ...withFix.stripped])];
+    if (stripped.length > 0) {
+      review.push(
+        `verify.lint dropped the target(s) ${stripped.map((s) => `"${s}"`).join(', ')} from your lint script. The engine appends the changed files itself, and leaving a target in would lint the whole repo on every gate — which silently undoes the scoping that keeps a milestone from being blocked by debt it never touched. Confirm this is still the linter invocation you want.`,
+      );
+    }
+
+    // A path-shaped token sitting after a flag cannot be told apart from that
+    // flag's value, so it is left alone — and said out loud, because if it IS
+    // a target the gate will quietly lint the whole repo on every run.
+    const remaining = [...new Set([...noFix.remaining, ...withFix.remaining])];
+    if (remaining.length > 0) {
+      review.push(
+        `verify.lint still contains ${remaining.map((s) => `"${s}"`).join(', ')}, which follows a flag — so it may be that flag's value, or it may be a target. If it is a target, remove it: the engine appends the changed files itself, and a target left in makes every gate lint the whole repo instead of the branch's changes.`,
+      );
+    }
+
     detected.push(`verify.lint_no_fix — from the "lint" script: ${lintNoFix.join(' ')}`);
     if (fixScript) {
       detected.push(`verify.lint — from the autofix script: ${lint.join(' ')}`);

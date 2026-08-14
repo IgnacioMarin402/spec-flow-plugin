@@ -13,7 +13,7 @@ What it does **not** drop: the external gate, the spec-trace check, and the arch
 
 You manage phase via `.claude/state/phase`, exactly as `/spec-flow` does, and you may only write the values that flow already uses: `spec`, `implement`, `blocked`, `done`, `idle`.
 
-This is not a style preference. Every enforcement hook decides whether it is armed by matching that file against a **closed set** of values — the gate, the write-time linter and the whole-repo command deny all run only on `implement`, the Opus budget stands down on `idle|done`, session-start resets a stale `implement`. Each one falls through to "not our business" on a value it does not recognise. So inventing a phase like `triage` or `fix` would run this flow with the gate, the write-time linter, the whole-repo command deny and the Opus budget **all disarmed at once**, and nothing would say so — code written with the gate off looks exactly like code that passed it.
+This is not a style preference. Every enforcement hook decides whether it is armed by matching that file against a **closed set** of values — the gate, the write-time linter and the whole-repo command deny all run only on `implement`, the Opus budget and `preflight` stand down on `idle|done`, session-start resets any stale run phase. Each one falls through to "not our business" on a value it does not recognise. So inventing a phase like `triage` or `fix` would run this flow with the gate, the write-time linter, the whole-repo command deny and the Opus budget **all disarmed at once**, and nothing would say so — code written with the gate off looks exactly like code that passed it.
 
 Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
 
@@ -24,6 +24,8 @@ Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). E
 `$ARGUMENTS` **is** the defect report, as free text. There is no tracker to read — this engine's only intake is what you were given in the chat. Empty -> ask in this chat what is broken, and wait.
 
 Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+
+Before your first subagent, a `preflight` hook checks two things and **denies the spawn** if either fails: that `.spec-flow/config.json` loads, and that the base branch resolves in this clone. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
 
 ## 1. TRIAGE (subagent: spec-writer · Sonnet 5)
 

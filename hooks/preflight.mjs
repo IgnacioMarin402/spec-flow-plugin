@@ -39,8 +39,7 @@
  * `onError` exits 0. Only a check that genuinely failed denies, and it does
  * so through the PreToolUse protocol: stderr plus exit 2.
  */
-import { projectDir, stateDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
-import { join } from 'node:path';
+import { projectDir, phasePath, readFileOrDefault, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { resolveBase } from '../scripts/changed-files.mjs';
 
@@ -58,7 +57,10 @@ function deny(what, detail) {
 
 await run(async () => {
   const root = projectDir();
-  const phase = readFileOrDefault(join(stateDir(root), 'phase'), 'idle');
+  // `phasePath`, not `stateDir`: this hook only ever reads, and it fires on
+  // every subagent spawn. Creating the directory here would drop
+  // `.claude/state/` into every repository the user opens.
+  const phase = readFileOrDefault(phasePath(root), 'idle');
   if (['', 'idle', 'done'].includes(phase)) return; // not a run -> not this hook's business
 
   await readPayload(); // consumed, unused — this hook judges the repo, not the call

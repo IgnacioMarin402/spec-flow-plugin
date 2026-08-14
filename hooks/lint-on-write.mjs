@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { projectDir, stateDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
+import { binaryOf, resolvableOnDisk } from '../scripts/argv.mjs';
 
 const MAX_LINES = 30;
 
@@ -52,22 +53,21 @@ await run(async () => {
   if (!existsSync(file)) return;
 
   const [bin, ...args] = config.verify.lint_no_fix;
-  // The linter binary is the argv element after the interpreter, if there is
-  // one — mirrors the bash form's `${SF_LINT_NO_FIX[1]:-${SF_LINT_NO_FIX[0]}}`.
-  const binPath = args[0] ?? bin;
-  // Only a PATH-shaped binPath (absolute, or a repo-relative path like
-  // `node_modules/.bin/eslint`) can be checked against a location at all. A
-  // bare command name (`lint_no_fix: ["eslint"]`, meaning "resolve through
-  // PATH") has no repo-relative file to find — `existsSync(join(root,
-  // 'eslint'))` was always false for that shape, which silently disarmed
-  // this hook on every write. spawnSync below reports an unresolvable
-  // binary on its own; this guard exists only to skip a repo mid-`install`
-  // without blocking every write on a binary that has a real, checkable path.
-  if (binPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(binPath)) {
-    if (!existsSync(binPath)) return;
-  } else if (/[\\/]/.test(binPath) && !existsSync(join(root, binPath))) {
-    return;
-  }
+
+  // Which token is the binary is `binaryOf`'s job, not a positional guess.
+  // This used to read `args[0] ?? bin` — "the element after the interpreter,
+  // if there is one" — which is right for `["node", ".bin/eslint"]` and wrong
+  // for every argv whose first token IS the linter: `["eslint", "."]` made
+  // the binary `"."`, and `["eslint", "--cache"]` made it `"--cache"`, so the
+  // guard below checked the wrong thing and passed or skipped by accident.
+  //
+  // Only a path-shaped binary can be checked against a location at all. A
+  // bare command name resolves through PATH and has no repo-relative file to
+  // find, so treating a failed `existsSync` as "not installed" would disarm
+  // this hook permanently on such a repo. spawnSync reports an unresolvable
+  // binary on its own; this guard exists only to skip a repo mid-`install`.
+  const { checkable, present } = resolvableOnDisk(binaryOf(config.verify.lint_no_fix), root);
+  if (checkable && !present) return;
 
   // No `--format` flag here: that is an ESLint-specific option, and this
   // hook is declared agnostic of which linter `lint_no_fix` names. The raw

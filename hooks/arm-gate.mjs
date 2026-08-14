@@ -23,15 +23,12 @@
  * implementer-shaped agent is a deliberate human act, not the orchestrator
  * forgetting a step.
  */
-import { join } from 'node:path';
-import { projectDir, stateDir, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 
 await run(async () => {
   const root = projectDir();
-  const state = stateDir(root);
-  const phaseFile = join(state, 'phase');
-
+  const phaseFile = phasePath(root);
   const phase = readFileOrDefault(phaseFile, 'idle');
   if (phase === 'implement') return; // already armed
   if (!['spec', 'plan', 'review', 'blocked'].includes(phase)) return; // idle/done/unknown -> not our business

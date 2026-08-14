@@ -69,14 +69,44 @@ for (const file of files) {
     });
 }
 
+// ---- the hook inventory, both directions ----------------------------------
+//
+// A hook file that hooks.json never registers is dead code that reads as
+// shipped; a hooks.json entry with no file behind it is a guarantee the
+// manifest claims and the package cannot keep. Neither shows up anywhere
+// else: the counts live as prose in half a dozen headers and docs, which
+// drifted by one within two lines of each other the last time a hook was
+// added. Prose cannot be checked; this can.
+const hookFiles = readdirSync(join(ROOT, 'hooks'))
+  .filter((f) => f.endsWith('.mjs'))
+  .sort();
+
+const manifest = readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8');
+const registered = new Set([...manifest.matchAll(/hooks\/([A-Za-z0-9._-]+\.mjs)/g)].map(([, f]) => f));
+
+for (const file of hookFiles) {
+  if (!registered.has(file)) {
+    findings.push(`hooks/${file} exists but hooks.json never registers it — it ships and never fires`);
+  }
+}
+for (const file of registered) {
+  if (!hookFiles.includes(file)) {
+    findings.push(`hooks.json registers hooks/${file}, which this package does not ship`);
+  }
+}
+
 if (findings.length > 0) {
-  console.error(`plugin-paths: ${findings.length} unresolvable path(s).\n`);
+  console.error(`plugin-paths: ${findings.length} problem(s).\n`);
   for (const f of findings) console.error(`  - ${f}`);
   console.error(
     '\nA command that names a script the package does not ship is an instruction ' +
-      'that silently does not run. Ship the file, or stop telling anyone to run it.',
+      'that silently does not run, and a hook nothing registers is a guarantee ' +
+      'nobody is keeping. Ship the file, or stop claiming it.',
   );
   process.exit(1);
 }
 
-console.log(`plugin-paths: OK — ${checked} plugin-root path(s) referenced, all present.`);
+console.log(
+  `plugin-paths: OK — ${checked} plugin-root path(s) referenced, all present; ` +
+    `${hookFiles.length} hook(s), each registered in hooks.json.`,
+);

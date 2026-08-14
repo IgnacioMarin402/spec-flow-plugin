@@ -23,10 +23,29 @@ export function projectDir() {
   return process.env.CLAUDE_PROJECT_DIR || process.cwd();
 }
 
+/**
+ * The state directory, CREATED. Call it when the hook already knows it is
+ * going to write — never merely to compute a path, or the plugin litters
+ * `.claude/state/` into every repo the user opens, including ones that never
+ * adopted spec-flow.
+ */
 export function stateDir(root = projectDir()) {
   const dir = join(root, '.claude', 'state');
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * The phase file's path, WITHOUT creating anything.
+ *
+ * Almost every hook here reads the phase first and then decides it has
+ * nothing to do. Routing that read through `stateDir` made the decision to
+ * stand down leave a directory behind anyway — on every Stop, every write,
+ * every subagent spawn, in every repository. A hook that is transparent
+ * should be transparent on disk too.
+ */
+export function phasePath(root = projectDir()) {
+  return join(root, '.claude', 'state', 'phase');
 }
 
 /**

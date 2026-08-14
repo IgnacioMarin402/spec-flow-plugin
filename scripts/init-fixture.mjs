@@ -161,6 +161,54 @@ await Promise.all([
     }),
   ),
 
+  // ---- the target a lint script carries must not reach the contract ----
+  //
+  // `verify.lint` receives the changed files APPENDED, so a script written as
+  // `eslint .` becomes `eslint . <changed-file>` — the whole repo plus the
+  // file. That is not a slow lint but a disarmed one: lint scoping exists so
+  // a milestone is never blocked by pre-existing debt in files it never
+  // touched, and one stray `.` puts every one of those files back in front of
+  // the gate. init generated exactly that argv until this case existed.
+  check('a lint script\'s target is dropped, so appending a file cannot widen the scope', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const c = readContract(dir);
+      for (const [field, argv] of [['lint', c.verify.lint], ['lint_no_fix', c.verify.lint_no_fix]]) {
+        if (argv.includes('.')) {
+          return `verify.${field} is ${JSON.stringify(argv)} — with a file appended that lints the whole repo, which silently undoes lint scoping`;
+        }
+      }
+      if (!c.verify.lint.includes('--fix')) return `the autofix flag was dropped along with the target: ${c.verify.lint.join(' ')}`;
+      return null;
+    }),
+  ),
+
+  check('dropping a target is reported, never silent', () =>
+    withRepo(COMPLETE, async (dir) => {
+      const res = await run([], dir);
+      if (!/REVIEW.*verify\.lint dropped/s.test(res.stdout)) {
+        return `init changed the linter invocation without saying so: ${res.stdout}`;
+      }
+      return null;
+    }),
+  ),
+
+  check('a flag\'s value that looks like a path is not mistaken for a target', () =>
+    withRepo(
+      { ...COMPLETE, scripts: { test: 'vitest run', lint: 'eslint --ignore-path .gitignore --ext .ts' } },
+      async (dir) => {
+        await run([], dir);
+        const c = readContract(dir);
+        for (const token of ['--ignore-path', '.gitignore', '--ext', '.ts']) {
+          if (!c.verify.lint_no_fix.includes(token)) {
+            return `"${token}" was stripped out of a flag pair: ${c.verify.lint_no_fix.join(' ')}`;
+          }
+        }
+        return null;
+      },
+    ),
+  ),
+
   // ---- the honesty rule: an inference is offered for review, never as a reading ----
   check('colocated tests yield a REVIEW line, not a silent guess', () =>
     withRepo(
