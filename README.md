@@ -29,6 +29,11 @@ claude marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 ```
 
+An install does not stay current on its own. Run `/plugin marketplace update`
+(or `claude plugin update spec-flow`) to pull whatever has landed on `main`
+since — see [REFERENCE](REFERENCE.md#staying-current) for why that command
+does nothing on some plugins and does not here.
+
 **2. Install the CLI too.** The hooks reach the engine through
 `${CLAUDE_PLUGIN_ROOT}`, which only exists inside a Claude Code session. Your
 terminal and CI need the same checks:

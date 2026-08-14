@@ -10,7 +10,6 @@
     {
       "name": "spec-flow",
       "description": "Spec-driven multi-agent pipeline, gated by an external lint/test/spec-trace loop.",
-      "version": "0.1.0",
       "author": {
         "name": "Ignacio Marín"
       },
