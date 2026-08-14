@@ -12,7 +12,7 @@ You manage phase via the file `.claude/state/phase`. Write the current phase to 
 
 If `$ARGUMENTS` is empty, ask the user in this chat to paste the requirement and wait for their reply.
 
-Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run the engine's telemetry-snapshot script with `--mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
 
 ## 1. SPEC  (subagent: spec-writer · Sonnet 5) + HITL
 - Invoke `spec-writer`, passing the requirement text.
@@ -68,8 +68,8 @@ The change spec in `specflow/<SLUG>/spec.md` describes a **delta**, and by now t
 
 ## 6. DONE
 - After the fold passes the gate, write `done` to `.claude/state/phase`.
-- **Archive this run's telemetry and commit it**: run the engine's telemetry-snapshot script with `<SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log` — the raw `k=v` lines this run produced, sliced from the mark set in step 0. Commit it with a `chore(spec-flow): archive the <SLUG> run telemetry` message. This is the step whose absence is invisible: `.claude/state/*.log` is gitignored — necessarily, since both files are appended to on every tool call and a tracked file churning that fast would leave the tree permanently dirty, which makes the gate's quiescence guard skip the gate on **every** stop. On a cloud branch the evidence otherwise dies with the container.
-- **Run the project's flow-stats script, if it has one, and show the report.** It reads the live state plus every archived run, and always exits 0 — it reports, it never gates, so nothing here can block the close. The numbers are **cumulative across runs**, so read a tally as a trend, not as a verdict on the run that just finished.
+- **Archive this run's telemetry and commit it**: run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs <SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log` — the raw `k=v` lines this run produced, sliced from the mark set in step 0. Commit it with a `chore(spec-flow): archive the <SLUG> run telemetry` message. This is the step whose absence is invisible: `.claude/state/*.log` is gitignored — necessarily, since both files are appended to on every tool call and a tracked file churning that fast would leave the tree permanently dirty, which makes the gate's quiescence guard skip the gate on **every** stop. On a cloud branch the evidence otherwise dies with the container.
+- **Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specflow-stats.mjs` and show the report.** It reads the live state plus every archived run, and always exits 0 — it reports, it never gates, so nothing here can block the close. The numbers are **cumulative across runs**, so read a tally as a trend, not as a verdict on the run that just finished.
 - Summarize for the user: milestones shipped, files changed, requirements added/changed/removed in `specs/`, notes. Offer to open a PR / commit.
 
 ### Rules

@@ -21,6 +21,13 @@ const commands = {
   check: '../scripts/check-changed.mjs',
   trace: '../scripts/spec-trace.mjs',
   stats: '../scripts/specflow-stats.mjs',
+  // The orchestrator runs this one twice per run — `--mark` at intake and
+  // `<SLUG>` at DONE. It was reachable through neither this dispatcher nor a
+  // documented path for a while, which is a quiet way to lose every run's
+  // evidence: the snapshot is what moves telemetry out of gitignored state
+  // and into the change folder, so a run whose snapshot never fires leaves
+  // nothing behind for `stats` to read.
+  telemetry: '../scripts/telemetry-snapshot.mjs',
 };
 
 if (!sub || !commands[sub]) {

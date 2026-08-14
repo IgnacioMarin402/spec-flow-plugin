@@ -23,7 +23,7 @@ Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). E
 
 `$ARGUMENTS` **is** the defect report, as free text. There is no tracker to read — this engine's only intake is what you were given in the chat. Empty -> ask in this chat what is broken, and wait.
 
-Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run the engine's telemetry-snapshot script with `--mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
 
 ## 1. TRIAGE (subagent: spec-writer · Sonnet 5)
 
@@ -95,11 +95,11 @@ Invoke `spec-writer` in `MODE=FOLD` with `specflow/<SLUG>/spec.md`. It verifies 
 
 Write `done` to `.claude/state/phase`.
 
-**Then archive this run's telemetry and commit it**: run the engine's telemetry-snapshot script with `<SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log`. Commit that with a `chore(spec-fix): archive the <SLUG> run telemetry` message.
+**Then archive this run's telemetry and commit it**: run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs <SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log`. Commit that with a `chore(spec-fix): archive the <SLUG> run telemetry` message.
 
 This is not optional bookkeeping, and it is the one step whose absence is invisible. `.claude/state/*.log` is gitignored — necessarily, since both files are appended to on every tool call and a tracked file that churns that fast would leave the tree permanently dirty, which makes the gate's quiescence guard skip the gate on **every** stop. So on a cloud branch the evidence dies with the container. The snapshot is what makes a run's own record outlive it.
 
-Finally, **run the project's flow-stats script, if it has one, and show the report** — it reads the live state plus every archived run, always exits 0 and gates nothing. A single fix run says little on its own; the numbers are cumulative, so read a tally as a trend.
+Finally, **run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specflow-stats.mjs` and show the report** — it reads the live state plus every archived run, always exits 0 and gates nothing. A single fix run says little on its own; the numbers are cumulative, so read a tally as a trend.
 
 Then summarize: the triage case, the root cause, files changed, requirements added or changed, and the test that now proves it. Offer to open a PR.
 

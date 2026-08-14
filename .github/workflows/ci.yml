@@ -47,6 +47,14 @@ jobs:
       - name: No repo-specific coupling
         run: npm run check
 
+      # Every ${CLAUDE_PLUGIN_ROOT}/... path the commands, agents and
+      # hooks.json tell someone to run must exist in the package. A command
+      # naming a script that does not ship is an instruction that silently
+      # never executes — see the script's own header for the run-telemetry
+      # step that spent a while in exactly that state.
+      - name: Plugin paths resolve
+        run: npm run paths:check
+
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour
       # holds — including the split this whole extraction exists to make

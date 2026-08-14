@@ -1,0 +1,36 @@
+{
+  "_comment": "NestJS + Jest, hexagonal layout, pnpm. Copy to .spec-flow/config.json and adjust. See examples/README.md.",
+  "contract_version": 1,
+  "verify": {
+    "scope_globs": ["*.ts"],
+    "lint": ["pnpm", "exec", "eslint", "--fix"],
+    "lint_no_fix": ["pnpm", "exec", "eslint"],
+    "test": ["pnpm", "exec", "jest", "--ci"],
+    "test_name": "jest",
+    "lint_name": "eslint",
+    "lint_config_hint": "eslint.config.mjs"
+  },
+  "trace": {
+    "specs_dir": "specs",
+    "proof_dir": "application",
+    "proof_suffix": ".spec.ts",
+    "not_a_capability": ["README.md", "glossary.md"]
+  },
+  "extra_checks": [
+    {
+      "name": "domain-service-trace",
+      "field": "domain",
+      "cmd": ["node", "scripts/domain-service-trace.mjs"],
+      "green": "(every domain service is reachable from a use case)",
+      "hint": "Wire the new domain service into a use case, or delete it.",
+      "class": "lint/trace"
+    }
+  ],
+  "unscoped_denied": {
+    "scripts": ["test", "lint"],
+    "tools": ["jest", "eslint"],
+    "scoped_allowed": ["check"],
+    "scoped_alternative": "pnpm run check",
+    "scoped_examples": ["pnpm run check", "pnpm run check --no-fix"]
+  }
+}

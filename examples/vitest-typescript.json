@@ -1,0 +1,26 @@
+{
+  "_comment": "Plain TypeScript + Vitest, tests colocated under test/. Copy to .spec-flow/config.json and adjust. See examples/README.md.",
+  "contract_version": 1,
+  "verify": {
+    "scope_globs": ["*.ts", "*.tsx"],
+    "lint": ["node", "node_modules/.bin/eslint", "--fix"],
+    "lint_no_fix": ["node", "node_modules/.bin/eslint"],
+    "test": ["node", "node_modules/.bin/vitest", "run"],
+    "test_name": "vitest",
+    "lint_name": "eslint",
+    "lint_config_hint": "the repo's eslint config"
+  },
+  "trace": {
+    "specs_dir": "specs",
+    "proof_dir": "test",
+    "proof_suffix": ".test.ts"
+  },
+  "extra_checks": [],
+  "unscoped_denied": {
+    "scripts": ["test", "lint"],
+    "tools": ["vitest", "eslint"],
+    "scoped_allowed": ["check"],
+    "scoped_alternative": "npm run check",
+    "scoped_examples": ["npm run check"]
+  }
+}
