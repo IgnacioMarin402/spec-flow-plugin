@@ -349,6 +349,42 @@ await Promise.all([
     }),
   ),
 
+  // Two agent contracts tell their reader that `specs/README.md` "has the
+  // contract" — the spec-writer before writing a spec, the implementer before
+  // creating a capability spec that does not exist yet. Nothing created it,
+  // so both deferred to a document that was not there, and the three rules
+  // spec-trace enforces existed only as regexes.
+  check('it scaffolds the capability-spec contract the agents defer to', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const path = join(dir, 'specs', 'README.md');
+      if (!existsSync(path)) return 'specs/README.md was not created, and two agent contracts point at it';
+      const text = readFileSync(path, 'utf8');
+      // The three rules a human hits with no documentation behind them.
+      const rules = [
+        { what: 'the filename to id-prefix binding', re: /REQ-USER-/ },
+        { what: 'the three-digit id format', re: /three digits/i },
+        { what: 'the scope marker', re: /spec-scope/ },
+      ];
+      for (const { what, re } of rules) {
+        if (!re.test(text)) return `the contract does not state ${what}`;
+      }
+      return null;
+    }),
+  ),
+
+  check('it never overwrites a specs contract the repo already wrote', () =>
+    withRepo(COMPLETE, async (dir) => {
+      mkdirSync(join(dir, 'specs'), { recursive: true });
+      writeFileSync(join(dir, 'specs', 'README.md'), '# ours\n');
+      await run(['--force'], dir);
+      if (readFileSync(join(dir, 'specs', 'README.md'), 'utf8') !== '# ours\n') {
+        return 'a repo\'s own spec conventions were overwritten — this is documentation, not engine state';
+      }
+      return null;
+    }),
+  ),
+
   check('it does not duplicate a gitignore line the repo already has', () =>
     withRepo({ ...COMPLETE, gitignore: 'node_modules/\n.claude/state/\n' }, async (dir) => {
       await run([], dir);

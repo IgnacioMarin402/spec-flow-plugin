@@ -40,14 +40,25 @@ checkout <sha>`), never by manipulating this working tree. A `git stash` plus
 files here once; the only reason it surfaced was a suite that passed when it
 should have failed.
 
-## Adding a hook is not additive
+## Changing one coupled contract is not a local edit
 
-Every hook decides whether it is armed by reading `.claude/state/phase`.
-Adding one changes what the other hooks' assumptions mean — `preflight` armed
-on every run phase, which turned `session-start`'s "the other phases are
-already harmless" from true into false, and made an abandoned `plan` deny
-unrelated work forever. After adding or re-arming a hook, re-read the other
-nine rather than only testing the new one.
+Nothing here stands alone. The hooks agree about `.claude/state/phase`; the
+agents agree about the shape of `Mk.md`; the commands describe both. Editing
+one member of such a set changes what the others' assumptions mean, and the
+break is silent because each file still reads correctly on its own.
+
+It has happened twice, in both halves:
+
+- `preflight` armed on every run phase, which turned `session-start`'s "the
+  other phases are already harmless" from true into false and made an
+  abandoned `plan` deny unrelated work forever.
+- A `Skills:` field was added to the milestone template and the planner's
+  contract, and the reviewer — the one agent whose job is checking the plan —
+  was not told, so a missing field passed review unseen.
+
+So: after changing a hook, re-read the other nine. After changing what an
+artifact contains, re-read every agent and command that writes or reads it.
+Testing the thing you changed is not the check that matters here.
 
 ## Docs are checked, not trusted
 

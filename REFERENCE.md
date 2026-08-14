@@ -73,6 +73,33 @@ fails. If you hit that and your specs do exist, check `trace.specs_dir` —
 they are somewhere this contract does not look. `REJECTED` and `SUPERSEDED`
 assert nothing landed, so they keep the grace.
 
+### Writing a capability spec
+
+`spec-trace` enforces three rules a spec must follow, and `spec-flow init`
+writes them into `specs/README.md` so the file the agents defer to actually
+exists. In short:
+
+```markdown
+<!-- spec-scope: modules/user -->
+
+# User
+
+### REQ-USER-001 — the user can reset their password by email
+
+The system sends a single-use link, valid for one hour.
+```
+
+- **The id prefix comes from the filename.** `specs/user.md` declares
+  `REQ-USER-` ids, `specs/user-profile.md` declares `REQ-USER-PROFILE-`. A
+  mismatch fails.
+- **Exactly three digits**: `REQ-USER-001`, not `REQ-USER-1`.
+- **The scope marker is required**, naming the code the spec is about.
+
+Requirements are `###` headings with the id first; the separator after it may
+be an em dash, a hyphen or a colon. Ids are permanent — never renumbered,
+never reused. Every requirement needs a test whose **title** contains its id,
+on the proof surface above.
+
 ### `extra_checks`
 
 Your own project checks, run at every gate and again at `done`. Each entry:
