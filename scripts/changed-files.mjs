@@ -15,6 +15,9 @@
  * `.spec-flow/config.json` via `loadConfig`, and the caller decides what a
  * missing or malformed contract means to IT — this file itself takes a
  * loaded config rather than loading one, so it never has an opinion on that.
+ *
+ * Which BASE they are compared against is the repo's call too, and used to be
+ * this file's silent guess. See `resolveBase` below for what that cost.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
@@ -24,21 +27,104 @@ function git(root, args) {
   return spawnSync('git', args, { cwd: root, encoding: 'utf8' });
 }
 
-/** Compare against the merge-base with the default branch; fall back to HEAD (uncommitted only). */
-export function resolveBase(root) {
-  for (const ref of ['origin/main', 'main']) {
-    const res = git(root, ['merge-base', 'HEAD', ref]);
-    if (res.status === 0) return res.stdout.trim();
+/**
+ * The candidates probed when neither the contract nor `origin/HEAD` answers.
+ * A list, because "the default branch" is a repo's choice and this engine
+ * does not get to have an opinion about which name is correct — it only gets
+ * to be honest about whether it found one.
+ */
+const BASE_CANDIDATES = [
+  'origin/main',
+  'main',
+  'origin/master',
+  'master',
+  'origin/develop',
+  'develop',
+  'origin/trunk',
+  'trunk',
+];
+
+/** The merge-base of HEAD and `ref`, or null if git cannot resolve the pair. */
+function mergeBase(root, ref) {
+  const res = git(root, ['merge-base', 'HEAD', ref]);
+  return res.status === 0 ? res.stdout.trim() : null;
+}
+
+/**
+ * The commit this branch is judged against.
+ *
+ * **This function throws rather than guessing, and that is the whole point of
+ * it.** It used to probe `origin/main` then `main` and, finding neither, fall
+ * back to `'HEAD'` — a base against which `git diff` is empty BY
+ * CONSTRUCTION. In any repo whose default branch is named something else
+ * (`master`, `develop`, `trunk`) the consequence was not a degraded scope, it
+ * was a disarmed gate: `changedFiles` returned `[]`, and the caller read zero
+ * changed files as "this milestone touched nothing in scope" and reported a
+ * clean pass — with a red linter and a red suite sitting untouched in the
+ * repo, because neither was ever invoked. A gate that looks armed and is not
+ * is the exact failure this engine exists to close, and it was living in the
+ * engine's own resolver, one layer below everything built to catch it.
+ *
+ * So the ladder below ends in an exception, not a value. Every rung before it
+ * only reduces how often a repo has to say the name out loud:
+ *
+ *   1. `verify.base_ref` from the contract — explicit, and it wins. A repo
+ *      with an unusual base (a release branch, a fork's upstream) says so
+ *      once instead of hoping the probe guesses right.
+ *   2. `refs/remotes/origin/HEAD` — what `git clone` records as the remote's
+ *      default branch. Correct when present, and absent more often than you
+ *      would think: CI checkouts frequently do not set it, so this is a good
+ *      first rung and a terrible only one.
+ *   3. The candidate list above.
+ *   4. Throw. The caller decides what a loud failure means for IT — the gate
+ *      blocks the stop, the CLI exits non-zero — but nobody gets to continue
+ *      with a base that silently matches nothing.
+ *
+ * @param {string} root Absolute path to the repo being judged.
+ * @param {{verify?: {base_ref?: string}}} [config] The loaded contract, if the caller has one.
+ */
+export function resolveBase(root, config = undefined) {
+  const declared = config?.verify?.base_ref;
+  if (declared) {
+    const base = mergeBase(root, declared);
+    if (base) return base;
+    throw new Error(
+      `the contract declares verify.base_ref "${declared}", and git cannot resolve a merge-base between it and HEAD. ` +
+        `Either the ref does not exist in this clone (a shallow or single-branch fetch is the usual cause) or the name is wrong. ` +
+        `Refusing to fall back: a base this engine cannot resolve produces an EMPTY changed-file list, which reads as "nothing to check" rather than "I do not know what to check".`,
+    );
   }
-  return 'HEAD';
+
+  const originHead = git(root, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  if (originHead.status === 0 && originHead.stdout.trim()) {
+    const base = mergeBase(root, originHead.stdout.trim());
+    if (base) return base;
+  }
+
+  for (const ref of BASE_CANDIDATES) {
+    const base = mergeBase(root, ref);
+    if (base) return base;
+  }
+
+  throw new Error(
+    `no base branch could be resolved for this repo. Tried the contract's verify.base_ref (not set), refs/remotes/origin/HEAD (absent or unresolvable), and ${BASE_CANDIDATES.join(', ')}. ` +
+      `Declare the branch this work is judged against as "base_ref" under "verify" in .spec-flow/config.json — e.g. "base_ref": "origin/trunk". ` +
+      `This is a refusal to run, not a failed milestone: with no base, the changed-file list is empty for reasons that have nothing to do with the code, and every scoped check would report clean without ever running.`,
+  );
 }
 
 /**
  * The union of three lists — committed + working-tree changes, staged
  * changes, untracked files — minus deletions, which have nothing left to
  * lint or test. `scopeGlobs` comes from the caller's loaded config.
+ *
+ * `base` is REQUIRED, deliberately. It used to default to `resolveBase(root)`,
+ * which meant a caller that forgot to pass one got a base resolved without
+ * ever seeing the contract — and so never saw `verify.base_ref`. Every caller
+ * in this package resolves the base explicitly, one line above, so the
+ * default only existed to make that mistake possible.
  */
-export function changedFiles(root, scopeGlobs, base = resolveBase(root)) {
+export function changedFiles(root, scopeGlobs, base) {
   const lists = [
     git(root, ['diff', '--name-only', '--diff-filter=ACMR', base, '--', ...scopeGlobs]),
     git(root, ['diff', '--name-only', '--diff-filter=ACMR', '--cached', '--', ...scopeGlobs]),
@@ -70,7 +156,18 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.arg
 if (isMain) {
   const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const config = loadConfig(root); // unguarded — see spec-flow-config.mjs's header
-  const base = resolveBase(root);
+
+  // Also unguarded, and for the same reason: an unresolvable base is a
+  // refusal to run, and printing an empty file list instead would be this
+  // command lying about the scope in exactly the way `resolveBase`'s old
+  // `'HEAD'` fallback did.
+  let base;
+  try {
+    base = resolveBase(root, config);
+  } catch (err) {
+    process.stderr.write(`changed-files: ${err.message}\n`);
+    process.exit(1);
+  }
 
   if (process.argv.includes('--base')) {
     console.log(base);

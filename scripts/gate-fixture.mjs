@@ -34,6 +34,18 @@
  * tracked file, so `files.length > 0` for every case below — and the
  * "a green run reports the real scope" case exists specifically to keep that
  * true, by breaking loudly if it ever regresses back to empty.
+ *
+ * That fix left a second copy of the same assumption behind, in this file's
+ * own scaffolding: it hardcoded the base branch to `main`, because `main` is
+ * what `resolveBase` probed for, and this header documented the coupling as
+ * though it were a property of the fixture. It was a property of the ENGINE,
+ * and it was a defect. A repo whose default branch is `master`, `develop` or
+ * `trunk` got `resolveBase() === 'HEAD'`, an empty changed-file list, and a
+ * gate that wrote `result=pass` over a red linter and a red suite that had
+ * never been invoked. No case here could have caught it, because every case
+ * had been built to match the bug. `baseBranch` is a parameter now, and the
+ * cases below run the real hook against branch names the old resolver could
+ * not see.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
@@ -88,12 +100,15 @@ function have(cmd) {
  * on `main`, then `feature` branched off it with one more commit that
  * changes `changedFile` (default `b.ts`) — never `a.ts`, which stays as
  * committed-and-untouched debt on both branches, so a case that inspects
- * `verify.lint`'s argv can assert the untouched file is NOT in it. The
- * branch is created via `symbolic-ref` right after `init`, not `git init -b`
- * (needs git >= 2.28) and not left to `init.defaultBranch` (a per-machine
- * config this fixture must not depend on) — it must be named `main` on every
- * machine this runs on, because `resolveBase` falls back to that literal
- * name once `origin/main` (no remote here) is absent.
+ * `verify.lint`'s argv can assert the untouched file is NOT in it.
+ *
+ * The base branch is created via `symbolic-ref` right after `init`, not
+ * `git init -b` (needs git >= 2.28) and not left to `init.defaultBranch` (a
+ * per-machine config this fixture must not depend on), so its name is
+ * exactly what `baseBranch` says on every machine this runs on. It defaults
+ * to `main` for the cases that are not about base resolution, and the cases
+ * that ARE pass `master`/`develop`/`nonesuch` — see this file's header for
+ * why hardcoding it was the bug rather than the setup.
  */
 async function fixture({
   phase = 'implement',
@@ -107,6 +122,8 @@ async function fixture({
   test = NOOP,
   changedFile = 'b.ts',
   omitSpecTrace = false,
+  baseBranch = 'main',
+  baseRef = undefined,
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
@@ -145,8 +162,9 @@ async function fixture({
 
   const git = (...args) => run('git', args, { cwd: repoDir });
   await git('init', '-q', '.');
-  // See this function's own header: must be `main`, on every machine.
-  await git('symbolic-ref', 'HEAD', 'refs/heads/main');
+  // See this function's own header: the name is `baseBranch`, exactly, on
+  // every machine — never whatever this machine's init.defaultBranch says.
+  await git('symbolic-ref', 'HEAD', `refs/heads/${baseBranch}`);
   await git('config', 'user.email', 'fixture@example.com');
   await git('config', 'user.name', 'fixture');
   // core.autocrlf false: on Windows the global default rewrites line endings
@@ -170,6 +188,10 @@ async function fixture({
           test_name: 'fixture-test',
           lint_name: 'fixture-lint',
           lint_config_hint: 'fixture.config',
+          // Omitted unless a case is specifically about it: an absent
+          // base_ref is the shape every existing consuming repo has, and is
+          // what exercises the automatic resolution ladder.
+          ...(baseRef === undefined ? {} : { base_ref: baseRef }),
         },
         trace: { specs_dir: 'specs', proof_dir: 'application', proof_suffix: '.spec.ts', not_a_capability: [] },
         extra_checks: extraChecks,
@@ -183,7 +205,7 @@ async function fixture({
   writeFileSync(join(repoDir, '.gitignore'), '.claude/state/\n');
   writeFileSync(join(repoDir, 'a.ts'), 'export const a = 1;\n');
   await git('add', '-A');
-  await git('commit', '-qm', 'baseline on main');
+  await git('commit', '-qm', `baseline on ${baseBranch}`);
 
   // The base every case diffs against — a real ancestor commit, never HEAD
   // itself. `changedFile` is null for a case that wants zero files in scope
@@ -420,6 +442,102 @@ await Promise.all([
         return null;
       },
     ),
+  ),
+
+  // ---- base resolution: the gate must not be disarmed by a branch name ----
+  //
+  // The whole group below is one defect. `resolveBase` probed `origin/main`
+  // then `main`, and returned the literal string `'HEAD'` when it found
+  // neither. `git diff HEAD` against a clean tree is empty BY CONSTRUCTION,
+  // so on any repo whose default branch is named something else the gate
+  // computed zero changed files, took the "nothing in scope changed"
+  // short-circuit, and wrote `result=pass` — with a red linter and a red
+  // suite sitting in the repo, neither ever invoked. Not a narrowed scope: a
+  // disarmed gate, on a majority of the branch names in the wild.
+  //
+  // This first case is the reproduction, turned into a regression test. Both
+  // commands are RED and the ONLY thing separating it from the passing `main`
+  // cases above is the branch name.
+  ...['master', 'develop', 'trunk'].map((branch) =>
+    check(`a repo whose default branch is '${branch}' is still judged — a red tree must not read as a pass`, () =>
+      withFixture({ specTrace: 'green', baseBranch: branch, lint: RED, test: RED }, (r) => {
+        if (!r.blocked) {
+          return `the gate ALLOWED the stop on a repo with a red linter and a red suite, because its base branch is '${branch}' rather than 'main'. This is the silent-disarm this engine exists to close, in the engine's own base resolver. history: ${r.history}`;
+        }
+        if (/result=pass/.test(r.history)) return `recorded a pass over a red tree: ${r.history}`;
+        if (!/files=1\b/.test(r.history)) {
+          return `blocked, but computed files=0 — the base is still unresolved and only the unscoped checks are running. history: ${r.history}`;
+        }
+        return null;
+      }),
+    ),
+  ),
+
+  // A base that genuinely cannot be resolved must be a REFUSAL, not an empty
+  // scope. `release/7.x` is in no candidate list and there is no origin/HEAD
+  // in a fixture repo, so nothing can find it — which is the point.
+  check('an unresolvable base branch blocks loudly instead of silently checking nothing', () =>
+    withFixture({ specTrace: 'green', baseBranch: 'release/7.x', lint: RED, test: RED }, (r) => {
+      if (!r.blocked) {
+        return `the gate allowed the stop when it could not resolve a base at all — the empty changed-file list read as "nothing to check". history: ${r.history}`;
+      }
+      if (!/result=fail:base/.test(r.history)) return `expected fail:base in the history line, got: ${r.history}`;
+      if (!/base_ref/.test(r.stdout)) return `the block message does not tell a human which contract field fixes this: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ...and declaring it in the contract is what makes that repo work again.
+  // Same branch name the case above cannot resolve, so this asserts
+  // `verify.base_ref` genuinely resolves it rather than some candidate in the
+  // ladder happening to match.
+  check('verify.base_ref resolves a base no candidate in the ladder could find', () =>
+    withFixture({ specTrace: 'green', baseBranch: 'release/7.x', baseRef: 'release/7.x' }, (r) => {
+      if (r.blocked) return `an all-green tree with an explicit base_ref blocked: ${r.stdout} ${r.stderr}`;
+      if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
+      if (!/files=1\b/.test(r.history)) {
+        return `base_ref was declared but the scope is still empty — it is not being read. history: ${r.history}`;
+      }
+      return null;
+    }),
+  ),
+
+  check('a declared base_ref that git cannot resolve blocks rather than falling back', () =>
+    withFixture({ specTrace: 'green', baseRef: 'origin/does-not-exist', lint: RED, test: RED }, (r) => {
+      if (!r.blocked) return `a bogus base_ref silently fell back to an empty scope: ${r.history}`;
+      if (!/result=fail:base/.test(r.history)) return `expected fail:base, got: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  // ---- the empty-scope short-circuit, which used to skip the suite too ----
+  //
+  // `files.length === 0` is a statement about the DIFF, not about the system,
+  // and the gate used to treat it as grounds to skip `verify.test` — the same
+  // scoping mistake the header of gate.mjs rejects, at its degenerate case.
+  // It is also what made the base defect above fatal rather than merely
+  // wrong: an empty scope invented by a bad base skipped everything.
+  check('a milestone that changed no file in scope still runs the suite', () =>
+    withFixture({ specTrace: 'green', changedFile: null, test: RED }, (r) => {
+      if (!r.blocked) {
+        return `no file in scope changed, so the gate skipped the suite and passed — a red suite reads as a clean milestone. history: ${r.history}`;
+      }
+      if (!/result=fail:behaviour/.test(r.history)) return `expected fail:behaviour, got: ${r.history}`;
+      if (!/files=0\b/.test(r.history)) return `expected files=0 for this case, got: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  check('an empty scope reports lint as not-run, never as clean', () =>
+    withFixture({ specTrace: 'green', changedFile: null, test: RED }, (r) => {
+      if (!/lint=-/.test(r.history)) {
+        return `history claims a lint result for a linter that was never invoked: ${r.history}`;
+      }
+      if (/\(clean\)/.test(r.failureLog)) {
+        return `the failure log reports the linter as "(clean)" over files it never received: ${r.failureLog}`;
+      }
+      return null;
+    }),
   ),
 
   // ---- the new routing: a red test on attempt 1 goes to the implementer, not to REPLAN ----

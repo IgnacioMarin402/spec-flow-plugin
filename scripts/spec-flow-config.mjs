@@ -75,6 +75,13 @@ const DEFAULTS = {
     test_name: '',
     lint_name: '',
     lint_config_hint: '',
+    // Optional, and the only field here whose empty default is not a
+    // "required, go declare it": empty means "resolve the base branch
+    // automatically", which succeeds for most repos. What is NOT optional is
+    // that failing to resolve one is loud — see resolveBase in
+    // changed-files.mjs. A repo only needs this field when the automatic
+    // ladder cannot find its base.
+    base_ref: '',
   },
   trace: {
     specs_dir: 'specs',
@@ -135,6 +142,15 @@ function validate(config, source) {
   }
   if (!nonEmptyString(config.verify.lint_name)) {
     problems.push('verify.lint_name must name the linter, e.g. "eslint" — it labels the gate\'s log sections.');
+  }
+  // Optional — but a repo that bothers to declare it must mean something by
+  // it. `"base_ref": ""` is indistinguishable from not setting it at all,
+  // and silently means "auto-resolve"; saying so here stops that from being
+  // a surprise the first time the automatic ladder picks a different branch.
+  if (config.verify.base_ref !== '' && !nonEmptyString(config.verify.base_ref)) {
+    problems.push(
+      'verify.base_ref, when present, must be a non-empty string naming the ref this branch is judged against, e.g. "origin/trunk". Omit it entirely to let the engine resolve the base branch automatically.',
+    );
   }
   if (!nonEmptyString(config.trace.proof_dir)) {
     problems.push(

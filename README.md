@@ -76,9 +76,36 @@ to the directory your tests actually live in (`test`, `tests`, `spec`, or your
 source root if you genuinely colocate), and the agents will follow it. Nothing
 in the engine overrides it, and nothing guesses it.
 
+**The base branch is resolved automatically, and a base that cannot be
+resolved stops the run.** "The files this branch changed" needs something to
+compare against, and the engine looks for it in this order: `verify.base_ref`
+if you declared it, then `refs/remotes/origin/HEAD` (what `git clone` records
+as the remote's default branch), then `origin/main`, `main`, `origin/master`,
+`master`, `origin/develop`, `develop`, `origin/trunk`, `trunk`. If none of
+those resolves, the gate **blocks** and names the field to add. It does not
+fall back to a default, because the only available fallback — comparing HEAD
+against itself — produces an empty changed-file list, which is
+indistinguishable from "this milestone touched nothing" and used to be
+reported as a clean pass over an unrun linter.
+
+Add `"base_ref": "origin/trunk"` under `verify` when your base is something
+the ladder cannot find (a release branch, a fork's upstream, a shallow or
+single-branch CI checkout that fetched no other ref). Declaring it always
+wins over the automatic ladder.
+
+**The engine assumes a feature-branch workflow.** Scope is computed against
+the merge-base with your base branch, so work committed *directly onto* the
+base branch has a scope of zero files by construction — `verify.lint` will
+have nothing to run on. The suite still runs (see below) and the unscoped
+checks still run, so the gate is not disarmed by this, but lint coverage is
+only as good as the branch you are on.
+
 **`verify.test` is invoked with no extra arguments — the full suite, every
-time it runs at all.** Only `verify.lint` is scoped to the files this branch
-changed. Do not add a flag like `--passWithNoTests` to `verify.test` to work
+time the gate is armed.** Not scoped to the changed files, and not skipped
+when nothing in scope changed either: both follow from the same fact, that a
+suite's outcome is a property of the system rather than of any file. Only
+`verify.lint` is scoped, because `lint(file)` really is a predicate about one
+file. Do not add a flag like `--passWithNoTests` to `verify.test` to work
 around a runner that exits non-zero on an empty match: that class of problem
 no longer exists once the gate stops appending file paths to the test
 command, and a flag that makes an empty run exit 0 makes an EVERY run that
@@ -97,6 +124,25 @@ every run after that — forever, with nothing in the output to say why. The
 gate itself now filters `.claude/state/` out of its dirty check as a second
 line of defense, but gitignoring it is still what keeps a human's `git
 status` legible.
+
+**`verify.test` must finish inside the Stop hook's time budget.** The gate
+runs as a `command` hook on `Stop`, and Claude Code cancels a hook that
+reaches its timeout: the output is discarded and the hook renders no
+decision — which, for a Stop hook, means the stop is allowed. A suite that
+runs long therefore does not produce a slow gate, it produces a *silently
+absent* one: no block, and no line in `gate-history.log` either, because the
+process was killed before it could write one. This is the one gate failure
+mode `gate.mjs`'s own catch-all cannot reach, since it happens a layer above
+the process.
+
+The plugin declares `"timeout": 1800` on the Stop hook, well above the 600s
+default, which is enough headroom for most repos. It is headroom, not a
+removed ceiling. If your full suite can approach thirty minutes, declare a
+smoke subset as `verify.test` and leave the exhaustive run to CI — a gate you
+can rely on beats a gate that checks everything and occasionally checks
+nothing without saying so. `gate-history.log` is how you audit this: a stop
+that produced no line at all, in a run where the phase was `implement` and
+the tree was clean, is the signature.
 
 **There is no fallback that guesses these for you.** A repo this engine has
 never seen has no safe default test runner or proof directory — see
@@ -296,7 +342,9 @@ flowchart TD
     CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
     CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
     DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing"]
-    DIRTY -->|"clean"| RUN["lint over the changed files <br/> the FULL test suite <br/> spec-trace, then every extra_check"]
+    DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
+    BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
+    BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> spec-trace, then every extra_check"]
     RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
     RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
     CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
@@ -314,7 +362,14 @@ Four things this diagram is really saying:
   `lint(file)` is a total predicate over one file, so scoping it is exact. A
   suite's outcome is a property of the system, not of a file — a scoped run
   can stay green while the change breaks a consumer outside the diff, which is
-  the exact silent-pass this engine exists to close.
+  the exact silent-pass this engine exists to close. The same reasoning is why
+  an empty scope does not skip the suite: "no file in scope changed" is a
+  statement about the diff, and an empty diff is not always real.
+- **An unresolvable base branch is a refusal, not an empty scope.** Everything
+  scoped depends on knowing what this branch is compared against. When that
+  answer is a guess, an empty changed-file list stops meaning "nothing
+  changed" and starts meaning "I could not tell" — and those two must never
+  produce the same outcome, because one of them is a pass.
 - **The failure class decides the route, not the severity.** A traceability
   gap groups with lint because its usual cause is a test that proves the
   requirement and never named it — an edit, not a re-think. A red test always
