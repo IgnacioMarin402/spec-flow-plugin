@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · no-repo-refs · gate-fixture
+    name: lint · typecheck · coupling · init · paths · gate · trace · hooks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +47,22 @@ jobs:
       - name: No repo-specific coupling
         run: npm run check
 
+      # `init` generates a consuming repo's contract, which is what a worked
+      # example file used to do worse: an example is a static artifact nothing
+      # executes, so a contract change leaves it silently wrong. This asserts
+      # the generator's actual claim — that what it writes VALIDATES through
+      # the same reader every hook uses — so that change turns CI red instead.
+      - name: init behaviour
+        run: npm run init:check
+
+      # Every ${CLAUDE_PLUGIN_ROOT}/... path the commands, agents and
+      # hooks.json tell someone to run must exist in the package. A command
+      # naming a script that does not ship is an instruction that silently
+      # never executes — see the script's own header for the run-telemetry
+      # step that spent a while in exactly that state.
+      - name: Plugin paths resolve
+        run: npm run paths:check
+
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour
       # holds — including the split this whole extraction exists to make
@@ -62,8 +78,8 @@ jobs:
       - name: spec-trace behaviour
         run: npm run trace:check
 
-      # The other eight hooks. Shallower than the gate fixture, and that is
-      # the right trade: they are eight small adapters over one protocol, and
+      # The other nine hooks. Shallower than the gate fixture, and that is
+      # the right trade: they are nine small adapters over one protocol, and
       # what a port breaks in them is coarse — a hook that crashes, or fires
       # when it should be transparent.
       - name: Hook behaviour

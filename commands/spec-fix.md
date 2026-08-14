@@ -13,17 +13,19 @@ What it does **not** drop: the external gate, the spec-trace check, and the arch
 
 You manage phase via `.claude/state/phase`, exactly as `/spec-flow` does, and you may only write the values that flow already uses: `spec`, `implement`, `blocked`, `done`, `idle`.
 
-This is not a style preference. Every enforcement hook decides whether it is armed by matching that file against a **closed set** of values — the gate, the write-time linter and the whole-repo command deny all run only on `implement`, the Opus budget stands down on `idle|done`, session-start resets a stale `implement`. Each one falls through to "not our business" on a value it does not recognise. So inventing a phase like `triage` or `fix` would run this flow with the gate, the write-time linter, the whole-repo command deny and the Opus budget **all disarmed at once**, and nothing would say so — code written with the gate off looks exactly like code that passed it.
+This is not a style preference. Every enforcement hook decides whether it is armed by matching that file against a **closed set** of values — the gate, the write-time linter and the whole-repo command deny all run only on `implement`, the Opus budget and `preflight` stand down on `idle|done`, session-start resets any stale run phase. Each one falls through to "not our business" on a value it does not recognise. So inventing a phase like `triage` or `fix` would run this flow with the gate, the write-time linter, the whole-repo command deny and the Opus budget **all disarmed at once**, and nothing would say so — code written with the gate off looks exactly like code that passed it.
 
 Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
 
-`arm-gate` and `done-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, or an unarchived `specflow/<SLUG>/` say otherwise. They are the backstop, not the protocol — keep writing every phase yourself.
+`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, or an unarchived `specflow/<SLUG>/` say otherwise. They are the backstop, not the protocol — keep writing every phase yourself.
 
 ## 0. Init — intake
 
 `$ARGUMENTS` **is** the defect report, as free text. There is no tracker to read — this engine's only intake is what you were given in the chat. Empty -> ask in this chat what is broken, and wait.
 
-Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run the engine's telemetry-snapshot script with `--mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+
+Before your first subagent, a `preflight` hook checks two things and **denies the spawn** if either fails: that `.spec-flow/config.json` loads, and that the base branch resolves in this clone. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
 
 ## 1. TRIAGE (subagent: spec-writer · Sonnet 5)
 
@@ -63,7 +65,9 @@ Do not chain into `/spec-flow` yourself. "Fix this" is not authorisation to chan
 Write `implement` to `.claude/state/phase`, then write two small files yourself:
 
 - `specflow/<SLUG>/plan.md` — a handful of lines: the triage case, the root cause, and "one milestone: M1".
-- `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it — **by path, on the contract's proof surface** (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`), since a test written anywhere else is invisible to `spec-trace` and the fix reads as unproven — and a **Spec deltas** section (the deltas from the triage, or `none`).
+- `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it — **by path, on the contract's proof surface** (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`), since a test written anywhere else is invisible to `spec-trace` and the fix reads as unproven — a **Spec deltas** section (the deltas from the triage, or `none`), and a **Skills** field.
+
+For `Skills`, read `.spec-flow/skills.md` and name the entries this fix needs, or `none` if the file does not exist or nothing applies. You are standing in for the planner here, and this is the field that most repays it: the implementer loads what this names before its first edit, and anything you leave out it can only discover after guessing — by which point the guess is already written.
 
 Those exact two paths, with those exact names, because the implementer reads exactly them and is told not to read `spec.md`. Reusing that contract verbatim is what lets this flow skip the planner without a second implementer agent that would drift from the first one.
 
@@ -95,11 +99,11 @@ Invoke `spec-writer` in `MODE=FOLD` with `specflow/<SLUG>/spec.md`. It verifies 
 
 Write `done` to `.claude/state/phase`.
 
-**Then archive this run's telemetry and commit it**: run the engine's telemetry-snapshot script with `<SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log`. Commit that with a `chore(spec-fix): archive the <SLUG> run telemetry` message.
+**Then archive this run's telemetry and commit it**: run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs <SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log`. Commit that with a `chore(spec-fix): archive the <SLUG> run telemetry` message.
 
 This is not optional bookkeeping, and it is the one step whose absence is invisible. `.claude/state/*.log` is gitignored — necessarily, since both files are appended to on every tool call and a tracked file that churns that fast would leave the tree permanently dirty, which makes the gate's quiescence guard skip the gate on **every** stop. So on a cloud branch the evidence dies with the container. The snapshot is what makes a run's own record outlive it.
 
-Finally, **run the project's flow-stats script, if it has one, and show the report** — it reads the live state plus every archived run, always exits 0 and gates nothing. A single fix run says little on its own; the numbers are cumulative, so read a tally as a trend.
+Finally, **run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specflow-stats.mjs` and show the report** — it reads the live state plus every archived run, always exits 0 and gates nothing. A single fix run says little on its own; the numbers are cumulative, so read a tally as a trend.
 
 Then summarize: the triage case, the root cause, files changed, requirements added or changed, and the test that now proves it. Offer to open a PR.
 
@@ -107,5 +111,5 @@ Then summarize: the triage case, the root cause, files changed, requirements add
 
 - Model routing holds: `spec-writer` and `implementer` are Sonnet 5, `architect` is Opus 5 and budgeted. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
 - The gate is external and authoritative. On failure you re-triage; you do not hand-patch until green.
-- Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `done-guard` will say so.
+- Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `phase-guard` will say so.
 - Do not edit `/spec-flow`'s command or agents to make something here fit. If a fix needs the full pipeline, it belongs to the full pipeline.

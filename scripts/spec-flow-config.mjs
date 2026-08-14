@@ -6,7 +6,7 @@
  * through here: which command lints, which one tests, which files are in
  * scope, where the specs live, which extra checks the repo declares. Nothing
  * else parses that file — one reader means defaults, validation and the
- * version check exist once instead of in nine hooks.
+ * version check exist once instead of in ten hooks.
  *
  *   import { loadConfig } from './spec-flow-config.mjs';
  *   const config = loadConfig(root);
@@ -16,9 +16,9 @@
  * were the same directory, so resolving from `import.meta.url` worked by
  * accident. They are never the same directory again: every caller passes the
  * repo root down from `CLAUDE_PROJECT_DIR` (hooks) or `process.cwd()` (the
- * CLI form, run from an npm script in the consuming repo). See
- * docs/spec-flow-as-a-plugin.md in the engine repo, "Fix first", for the two
- * ways getting this wrong fails silently.
+ * CLI form, run from an npm script in the consuming repo). Inferring it from
+ * this file's own location instead would read the PLUGIN's contract, or none
+ * at all — both of which fail without saying so.
  *
  * **Missing file is not automatically silent, and that is a deliberate change
  * from how this file behaved while it lived inside the one repo it served.**
@@ -32,8 +32,9 @@
  * actually names a tool or a layer is required, and `validate()` — run on
  * EVERY load, missing file included — says exactly what is missing and that
  * `.spec-flow/config.json` is where it goes. A repo adopting this engine for
- * the first time hits that message once, at the first `implement` phase,
- * before anything runs with a guess.
+ * the first time hits that message twice at most, and both times before
+ * anything runs with a guess: `spec-flow init` reports it at setup, and
+ * `preflight.mjs` refuses the first subagent of a run if it is still true.
  *
  * **A version it does not recognise is an error too, and fails the same way.**
  * It used to be documented as "the one deliberate exception to the fail-open

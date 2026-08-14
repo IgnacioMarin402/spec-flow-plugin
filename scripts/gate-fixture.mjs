@@ -118,6 +118,7 @@ async function fixture({
   contractVersion = 1,
   sabotage = null,
   gateAttempts = '0',
+  history = null,
   lint = NOOP,
   test = NOOP,
   changedFile = 'b.ts',
@@ -222,6 +223,8 @@ async function fixture({
 
   writeFileSync(join(repoDir, '.claude/state/phase'), phase);
   writeFileSync(join(repoDir, '.claude/state/gate_attempts'), gateAttempts);
+  // Seeds gate-history.log, for the cases about what a PREVIOUS invocation left behind.
+  if (history !== null) writeFileSync(join(repoDir, '.claude/state/gate-history.log'), history);
 
   return { engineDir, repoDir };
 }
@@ -314,6 +317,51 @@ await Promise.all([
         }
         if (!/result=fail:hook-error/.test(r.history)) {
           return `blocked, but left no hook-error line, so the failure is invisible after the fact: ${r.history}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // ---- the failure mode the catch-all cannot reach ----
+  //
+  // A `command` hook that hits its timeout is CANCELED: output discarded, no
+  // decision rendered — and a Stop hook that renders no decision ALLOWS the
+  // stop. That happens a layer above this process, so gate.mjs's own catch-all
+  // cannot see it, and until the log recorded the ATTEMPT as well as the
+  // outcome, "no history line" was indistinguishable from "the gate was never
+  // armed". A `running` line that outlives its invocation is the evidence.
+  check('an armed gate records the attempt before it runs anything', () =>
+    withFixture({ specTrace: 'green' }, (r) => {
+      if (/result=running/.test(r.history)) {
+        return `the run finished but left its own \`running\` line behind — every later stop would report a kill that never happened: ${r.history}`;
+      }
+      if (!/result=pass/.test(r.history)) return `expected the running line to be replaced by the outcome: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  check('a gate killed mid-judgement is reported by the next one, not forgotten', () =>
+    withFixture(
+      { specTrace: 'green', history: '2026-08-01T00:00:00Z abc1234 phase=implement attempt=0 result=running lint=- test=- unscoped=- files=-\n' },
+      (r) => {
+        if (!r.blocked) {
+          return `a previous gate died without judging anything and this one allowed the stop anyway — the milestone it was checking stays unverified and unmentioned. history: ${r.history}`;
+        }
+        if (!/result=fail:killed/.test(r.history)) return `the kill was not recorded as such: ${r.history}`;
+        if (!/timeout|time budget/i.test(r.stdout)) return `the block does not name the likely cause: ${r.stdout}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('the report clears the evidence, so it does not block forever', () =>
+    withFixture(
+      { specTrace: 'green', history: '2026-08-01T00:00:00Z abc1234 phase=implement attempt=0 result=running lint=- test=- unscoped=- files=-\n' },
+      (r) => {
+        const lines = r.history.split('\n').filter(Boolean);
+        if (lines.some((l) => / result=running /.test(l))) {
+          return `the dangling line survived its own report, so every future stop blocks on the same dead invocation: ${r.history}`;
         }
         return null;
       },

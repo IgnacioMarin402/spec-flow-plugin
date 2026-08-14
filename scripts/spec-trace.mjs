@@ -83,7 +83,7 @@ const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
  * at every gate and one nobody can afford to run. Measured on a mid-size
  * project: 204 files under the source tree, 34,860 under `node_modules` —
  * walking both took 9.7s against 0.11s, and `spec-trace` runs on every gate,
- * every done-guard and every check command.
+ * every phase-guard and every check command.
  *
  * `node_modules` is not repo-specific vocabulary the way a layer name would
  * be: this engine is itself a Node program, and no dependency tree contains a
@@ -301,9 +301,40 @@ for (const slug of live) {
 }
 
 // ---- report -------------------------------------------------------------
-if (specFiles.length === 0 && archived.length === 0) {
-  console.log(`spec-trace: no capability specs under ${CONFIG.trace.specs_dir}/ and nothing archived — nothing to check.`);
-  process.exit(0);
+//
+// An empty `specs/` makes every check in this file vacuous: no requirements
+// means nothing to bind, so "every requirement is proven" is true of the
+// empty set and this script reports green. That is the right answer for a
+// repo adopting the engine — capability specs are WRITTEN by the flow, as
+// milestones fold their deltas in, so demanding them before the first run
+// completes would block adoption on an artifact the run is supposed to
+// produce.
+//
+// It stops being the right answer the moment a change is stamped SHIPPED.
+// That stamp is the flow asserting the deltas landed in `specs/`, so SHIPPED
+// with no capability spec anywhere is not an early adoption state, it is two
+// artifacts contradicting each other — and the one this script exists to
+// trust says something landed where nothing is. REJECTED and SUPERSEDED
+// assert nothing landed, so they keep the grace.
+const shipped = archived.filter((slug) => {
+  const specPath = join(ARCHIVE_DIR, slug, 'spec.md');
+  return existsSync(specPath) && /^\*\*Status:\*\*\s+SHIPPED\b/m.test(readFileSync(specPath, 'utf8'));
+});
+
+if (specFiles.length === 0) {
+  if (shipped.length === 0) {
+    console.log(
+      `spec-trace: no capability specs under ${CONFIG.trace.specs_dir}/ and nothing shipped yet — nothing to check. ` +
+        `This grace ends at the first SHIPPED change: capability specs are what a fold writes.`,
+    );
+    process.exit(0);
+  }
+
+  problems.push(
+    `${shipped.length} change(s) are stamped SHIPPED (${shipped.join(', ')}) but ${CONFIG.trace.specs_dir}/ holds no capability spec. ` +
+      `A fold stamps SHIPPED to assert its deltas landed there, so either they never did, or the specs were written somewhere this contract does not look — ` +
+      `check trace.specs_dir. Until this is resolved every requirement check here is vacuous: with no requirements to bind, this script reports green over a spec layer that does not exist.`,
+  );
 }
 
 if (LIST) {

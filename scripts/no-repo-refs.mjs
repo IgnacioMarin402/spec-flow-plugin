@@ -48,6 +48,26 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
+// The prose docs are scanned too, and that is not an afterthought: they are
+// the most public surface this plugin has, the first thing an adopting repo
+// reads, and they were the one place the coupling check did not cover — which
+// is exactly how the README ended up naming the repo this engine was
+// extracted from, and pointing at a design document that exists only there.
+//
+// EVERY prose doc goes in this list, not just the entry point. The moment a
+// reference doc is split out of the README, the unscanned file becomes the
+// path of least resistance for exactly the vocabulary this check exists to
+// keep out — the leak simply moves one file over, which is worse than never
+// having scanned at all, because now it looks covered.
+//
+// There is no exception list, and there is no `examples/` directory to
+// exempt. A worked contract naming a real runner and a real layout would have
+// to live outside this scan by construction — a contract's whole job is to
+// hold the values the engine refuses to know. `scripts/init.mjs` generates
+// that file from the adopting repo instead, which needs no exemption: it
+// names nothing, it reads what the repo already declares.
+const SCAN_FILES = ['README.md', 'REFERENCE.md'];
+
 // Whole-word or path-shaped tokens — a substring match on "application" would
 // also flag the English word inside unrelated prose ("the application of
 // this rule"), which is noise, not signal. Each is anchored so it matches the
@@ -87,6 +107,15 @@ const files = SCAN_DIRS.filter((d) => {
   }
 })
   .flatMap((d) => walk(join(ROOT, d)))
+  .concat(
+    SCAN_FILES.map((f) => join(ROOT, f)).filter((f) => {
+      try {
+        return statSync(f).isFile();
+      } catch {
+        return false;
+      }
+    }),
+  )
   .filter((f) => relative(ROOT, f).replace(/\\/g, '/') !== SELF);
 
 const findings = [];

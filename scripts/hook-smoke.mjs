@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Smoke test for the 8 hooks `gate-fixture.mjs` does not cover.
+ * Smoke test for the 9 hooks `gate-fixture.mjs` does not cover.
  *
  * `gate.mjs` earns a fixture of its own because it is the hook every other
- * guarantee depends on. The other eight were, for a while, verified by
+ * guarantee depends on. The other nine were, for a while, verified by
  * nothing at all — read carefully and shipped, which is exactly the standard
  * this engine refuses to accept from the code it gates.
  *
@@ -15,7 +15,7 @@
  *
  *   node scripts/hook-smoke.mjs [engine-root]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process';
 const ENGINE = process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
 
-function makeRepo({ phase = 'implement', withContract = true } = {}) {
+function makeRepo({ phase = 'implement', withContract = true, git = true } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
   mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
@@ -56,6 +56,19 @@ function makeRepo({ phase = 'implement', withContract = true } = {}) {
     );
   }
   writeFileSync(join(repo, '.claude/state/phase'), phase);
+
+  // A real repo with a base branch, because the engine's scope is a
+  // merge-base diff and `preflight` refuses to start a run without one. Off
+  // only for the case that asserts exactly that refusal.
+  if (git) {
+    const g = (...args) => spawnSync('git', args, { cwd: repo, stdio: 'ignore' });
+    g('init', '-q', '.');
+    g('symbolic-ref', 'HEAD', 'refs/heads/main');
+    g('config', 'user.email', 'smoke@example.com');
+    g('config', 'user.name', 'smoke');
+    g('commit', '-q', '--allow-empty', '-m', 'baseline');
+  }
+
   return repo;
 }
 
@@ -79,6 +92,109 @@ function t(name, fn, repoOpts) {
     rmSync(repo, { recursive: true, force: true });
   }
 }
+
+// ---- preflight: the run refuses to start rather than dying at the gate ----
+//
+// Before this hook, the contract's first BLOCKING check was the gate, on
+// Stop, while implementing. A repo with an unusable contract therefore spent
+// spec-writer, the human sign-off, an Opus planner call, the reviewer and a
+// whole implementer milestone before anything said the engine could not run
+// here. These cases pin the two halves of the fix: it denies what would have
+// failed later, and it is invisible everywhere else.
+t('preflight allows a run whose contract and base both resolve', (repo) => {
+  const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+  if (r.status !== 0) return `a valid setup was denied — exit ${r.status}: ${r.stderr}`;
+  return null;
+});
+
+t(
+  'preflight denies the first spawn when the contract is unusable',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `expected the PreToolUse denial (exit 2), got ${r.status}: ${r.stderr}`;
+    if (!/PREFLIGHT FAILED/.test(r.stderr)) return `the denial does not say what happened: ${r.stderr}`;
+    return null;
+  },
+  { withContract: false, phase: 'spec' },
+);
+
+t(
+  'preflight denies when no base branch can be resolved',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `a run with no resolvable base was allowed to start — exit ${r.status}`;
+    if (!/base branch/.test(r.stderr)) return `the denial does not name the base as the problem: ${r.stderr}`;
+    return null;
+  },
+  { git: false, phase: 'spec' },
+);
+
+t(
+  'preflight is transparent outside a run, even with no contract at all',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'anything' } }, repo);
+    if (r.status !== 0) return `it denied a subagent spawned outside the flow — exit ${r.status}: ${r.stderr}`;
+    return null;
+  },
+  { withContract: false, git: false, phase: 'idle' },
+);
+
+t(
+  'session-start resets a stale plan phase, not just implement/blocked',
+  (repo) => {
+    // `preflight` arms on every run phase, so an abandoned `plan` makes it
+    // validate — and potentially DENY — every subagent spawn in that repo
+    // forever. session-start used to skip these as "already harmless".
+    const phaseFile = join(repo, '.claude/state/phase');
+    const old = Date.now() / 1000 - 60 * 60 * 24 * 3;
+    utimesSync(phaseFile, old, old);
+    const r = runHook('session-start.mjs', {}, repo);
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    const phase = readFileSync(phaseFile, 'utf8');
+    if (phase !== 'idle') return `a three-day-old 'plan' survived as "${phase}"`;
+    return null;
+  },
+  { phase: 'plan' },
+);
+
+t('no hook creates .claude/state/ in a repo that is not running the flow', () => {
+  // Every hook reads the phase before deciding it has nothing to do. Routing
+  // that read through `stateDir` (which mkdirs) meant standing down still
+  // left a directory behind — in every repository the user ever opened.
+  const bare = mkdtempSync(join(tmpdir(), 'smoke-bare-'));
+  try {
+    writeFileSync(join(bare, 'package.json'), '{}');
+    for (const hook of readdirSync(join(ENGINE, 'hooks')).filter((f) => f.endsWith('.mjs'))) {
+      runHook(hook, { tool_name: 'Task', tool_input: { subagent_type: 'planner', command: 'ls' } }, bare);
+    }
+    if (existsSync(join(bare, '.claude'))) {
+      return 'the hooks created .claude/ in a repo with no phase file and no contract';
+    }
+    return null;
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+t('arm-gate matches an agent name whatever its casing', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'plan');
+  const r = runHook('arm-gate.mjs', { tool_input: { subagent_type: 'Implementer' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const phase = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+  if (phase !== 'implement') {
+    return `phase is "${phase}" — a capitalised agent type left the gate, the write-time linter and the command deny all disarmed, silently`;
+  }
+  return null;
+});
+
+t('the whole-repo denial does not hand the agent a way to disarm the flow', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
+  if (r.status !== 2) return `expected a denial, got exit ${r.status}`;
+  if (/state[\\/]phase/.test(r.stderr)) {
+    return `the denial quotes the phase file to an agent mid-milestone: ${r.stderr}`;
+  }
+  return null;
+});
 
 t('arm-gate flips phase on an implementer spawn', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'plan');
@@ -227,10 +343,63 @@ t('session-start leaves a fresh phase alone', (repo) => {
   return null;
 });
 
-t('done-guard denies done with an unarchived specflow folder', (repo) => {
+// ---- the closed set, enforced rather than described ----
+//
+// The phase vocabulary was written into four documents and checked by
+// nothing. Every hook falls through to "not my business" on a value it does
+// not recognise, so one invented phase stands down the gate, the write-time
+// linter, the command deny, preflight and the Opus budget at once — silently.
+t('phase-guard denies a phase outside the closed set', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'triage' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 2) {
+    return `an invented phase was allowed (exit ${r.status}) — it would disarm every hook at once, silently`;
+  }
+  if (!/closed set/i.test(r.stderr)) return `the denial does not explain the vocabulary: ${r.stderr}`;
+  return null;
+});
+
+t('phase-guard denies an invented phase written with Write, not just Bash', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'verify' } },
+    repo,
+  );
+  if (r.status !== 2) return `a Write of an unknown phase was allowed (exit ${r.status})`;
+  return null;
+});
+
+t('phase-guard allows every phase the engine actually knows', (repo) => {
+  for (const value of ['spec', 'plan', 'review', 'implement', 'blocked', 'idle']) {
+    const r = runHook(
+      'phase-guard.mjs',
+      { tool_name: 'Bash', tool_input: { command: `printf '${value}' > .claude/state/phase` } },
+      repo,
+    );
+    if (r.status !== 0) return `'${value}' is in the vocabulary and was denied (exit ${r.status}): ${r.stderr}`;
+  }
+  return null;
+});
+
+t('phase-guard does not deny a command that merely reads the phase file', (repo) => {
+  // It denies, so it may only act on a value it can actually read. A guess
+  // here blocks legitimate work to enforce a rule about a value nobody wrote.
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: 'cat .claude/state/phase' } },
+    repo,
+  );
+  if (r.status !== 0) return `reading the phase file was denied (exit ${r.status}): ${r.stderr}`;
+  return null;
+});
+
+t('phase-guard denies done with an unarchived specflow folder', (repo) => {
   mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
   const r = runHook(
-    'done-guard.mjs',
+    'phase-guard.mjs',
     { tool_name: 'Bash', tool_input: { command: "printf 'done' > .claude/state/phase" } },
     repo,
   );
@@ -239,9 +408,9 @@ t('done-guard denies done with an unarchived specflow folder', (repo) => {
   return null;
 });
 
-t('done-guard allows an earned done', (repo) => {
+t('phase-guard allows an earned done', (repo) => {
   const r = runHook(
-    'done-guard.mjs',
+    'phase-guard.mjs',
     { tool_name: 'Bash', tool_input: { command: "printf 'done' > .claude/state/phase" } },
     repo,
   );
@@ -249,9 +418,9 @@ t('done-guard allows an earned done', (repo) => {
   return null;
 });
 
-t('done-guard ignores an unrelated command', (repo) => {
+t('phase-guard ignores an unrelated command', (repo) => {
   mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
-  const r = runHook('done-guard.mjs', { tool_name: 'Bash', tool_input: { command: 'git status' } }, repo);
+  const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command: 'git status' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0 for an unrelated command`;
   return null;
 });

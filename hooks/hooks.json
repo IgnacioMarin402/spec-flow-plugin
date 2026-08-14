@@ -19,12 +19,13 @@
       {
         "matcher": "Bash|Write|Edit",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/done-guard.mjs"] }
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard.mjs"] }
         ]
       },
       {
         "matcher": "Task|Agent|SendMessage",
         "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/preflight.mjs"] },
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/opus-budget.mjs"] },
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/arm-gate.mjs"] }
         ]

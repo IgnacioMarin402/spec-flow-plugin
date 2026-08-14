@@ -7,11 +7,9 @@
  * This is engine, not repo. It decides nothing about the repo it runs
  * in — it reads the same contract the gate reads and runs the same commands
  * the gate runs, adding only a human-readable summary. It moved here, out of
- * the original plan's repo-side listing, because leaving it there recreates
- * exactly what steps 0 and 1 of docs/spec-flow-as-a-plugin.md (in the engine
- * repo) closed: a second implementation of "is this tree green", free to
- * drift from what the gate computes. See that document's "Two manifests, one
- * source" for the full reasoning.
+ * the consuming repo, because living there recreates the thing this engine
+ * exists to prevent: a second implementation of "is this tree green", free to
+ * drift from what the gate computes.
  *
  * A consuming repo reaches this through a one-line alias in its own
  * package.json:
@@ -84,7 +82,7 @@ console.log('');
 
 // ---- the unscoped checks ---------------------------------------------------
 // Not scoped to the changed files, and they run even when no file changed at
-// all — the same declaration the gate and done-guard read, so a check added
+// all — the same declaration the gate and phase-guard read, so a check added
 // to the contract arms all three consumers at the same moment.
 const result = runUnscopedChecks(root, config);
 for (const c of result.checks) {

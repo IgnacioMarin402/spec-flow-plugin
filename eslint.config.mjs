@@ -1,8 +1,7 @@
 // The engine's own linter. It replaces shell-lint.mjs's job here: once every
 // hook and script is .mjs, there is no .sh left for shellcheck to check, and
 // "nothing checks the checker" is exactly the gap that motivated shell-lint
-// in the first place. See docs/spec-flow-as-a-plugin.md in the engine repo,
-// "Decided: .mjs, not .sh, not .ts", for the reasoning.
+// in the first place.
 //
 // Deliberately minimal: this repo's own value is a language-agnostic engine,
 // so it carries no framework-specific rules (no NestJS boundary rules, no

@@ -42,10 +42,16 @@ Match the comment density of the file you are editing and of its neighbours. A r
 
 What survives is the ordinary case — a line about why a non-obvious decision was made, in the places the repo already writes those.
 
-## Placing new behaviour — load the skill, do not improvise
-When the plan says WHAT to build but not WHICH LAYER it goes in — a validation, a business rule, a policy, a new operation — **read `.spec-flow/skills.md` and load what it routes you to**. That table is the project's, not the engine's: a skill encodes how a codebase is built, so which ones exist depends entirely on the repo you are in. If the file does not exist, the project ships no skills and your own judgment plus `CLAUDE.md` is the whole guidance.
+## Skills — load what the milestone names, before you start
+**`Mk.md` has a `Skills:` field. Load everything it names before your first edit**, not when you run into the decision it covers. The planner read the whole milestone against `.spec-flow/skills.md` with nothing written yet, which is the only moment that routing can be decided rather than guessed — a skill that arrives after your first guess arrives too late to have prevented it.
 
-Guessing here is expensive in a specific way: layer placement is usually enforced by the project's own linter, so a wrong guess comes back as a gate failure and costs you a whole pass. The skill is cheaper than the retry.
+If the field says `none`, the planner looked and found nothing that applies. If the field is absent, the milestone predates this contract or was written by hand: fall back to the paragraph below.
+
+**Fallback, and it is genuinely weaker:** when the plan says WHAT to build but not WHICH LAYER it goes in — a validation, a business rule, a policy, a new operation — read `.spec-flow/skills.md` yourself and load what it routes you to. That table is the project's, not the engine's: a skill encodes how a codebase is built, so which ones exist depends entirely on the repo you are in. If the file does not exist, the project ships no skills and your own judgment plus `CLAUDE.md` is the whole guidance.
+
+Either way, guessing is expensive in a specific way: layer placement is usually enforced by the project's own linter, so a wrong guess comes back as a gate failure and costs you a whole pass. The skill is cheaper than the retry.
+
+If you needed a skill the milestone did not name, say so in your `NOTES:` — that is a gap in the plan's routing, and it is worth one line so the next milestone does not repeat it.
 
 **Anything that writes: check `.spec-flow/skills.md` for a write-path entry and load it before you write.** Where a project has one, it carries the concurrency mechanics that project settled on. The table also marks which skills this agent preloads, if any, through a project-supplied override of this agent's `skills:` frontmatter — naming them in the table too means the instruction still works if that field is not honored by the installed version of Claude Code.
 

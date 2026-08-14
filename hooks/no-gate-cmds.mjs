@@ -108,8 +108,14 @@ await run(async () => {
       `    ${alternative}\n\n` +
       `Scoped invocations are allowed too${scopedHint}. If you are the implementer, ` +
       `you do not need to run anything: end your turn and the gate reports back.\n\n` +
-      `If you are a human and you really want the whole repo, disarm the flow first:\n` +
-      `    printf 'idle' > .claude/state/phase\n`,
+      // No disarm recipe here, on purpose. This message is read by an agent
+      // mid-milestone far more often than by a human, and writing `idle` into
+      // the phase file stands down the gate, the write-time linter, this deny
+      // and the Opus budget at once — with nothing watching that write the way
+      // phase-guard watches `done`. Handing a model the exact command to turn
+      // off the thing that just stopped it is not a guard rail. A human who
+      // genuinely wants a whole-repo run has the README.
+      `A human who needs the whole repo can stand the flow down — see the plugin README.\n`,
   );
   process.exit(2); // PreToolUse denial protocol
 });

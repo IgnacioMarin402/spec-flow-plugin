@@ -17,9 +17,7 @@
  * `state/agent-registry`, written at spawn time by register-agent.mjs.
  *
  * `max_opus_calls` is deliberately NOT read from `.spec-flow/config.json` —
- * the Opus budget is one of the things this engine's own plugin plan left
- * untouched by the contract (see docs/spec-flow-as-a-plugin.md, "Not
- * touched"). It lives in the consuming repo's `.claude/spec-flow.config.json`
+ * the Opus budget is deliberately outside the contract. It lives in the consuming repo's `.claude/spec-flow.config.json`
  * instead, next to nothing else — a run-scoped number, not an architectural
  * fact about the repo.
  *
@@ -46,7 +44,7 @@
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 
 function readRegistry(path) {
@@ -73,13 +71,15 @@ function logUnmatched(path, shape) {
 
 await run(async () => {
   const root = projectDir();
-  const state = stateDir(root);
-  const phaseFile = join(state, 'phase');
-  const countFile = join(state, 'opus_calls');
   const configPath = join(root, '.claude', 'spec-flow.config.json');
 
-  const phase = readFileOrDefault(phaseFile, 'idle');
+  // Read through a path that creates nothing — outside a run this hook is
+  // transparent, and transparent should mean on disk too.
+  const phase = readFileOrDefault(phasePath(root), 'idle');
   if (phase === '' || phase === 'idle' || phase === 'done') return;
+
+  const state = stateDir(root);
+  const countFile = join(state, 'opus_calls');
 
   const payload = await readPayload();
   const input = payload.tool_input ?? {};

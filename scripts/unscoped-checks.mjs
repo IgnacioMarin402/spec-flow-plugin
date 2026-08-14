@@ -3,7 +3,7 @@
  * The UNSCOPED checks: the ones that run on every gate no matter which files
  * changed, and again when a run tries to declare itself done.
  *
- * A module now, not a sourced shell file — `gate.mjs`, `done-guard.mjs` and
+ * A module now, not a sourced shell file — `gate.mjs`, `phase-guard.mjs` and
  * `check-changed.mjs` `import` it directly. That is not a smaller version of
  * the old design, it removes a whole failure class: in bash, three separate
  * files each carried their OWN complete copy of "what if this file is

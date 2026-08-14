@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "spec-flow, extracted: the engine half of a spec-driven multi-agent pipeline for Claude Code. Ships as a plugin (hooks/commands/agents) AND as an installable CLI (bin/spec-flow), so the same checks run from Claude Code, a human's terminal, and CI — see docs/spec-flow-as-a-plugin.md.",
+  "description": "spec-flow: the engine half of a spec-driven multi-agent pipeline for Claude Code. Ships as a plugin (hooks/commands/agents) AND as an installable CLI (bin/spec-flow), so the same checks run from Claude Code, a human's terminal, and CI.",
   "bin": {
     "spec-flow": "./bin/spec-flow.mjs"
   },
@@ -12,11 +12,13 @@
   },
   "scripts": {
     "check": "node scripts/no-repo-refs.mjs",
+    "paths:check": "node scripts/plugin-paths.mjs",
     "gate:check": "node scripts/gate-fixture.mjs",
     "hooks:check": "node scripts/hook-smoke.mjs",
     "trace:check": "node scripts/spec-trace-fixture.mjs",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "init:check": "node scripts/init-fixture.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
