@@ -5,7 +5,7 @@
  * spec-trace is what makes `specs/` authoritative instead of decorative: it
  * binds a requirement id to the test that proves it, in both directions, and
  * fails the gate when they disagree. It is ~270 lines of regex parsing that
- * runs on every gate, every done-guard and every check command — and until
+ * runs on every gate, every phase-guard and every check command — and until
  * this file existed it had no test of its own. `gate-fixture.mjs`
  * deliberately replaces it with a green/red stub, so nothing anywhere
  * exercised the actual parsing.

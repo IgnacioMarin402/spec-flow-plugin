@@ -82,7 +82,7 @@ console.log('');
 
 // ---- the unscoped checks ---------------------------------------------------
 // Not scoped to the changed files, and they run even when no file changed at
-// all — the same declaration the gate and done-guard read, so a check added
+// all — the same declaration the gate and phase-guard read, so a check added
 // to the contract arms all three consumers at the same moment.
 const result = runUnscopedChecks(root, config);
 for (const c of result.checks) {

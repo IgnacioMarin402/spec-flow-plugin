@@ -343,10 +343,63 @@ t('session-start leaves a fresh phase alone', (repo) => {
   return null;
 });
 
-t('done-guard denies done with an unarchived specflow folder', (repo) => {
+// ---- the closed set, enforced rather than described ----
+//
+// The phase vocabulary was written into four documents and checked by
+// nothing. Every hook falls through to "not my business" on a value it does
+// not recognise, so one invented phase stands down the gate, the write-time
+// linter, the command deny, preflight and the Opus budget at once — silently.
+t('phase-guard denies a phase outside the closed set', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'triage' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 2) {
+    return `an invented phase was allowed (exit ${r.status}) — it would disarm every hook at once, silently`;
+  }
+  if (!/closed set/i.test(r.stderr)) return `the denial does not explain the vocabulary: ${r.stderr}`;
+  return null;
+});
+
+t('phase-guard denies an invented phase written with Write, not just Bash', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'verify' } },
+    repo,
+  );
+  if (r.status !== 2) return `a Write of an unknown phase was allowed (exit ${r.status})`;
+  return null;
+});
+
+t('phase-guard allows every phase the engine actually knows', (repo) => {
+  for (const value of ['spec', 'plan', 'review', 'implement', 'blocked', 'idle']) {
+    const r = runHook(
+      'phase-guard.mjs',
+      { tool_name: 'Bash', tool_input: { command: `printf '${value}' > .claude/state/phase` } },
+      repo,
+    );
+    if (r.status !== 0) return `'${value}' is in the vocabulary and was denied (exit ${r.status}): ${r.stderr}`;
+  }
+  return null;
+});
+
+t('phase-guard does not deny a command that merely reads the phase file', (repo) => {
+  // It denies, so it may only act on a value it can actually read. A guess
+  // here blocks legitimate work to enforce a rule about a value nobody wrote.
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: 'cat .claude/state/phase' } },
+    repo,
+  );
+  if (r.status !== 0) return `reading the phase file was denied (exit ${r.status}): ${r.stderr}`;
+  return null;
+});
+
+t('phase-guard denies done with an unarchived specflow folder', (repo) => {
   mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
   const r = runHook(
-    'done-guard.mjs',
+    'phase-guard.mjs',
     { tool_name: 'Bash', tool_input: { command: "printf 'done' > .claude/state/phase" } },
     repo,
   );
@@ -355,9 +408,9 @@ t('done-guard denies done with an unarchived specflow folder', (repo) => {
   return null;
 });
 
-t('done-guard allows an earned done', (repo) => {
+t('phase-guard allows an earned done', (repo) => {
   const r = runHook(
-    'done-guard.mjs',
+    'phase-guard.mjs',
     { tool_name: 'Bash', tool_input: { command: "printf 'done' > .claude/state/phase" } },
     repo,
   );
@@ -365,9 +418,9 @@ t('done-guard allows an earned done', (repo) => {
   return null;
 });
 
-t('done-guard ignores an unrelated command', (repo) => {
+t('phase-guard ignores an unrelated command', (repo) => {
   mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
-  const r = runHook('done-guard.mjs', { tool_name: 'Bash', tool_input: { command: 'git status' } }, repo);
+  const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command: 'git status' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0 for an unrelated command`;
   return null;
 });

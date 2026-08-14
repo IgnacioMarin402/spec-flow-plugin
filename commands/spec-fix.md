@@ -17,7 +17,7 @@ This is not a style preference. Every enforcement hook decides whether it is arm
 
 Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
 
-`arm-gate` and `done-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, or an unarchived `specflow/<SLUG>/` say otherwise. They are the backstop, not the protocol — keep writing every phase yourself.
+`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, or an unarchived `specflow/<SLUG>/` say otherwise. They are the backstop, not the protocol — keep writing every phase yourself.
 
 ## 0. Init — intake
 
@@ -109,5 +109,5 @@ Then summarize: the triage case, the root cause, files changed, requirements add
 
 - Model routing holds: `spec-writer` and `implementer` are Sonnet 5, `architect` is Opus 5 and budgeted. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
 - The gate is external and authoritative. On failure you re-triage; you do not hand-patch until green.
-- Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `done-guard` will say so.
+- Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `phase-guard` will say so.
 - Do not edit `/spec-flow`'s command or agents to make something here fit. If a fix needs the full pipeline, it belongs to the full pipeline.

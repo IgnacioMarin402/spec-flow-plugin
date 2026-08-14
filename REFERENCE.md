@@ -123,9 +123,17 @@ exit 0 — a green gate over zero executed tests.
 
 **`verify.test` must finish inside 1800s.** The gate is a `command` hook on
 `Stop`; a hook that hits its timeout is canceled, renders no decision, and a
-Stop hook with no decision **allows the stop** — no block, and no line in
-`gate-history.log` either. If your suite can approach thirty minutes, declare
-a smoke subset here and leave the exhaustive run to CI.
+Stop hook with no decision **allows the stop**. That happens a layer above the
+gate's own process, so nothing inside it can block or report at the time. If
+your suite can approach thirty minutes, declare a smoke subset here and leave
+the exhaustive run to CI.
+
+It is at least no longer silent. The gate writes a `result=running` line to
+`gate-history.log` before it spawns anything, and every outcome replaces that
+line — so a `running` line that survives is proof the invocation which wrote
+it was killed. The next armed gate finds it, records `fail:killed`, and blocks
+once with what to do about it. The stop it happened on was still allowed and
+that milestone was still unverified; what changed is that you find out.
 
 **The engine assumes a feature-branch workflow.** Scope is the merge-base diff
 with your base branch, so work committed directly onto the base branch has an
@@ -213,7 +221,7 @@ logs stay in gitignored state and `stats` has nothing to read.
 | `session-start` | `SessionStart` | — | Resets a phase left at `implement`/`blocked` for 6h+ to `idle` |
 | `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses to start a run whose contract does not load or whose base branch does not resolve |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `done-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies an unearned `done` |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, and an unearned `done` |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written, while it is still in context |
@@ -222,7 +230,7 @@ logs stay in gitignored state and `stats` has nothing to read.
 | `gate` | `Stop` | — | The external gate |
 
 Only `gate`, `lint-on-write` and `no-gate-cmds` are armed exclusively by the
-`implement` phase. `preflight`, `opus-budget`, `arm-gate` and `done-guard`
+`implement` phase. `preflight`, `opus-budget`, `arm-gate` and `phase-guard`
 stand down only outside a run. `register-agent`, `run-trace` and
 `session-start` never enforce anything.
 
@@ -242,12 +250,12 @@ whether it is armed.
 
 | phase | written by | what it arms |
 |---|---|---|
-| `spec` | orchestrator, at intake | `preflight`, Opus budget, `done-guard`, `arm-gate` |
-| `plan` | orchestrator | `preflight`, Opus budget, `done-guard`, `arm-gate` |
-| `review` | orchestrator | `preflight`, Opus budget, `done-guard`, `arm-gate` |
-| `implement` | orchestrator — or `arm-gate`, if it forgot | **the gate**, **lint-on-write**, **the command deny**, `preflight`, Opus budget, `done-guard` |
-| `blocked` | **the gate itself**, at the attempt cap | `preflight`, Opus budget, `done-guard`, `arm-gate` |
-| `done` | orchestrator, if `done-guard` allows | nothing |
+| `spec` | orchestrator, at intake | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `plan` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `implement` | orchestrator — or `arm-gate`, if it forgot | **the gate**, **lint-on-write**, **the command deny**, `preflight`, Opus budget, `phase-guard` |
+| `blocked` | **the gate itself**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `done` | orchestrator, if `phase-guard` allows | nothing |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
 
 **Standing the flow down.** Writing `idle` into `.claude/state/phase` disarms
@@ -259,14 +267,21 @@ printf 'idle' > .claude/state/phase
 ```
 
 That is a human's call, and it is deliberately not offered to the agents: no
-denial message quotes it, and nothing guards the write the way `done-guard`
-guards `done`. Use it to take the repo back mid-run; re-run `/spec-flow` to
+denial message quotes it, and nothing else guards the write the way `phase-guard`
+guards `done` — `idle` is in the vocabulary, so it passes. Use it to take the repo back mid-run; re-run `/spec-flow` to
 resume.
 
-**This vocabulary is a closed set — never extend it.** Every hook falls
-through to "not my business" on a value it does not recognise, so inventing a
-phase like `triage` runs the flow with the gate, the write-time linter, the
-command deny and the Opus budget **all disarmed at once**, silently.
+**This vocabulary is a closed set, and `phase-guard` enforces it.** Every
+hook falls through to "not my business" on a value it does not recognise, so
+inventing a phase like `triage` would run the flow with the gate, the
+write-time linter, the command deny, `preflight` and the Opus budget **all
+disarmed at once**. A write of any other value is denied, naming the
+vocabulary — the rule used to live in four documents and nothing checked it.
+
+The guard reads the value it is denying, and only that: a `Write`/`Edit` of
+the phase file, or a `printf`/`echo` redirected into it. A command that merely
+mentions the file is allowed, because a guard that denies on a guess blocks
+real work to enforce a rule about a value nobody wrote.
 
 ---
 
@@ -281,7 +296,7 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | `opus_calls` | Planner + architect calls this run |
 | `agent-registry` | Session id → agent type |
 | `run-offset` | Telemetry line counts at intake, set by `telemetry --mark` |
-| `gate-history.log` | One line per gate invocation. The audit trail |
+| `gate-history.log` | One line per gate invocation. `running` while it judges, replaced by the outcome; a surviving `running` means that invocation was killed |
 | `run-trace.log` | Reads, writes, test verdicts, subagent outcomes |
 | `gate-failure.log` | Last failure, truncated — what the planner reads |
 | `gate-failure.full.log` | Same, untruncated — what a human reads |

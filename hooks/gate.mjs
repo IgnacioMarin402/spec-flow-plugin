@@ -28,13 +28,17 @@
  *   run in the background, so a Stop can fire mid-write, and judging that
  *   snapshot produces false failures. The environment's own git-check owns
  *   dirty trees; this gate owns clean ones.
- * - Every invocation appends one line to `state/gate-history.log`.
+ * - Every invocation writes one line to `state/gate-history.log`: `running`
+ *   before it judges, replaced by the outcome when it does. A `running` line
+ *   that survives is proof its invocation was killed, and the next armed gate
+ *   reports it as `fail:killed` — see `replaceRunning` below.
  * - Declares an explicit `timeout` in hooks.json (1800s), which is the one
  *   guarantee in this file that this file cannot make. A `command` hook that
  *   reaches its timeout is CANCELED: its output is discarded and it renders
  *   no decision — and a Stop hook that renders no decision allows the stop.
- *   That is a clean pass with no history line, produced one layer above the
- *   catch-all at the bottom of this file, where nothing here can reach it.
+ *   That happens one layer above the catch-all at the bottom of this file,
+ *   where nothing here can block or report at the time; the `running` line is
+ *   how it stops being invisible after the fact.
  *   The default budget is 600s, which a full unscoped suite can plausibly
  *   exceed on a large repo now that `verify.test` is never scoped down. The
  *   declared value buys headroom; it does not remove the ceiling, so the
@@ -123,12 +127,53 @@ await run(
     const histFile = join(state, 'gate-history.log');
 
     const attemptsNow = () => readFileOrDefault(attFile, '0');
-    const hist = (result, lintRc, testRc, unscopedFields, filesField) =>
-      appendLine(
-        histFile,
-        `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`,
-      );
+    const line = (result, lintRc, testRc, unscopedFields, filesField) =>
+      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
+    /**
+     * The one failure this file's own catch-all cannot reach: a `command`
+     * hook that hits its timeout is CANCELED by Claude Code, and a Stop hook
+     * that renders no decision ALLOWS the stop. No block, no history line —
+     * and "no history line" was indistinguishable from "the gate was never
+     * armed", because this log only ever recorded outcomes.
+     *
+     * So the log records the ATTEMPT too. A `running` line goes down before
+     * any command is spawned, and every outcome replaces it. A `running` line
+     * that survives is therefore proof that the invocation which wrote it was
+     * killed — the gate's absence becomes evidence instead of silence, and
+     * the next armed run reports it (see `killed` below).
+     */
+    const replaceRunning = (text) => {
+      const lines = readFileOrDefault(histFile, '').split('\n').filter(Boolean);
+      if (lines.length > 0 && / result=running /.test(lines[lines.length - 1])) lines.pop();
+      writeFile(histFile, lines.length > 0 ? `${lines.join('\n')}\n${text}\n` : `${text}\n`);
+    };
+
+    const hist = (result, lintRc, testRc, unscopedFields, filesField) =>
+      replaceRunning(line(result, lintRc, testRc, unscopedFields, filesField));
+
+    // A dangling `running` from a PREVIOUS invocation: that gate was killed
+    // mid-judgement, so whatever it was judging was never verified.
+    //
+    // Handled before this run writes its own `running` line, and `hist`
+    // replaces the dangling one rather than appending beside it — otherwise
+    // the evidence would survive its own report and every future stop would
+    // block on the same dead invocation forever.
+    const previous = readFileOrDefault(histFile, '').split('\n').filter(Boolean);
+    if (previous.length > 0 && / result=running /.test(previous[previous.length - 1])) {
+      armed = { hist };
+      hist('fail:killed', '-', '-', 'unscoped=-', '-');
+      emitBlock(
+        `GATE FAILED — the previous gate invocation never finished. Its history line says \`running\` and no outcome ever replaced it, which means the process was killed before it could judge anything: nothing was linted, tested or traced for that stop, and the stop was ALLOWED, because a Stop hook that renders no decision allows one. ` +
+          `The usual cause is \`verify.test\` exceeding the Stop hook's time budget (1800s as this plugin declares it). Treat the previous milestone as UNVERIFIED. ` +
+          `Do not change the phase. Show this to a human: either the suite needs to be a smaller smoke subset in \`verify.test\`, or the timeout in the plugin's hooks.json needs raising. Then end your turn — the next gate runs normally.`,
+      );
+      return;
+    }
+
+    // This invocation's own claim on the log, written before anything is
+    // spawned so that being killed from here on leaves the evidence above.
+    appendLine(histFile, line('running', '-', '-', 'unscoped=-', '-'));
     armed = { hist };
 
     // The one deliberate fail-CLOSED case in this engine. An unrecognized

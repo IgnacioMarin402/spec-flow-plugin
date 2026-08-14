@@ -83,7 +83,7 @@ const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
  * at every gate and one nobody can afford to run. Measured on a mid-size
  * project: 204 files under the source tree, 34,860 under `node_modules` —
  * walking both took 9.7s against 0.11s, and `spec-trace` runs on every gate,
- * every done-guard and every check command.
+ * every phase-guard and every check command.
  *
  * `node_modules` is not repo-specific vocabulary the way a layer name would
  * be: this engine is itself a Node program, and no dependency tree contains a
