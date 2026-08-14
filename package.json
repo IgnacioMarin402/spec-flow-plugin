@@ -17,7 +17,8 @@
     "hooks:check": "node scripts/hook-smoke.mjs",
     "trace:check": "node scripts/spec-trace-fixture.mjs",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "init:check": "node scripts/init-fixture.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

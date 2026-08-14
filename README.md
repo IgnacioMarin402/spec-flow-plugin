@@ -50,32 +50,45 @@ npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
 The hook and these aliases run the **same file**, so "same files, same
 commands, same result" is structural rather than two copies that agree today.
 
-**3. Write the contract** at `.spec-flow/config.json`. Copy one from
-[`examples/`](examples/) and adjust it — every field is documented in
+**3. Generate the contract.**
+
+```bash
+npx spec-flow init
+```
+
+It writes `.spec-flow/config.json` by reading what your repo already declares
+— your `test` and `lint` scripts, where your tests live, which extensions you
+use, your base branch — then creates `specs/` and `specflow/archive/` and adds
+`.claude/state/` to `.gitignore`.
+
+It never invents a value it could not determine. Every field lands in one of
+three buckets, and it tells you which:
+
+```
+detected  verify.test — from the "test" script: node node_modules/.bin/vitest run
+REVIEW    trace.proof_dir is "lib" — a guess. Your tests are not in a
+          directory of their own, so no segment identifies one.
+MISSING   verify.lint_config_hint — no config file for the linter was found.
+```
+
+`detected` is read from your repo. `REVIEW` is an inference worth confirming.
+`MISSING` is left empty on purpose, so the contract does not validate until
+you fill it — a plausible wrong value would run, and a missing one is
+reported. Init exits non-zero while anything is missing.
+
+Fill in what it asks for, then re-run with `--force` or edit the file
+directly. Every field is documented in
 [REFERENCE.md](REFERENCE.md#the-contract).
 
-**4. Create the directories.** The engine writes entries under them; it does
-not create them.
+**4. Check it.**
 
 ```bash
-mkdir -p specs specflow/archive
-echo '.claude/state/' >> .gitignore
+npx spec-flow check
 ```
 
-`specs/` holds capability specs, one per module, each starting with
-`<!-- spec-scope: <path> -->`. `specflow/` holds live change folders,
-`specflow/archive/` the finished ones. The `.gitignore` line is not optional —
-see [why](REFERENCE.md#four-rules-the-contract-cannot-express).
-
-**5. Verify.**
-
-```bash
-node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
-```
-
-It prints the contract as the engine reads it, or names exactly what is
-missing. A contract that does not load stops the run at the first gate, so
-check it here instead.
+Lints the files this branch changed, runs your suite, and runs the
+traceability check — the same commands the gate will run, through the same
+file. If this is green, the gate will be too.
 
 ---
 
@@ -247,9 +260,10 @@ npm run lint          # eslint over hooks/ and scripts/
 npm run typecheck     # tsc --noEmit
 npm run check         # no coupling to any one consuming repo
 npm run paths:check   # every ${CLAUDE_PLUGIN_ROOT} path resolves
+npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
 npm run hooks:check   # the other eight hooks
 ```
 
-All seven run in CI on every push and PR.
+All eight run in CI on every push and PR.

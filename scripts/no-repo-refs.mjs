@@ -60,12 +60,12 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // keep out — the leak simply moves one file over, which is worse than never
 // having scanned at all, because now it looks covered.
 //
-// `examples/` is deliberately NOT scanned. A contract example is stack-specific
-// BY DEFINITION — that is the entire job of `.spec-flow/config.json`, to hold
-// the values the engine refuses to know. A worked example naming a real test
-// runner and a real layout is useful for precisely the reason it would fail
-// the token check, so it lives outside the scan rather than inside an
-// exception list that would have to grow with every stack.
+// There is no exception list, and there is no `examples/` directory to
+// exempt. A worked contract naming a real runner and a real layout would have
+// to live outside this scan by construction — a contract's whole job is to
+// hold the values the engine refuses to know. `scripts/init.mjs` generates
+// that file from the adopting repo instead, which needs no exemption: it
+// names nothing, it reads what the repo already declares.
 const SCAN_FILES = ['README.md', 'REFERENCE.md'];
 
 // Whole-word or path-shaped tokens — a substring match on "application" would

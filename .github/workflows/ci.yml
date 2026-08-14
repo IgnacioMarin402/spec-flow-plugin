@@ -47,6 +47,14 @@ jobs:
       - name: No repo-specific coupling
         run: npm run check
 
+      # `init` generates a consuming repo's contract, which is what a worked
+      # example file used to do worse: an example is a static artifact nothing
+      # executes, so a contract change leaves it silently wrong. This asserts
+      # the generator's actual claim — that what it writes VALIDATES through
+      # the same reader every hook uses — so that change turns CI red instead.
+      - name: init behaviour
+        run: npm run init:check
+
       # Every ${CLAUDE_PLUGIN_ROOT}/... path the commands, agents and
       # hooks.json tell someone to run must exist in the package. A command
       # naming a script that does not ship is an instruction that silently

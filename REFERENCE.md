@@ -21,8 +21,11 @@ Look-up material. For what spec-flow is and how a run unfolds, see the
 Everything the engine needs to know about your repo, at
 `.spec-flow/config.json`. Missing or malformed stops the run with a message
 naming what to add — there is no fallback that guesses a test runner or a
-proof directory for a repo it has never seen. Start from
-[`examples/`](examples/) and verify with:
+proof directory for a repo it has never seen.
+
+`spec-flow init` generates this file from your repo and reports what it could
+not determine. Use the tables below to fill those in, or to change what it
+wrote. To re-read the contract as the engine sees it at any time:
 
 ```bash
 node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
@@ -174,6 +177,7 @@ not verified here — check before relying on it.
 
 | command | what it does |
 |---|---|
+| `spec-flow init` | Generate `.spec-flow/config.json` and scaffold. `--force` to overwrite |
 | `spec-flow check` | Lint changed files + full suite + unscoped checks. `--no-fix` to report only |
 | `spec-flow trace` | `spec-trace` alone: the requirement/proof binding |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
