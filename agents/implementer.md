@@ -51,7 +51,7 @@ If the field says `none`, the planner looked and found nothing that applies. If 
 
 Either way, guessing is expensive in a specific way: layer placement is usually enforced by the project's own linter, so a wrong guess comes back as a gate failure and costs you a whole pass. The skill is cheaper than the retry.
 
-If you needed a skill the milestone did not name, say so in your `NOTES:` — that is a gap in the plan's routing, and it is worth one line so the next milestone does not repeat it.
+**If you needed a skill the milestone did not name, add a `SKILL_MISS:` line to your return block**, naming it — one line per skill, and only for skills that were genuinely missing rather than ones you chose not to use. That is a gap in the plan's routing. It goes on its own line rather than inside `NOTES:` because the run trace parses it: prose in `NOTES:` reaches the orchestrator and then vanishes, while a `SKILL_MISS:` line is recorded with the run and answers, across many runs, whether the planner's routing misses often enough to be worth changing.
 
 **Anything that writes: check `.spec-flow/skills.md` for a write-path entry and load it before you write.** Where a project has one, it carries the concurrency mechanics that project settled on. The table also marks which skills this agent preloads, if any, through a project-supplied override of this agent's `skills:` frontmatter — naming them in the table too means the instruction still works if that field is not honored by the installed version of Claude Code.
 
@@ -86,6 +86,7 @@ STATUS: IMPLEMENTED
 MILESTONE: <Mk>
 CHANGED_FILES:
 - <path>
+SKILL_MISS: <a skill you needed that Mk.md did not name — omit the line entirely when there were none>
 NOTES: <anything the reviewer/gate should know>
 ```
 or, if the plan itself blocks you (not just a design doubt):

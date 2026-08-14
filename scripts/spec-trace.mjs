@@ -317,6 +317,35 @@ for (const slug of live) {
       `specflow/${slug}/ has no proposal.md. A change spec with no recorded reasoning is a decision nobody can audit later — the archive's whole job is answering "was this considered, and what was turned down?".`,
     );
   }
+
+  // ---- every live milestone says what skills it needs ---------------------
+  //
+  // `Skills:` is where the planner records its routing, read against
+  // `.spec-flow/skills.md` with nothing written yet — the one point in the
+  // flow where that is a decision rather than a judgement made mid-edit. The
+  // implementer loads what it names before its first change.
+  //
+  // `none` is a legitimate and common answer. An ABSENT field is not the same
+  // thing: it cannot be told apart from a planner that never looked, and the
+  // implementer has no way to know which it is either. Same distinction the
+  // gate draws between `spec=0` and `spec=-`.
+  //
+  // Only checked when the repo actually declares a skills table. A project
+  // that ships no skills has nothing for this field to route, and demanding
+  // `Skills: none` on every milestone there is ceremony — the same grace
+  // `extra_checks` gets for a script the repo has not written yet.
+  if (!existsSync(join(root, '.spec-flow', 'skills.md'))) continue;
+
+  const milestonesDir = join(SPECFLOW_DIR, slug, 'milestones');
+  if (!existsSync(milestonesDir)) continue; // no plan yet — a run mid-spec is not a failure
+
+  for (const file of readdirSync(milestonesDir).filter((f) => f.endsWith('.md')).sort()) {
+    if (!/^[-*]?\s*\**Skills\**\s*:/m.test(readFileSync(join(milestonesDir, file), 'utf8'))) {
+      problems.push(
+        `specflow/${slug}/milestones/${file} has no \`Skills:\` field. This repo declares .spec-flow/skills.md, so every milestone has to say which entries it needs — \`none\` when the answer is none. Absent is not the same answer: the implementer cannot tell it apart from a planner that never looked, and loads nothing either way.`,
+      );
+    }
+  }
 }
 
 // ---- report -------------------------------------------------------------
@@ -352,20 +381,29 @@ const shipped = archived.filter((slug) => {
   return /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body) && new RegExp(REQ_TAG.source).test(body);
 });
 
+// The grace covers the REQUIREMENT BINDING and nothing else. It used to
+// `process.exit(0)` here, which discarded every problem this file had already
+// found: a live change with a leaked `## Decision` and no `proposal.md` —
+// both checked a few lines above — passed silently in any repo whose `specs/`
+// was still empty. That is exactly the wrong time to stand those checks down,
+// because an empty `specs/` means the repo is adopting, which is when the
+// habits form. So this reports what it is skipping and falls through to the
+// problem report below.
+let graced = false;
 if (specFiles.length === 0) {
   if (shipped.length === 0) {
     console.log(
-      `spec-trace: no capability specs under ${CONFIG.trace.specs_dir}/ and nothing shipped yet — nothing to check. ` +
-        `This grace ends at the first SHIPPED change: capability specs are what a fold writes.`,
+      `spec-trace: no capability specs under ${CONFIG.trace.specs_dir}/ and nothing shipped yet — no requirements to bind. ` +
+        `This grace ends at the first SHIPPED change: capability specs are what a fold writes. Everything else below is still checked.`,
     );
-    process.exit(0);
-  }
-
-  problems.push(
-    `${shipped.length} change(s) are stamped SHIPPED (${shipped.join(', ')}) but ${CONFIG.trace.specs_dir}/ holds no capability spec. ` +
+    graced = true;
+  } else {
+    problems.push(
+      `${shipped.length} change(s) are stamped SHIPPED (${shipped.join(', ')}) but ${CONFIG.trace.specs_dir}/ holds no capability spec. ` +
       `A fold stamps SHIPPED to assert its deltas landed there, so either they never did, or the specs were written somewhere this contract does not look — ` +
-      `check trace.specs_dir. Until this is resolved every requirement check here is vacuous: with no requirements to bind, this script reports green over a spec layer that does not exist.`,
-  );
+        `check trace.specs_dir. Until this is resolved every requirement check here is vacuous: with no requirements to bind, this script reports green over a spec layer that does not exist.`,
+    );
+  }
 }
 
 if (LIST) {
@@ -388,7 +426,12 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(
-  `spec-trace: OK — ${requirements.size} requirement(s) across ${specFiles.length} capability spec(s), every one proven by a test; ` +
-    `${archived.length} archived change(s), every one with a status.`,
-);
+// Nothing to add when the grace already said what it skipped — claiming
+// "every one proven by a test" over zero requirements is the vacuous green
+// this file spent a commit learning not to print.
+if (!graced) {
+  console.log(
+    `spec-trace: OK — ${requirements.size} requirement(s) across ${specFiles.length} capability spec(s), every one proven by a test; ` +
+      `${archived.length} archived change(s), every one with a status.`,
+  );
+}

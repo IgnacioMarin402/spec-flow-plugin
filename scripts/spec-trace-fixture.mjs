@@ -112,7 +112,7 @@ await Promise.all([
   check('an empty spec layer passes while nothing has shipped yet', () =>
     withRepo({ 'tests/placeholder.test.ts': 'it("unrelated", () => {});\n' }, (r) => {
       if (r.status !== 0) return `a repo mid-adoption was blocked: ${r.out}`;
-      if (!/nothing to check/.test(r.out)) return `unexpected output: ${r.out}`;
+      if (!/no requirements to bind/.test(r.out)) return `unexpected output: ${r.out}`;
       return null;
     }),
   ),
@@ -214,6 +214,81 @@ await Promise.all([
       },
       (r) => {
         if (r.status !== 0) return `a rejected change blocked a repo that has still shipped nothing: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // The adoption grace covers the requirement BINDING and nothing else. It
+  // used to exit(0) before the problem report, which discarded everything
+  // else this file had already found — during adoption, which is exactly when
+  // those habits are forming.
+  check('the empty-specs grace does not swallow the other checks', () =>
+    withRepo(
+      {
+        'specflow/mine/spec.md': '# Spec — mine\n\n## Decision\nThis belongs in proposal.md.\n',
+        'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
+      },
+      (r) => {
+        if (r.status === 0) {
+          return `a live change with a leaked ## Decision and no proposal.md passed, because specs/ happened to be empty: ${r.out}`;
+        }
+        if (!/proposal\.md/.test(r.out)) return `the missing proposal was not reported: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // ---- the Skills field, enforced rather than described ----
+  //
+  // `none` is a legitimate answer; absent is not the same answer, because it
+  // cannot be told apart from a planner that never looked. Only checked where
+  // the repo declares a skills table — a project with no skills has nothing
+  // for the field to route.
+  check('a live milestone with no Skills field fails, when the repo declares skills', () =>
+    withRepo(
+      {
+        '.spec-flow/skills.md': '# Skills\n\n| decision | skill |\n|---|---|\n| where a rule goes | where-does-it-live |\n',
+        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
+        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Files to add/change: lib/a.ts\n',
+      },
+      (r) => {
+        if (r.status === 0) {
+          return `a milestone said nothing about skills and passed, so nobody can tell whether the planner looked: ${r.out}`;
+        }
+        if (!/Skills/.test(r.out)) return `the failure does not name the missing field: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('`Skills: none` is a legitimate answer and passes', () =>
+    withRepo(
+      {
+        '.spec-flow/skills.md': '# Skills\n\n| decision | skill |\n|---|---|\n| where a rule goes | where-does-it-live |\n',
+        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
+        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Skills: none\n',
+      },
+      (r) => {
+        if (r.status !== 0) return `"none" was rejected, though it is what a planner writes when nothing applies: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('a repo that declares no skills is not asked for the field', () =>
+    withRepo(
+      {
+        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
+        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n',
+      },
+      (r) => {
+        if (r.status !== 0) {
+          return `a project with no .spec-flow/skills.md was made to write "Skills: none" on every milestone — ceremony for a field that routes nothing: ${r.out}`;
+        }
         return null;
       },
     ),
@@ -492,10 +567,11 @@ await Promise.all([
   ),
 
   // ---- an unconfigured repo says so, rather than reporting everything proven ----
-  check('a repo with no specs and nothing archived says there is nothing to check', () =>
+  check('a repo with no specs and nothing archived says what it is not checking', () =>
     withRepo({}, (r) => {
       if (r.status !== 0) return `expected a clean exit for an unconfigured repo, got rc=${r.status}: ${r.out}`;
-      if (!/nothing to check/.test(r.out)) return `it did not say the repo has no specs — silence here reads as "all proven": ${r.out}`;
+      if (!/no requirements to bind/.test(r.out)) return `it did not say the repo has no specs — silence here reads as "all proven": ${r.out}`;
+      if (!/still checked/.test(r.out)) return `it did not say the grace covers only the binding, which is what made it swallow everything else: ${r.out}`;
       return null;
     }),
   ),

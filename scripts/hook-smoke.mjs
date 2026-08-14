@@ -307,6 +307,41 @@ t('run-trace logs a subagent STATUS', (repo) => {
   return null;
 });
 
+t('run-trace records a reported skill-routing miss', (repo) => {
+  // The one observable this flow produces that had nowhere to go: reported as
+  // prose in NOTES it reaches the orchestrator and vanishes. Recorded here it
+  // survives into the archived telemetry, which is what makes "does the
+  // planner's routing miss often?" answerable at all.
+  const r = runHook(
+    'run-trace.mjs',
+    {
+      tool_name: 'Task',
+      tool_input: { subagent_type: 'implementer' },
+      tool_response: 'STATUS: IMPLEMENTED\nSKILL_MISS: where does it live\nNOTES: fine',
+    },
+    repo,
+  );
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const line = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  if (!/skill_miss=where-does-it-live/.test(line)) {
+    return `the miss did not reach the trace, so no number of runs can answer whether routing misses: ${line}`;
+  }
+  if (!/status=IMPLEMENTED/.test(line)) return `the status field was lost: ${line}`;
+  return null;
+});
+
+t('run-trace writes no skill_miss field when none was reported', (repo) => {
+  const r = runHook(
+    'run-trace.mjs',
+    { tool_name: 'Task', tool_input: { subagent_type: 'implementer' }, tool_response: 'STATUS: IMPLEMENTED' },
+    repo,
+  );
+  if (r.status !== 0) return `exit ${r.status}`;
+  const line = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  if (/skill_miss/.test(line)) return `an empty field was written, which reads as a miss of nothing: ${line}`;
+  return null;
+});
+
 t('run-trace logs a read path', (repo) => {
   const r = runHook('run-trace.mjs', { tool_name: 'Read', tool_input: { file_path: 'specs/user.md' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
