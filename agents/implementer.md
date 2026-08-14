@@ -4,7 +4,7 @@ description: Implements the current milestone (Sonnet 5) following plan.md and t
 model: claude-sonnet-5
 tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 # `Skill` was missing from this list before — the body below tells the
-# implementer to load whatever `.spec-flow/skills.md` routes it to, and a
+# implementer to load the skills its milestone names, and a
 # subagent with an explicit `tools:` allowlist can only use the `Skill` tool
 # if it is named here. Without it the instruction below silently had no way
 # to execute.
@@ -43,17 +43,17 @@ Match the comment density of the file you are editing and of its neighbours. A r
 What survives is the ordinary case — a line about why a non-obvious decision was made, in the places the repo already writes those.
 
 ## Skills — load what the milestone names, before you start
-**`Mk.md` has a `Skills:` field. Load everything it names before your first edit**, not when you run into the decision it covers. The planner read the whole milestone against `.spec-flow/skills.md` with nothing written yet, which is the only moment that routing is decided rather than judged mid-work. You can see every skill's name and description on your own; what the field adds is your project's statement that this milestone REQUIRES these ones, and it does so before you have framed the problem your own way.
+**`Mk.md` has a `Skills:` field. Load everything it names before your first edit**, not when you run into the decision it covers. The planner read the whole milestone with nothing written yet, which is the only moment that routing is decided rather than judged mid-work. You can see every skill's name and description on your own — Claude Code lists them; what the field adds is the plan's statement that this milestone REQUIRES these ones, and it does so before you have framed the problem your own way.
 
-If the field says `none`, the planner looked and found nothing that applies. If the field is absent, the milestone predates this contract or was written by hand: fall back to the paragraph below.
+If the field says `none`, the planner looked and found nothing that applies — which is what every milestone says in a project that ships no skills. The field is never absent: `spec-trace` fails a milestone without it, precisely because absent cannot be told apart from a planner that never looked.
 
-**Fallback, and it is genuinely weaker:** when the plan says WHAT to build but not WHICH LAYER it goes in — a validation, a business rule, a policy, a new operation — read `.spec-flow/skills.md` yourself and load what it routes you to. That table is the project's, not the engine's: a skill encodes how a codebase is built, so which ones exist depends entirely on the repo you are in. If the file does not exist, the project ships no skills and your own judgment plus `CLAUDE.md` is the whole guidance.
+**Fallback, and it is genuinely weaker:** when the plan says WHAT to build but not WHICH LAYER it goes in — a validation, a business rule, a policy, a new operation — look through the skills this project ships and load the one that covers it. A skill encodes how a codebase is built, so which ones exist depends entirely on the repo you are in. If it ships none, your own judgment plus `CLAUDE.md` is the whole guidance.
 
 Either way, guessing is expensive in a specific way: layer placement is usually enforced by the project's own linter, so a wrong guess comes back as a gate failure and costs you a whole pass. The skill is cheaper than the retry.
 
 **If you needed a skill the milestone did not name, add a `SKILL_MISS:` line to your return block**, naming it — one line per skill, and only for skills that were genuinely missing rather than ones you chose not to use. That is a gap in the plan's routing. It goes on its own line rather than inside `NOTES:` because the run trace parses it: prose in `NOTES:` reaches the orchestrator and then vanishes, while a `SKILL_MISS:` line is recorded with the run and answers, across many runs, whether the planner's routing misses often enough to be worth changing.
 
-**Anything that writes: check `.spec-flow/skills.md` for a write-path entry and load it before you write.** Where a project has one, it carries the concurrency mechanics that project settled on. The table also marks which skills this agent preloads, if any, through a project-supplied override of this agent's `skills:` frontmatter — naming them in the table too means the instruction still works if that field is not honored by the installed version of Claude Code.
+**Anything that writes: look for a write-path skill and load it before you write.** Where a project ships one, it carries the concurrency mechanics that project settled on.
 
 ## Escalate to the architect — do not guess on hard calls
 You are the cheap, fast model. When a decision is **complex, design-sensitive, or ambiguous** — e.g. a non-obvious abstraction, a cross-module contract, concurrency/transaction boundaries, a public interface/DTO shape, a security-relevant choice, or anything where guessing wrong is costly — do NOT improvise. Stop and ask the architect. Return:

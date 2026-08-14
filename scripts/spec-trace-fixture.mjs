@@ -245,10 +245,9 @@ await Promise.all([
   // cannot be told apart from a planner that never looked. Only checked where
   // the repo declares a skills table — a project with no skills has nothing
   // for the field to route.
-  check('a live milestone with no Skills field fails, when the repo declares skills', () =>
+  check('a live milestone with no Skills field fails', () =>
     withRepo(
       {
-        '.spec-flow/skills.md': '# Skills\n\n| decision | skill |\n|---|---|\n| where a rule goes | where-does-it-live |\n',
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Files to add/change: lib/a.ts\n',
@@ -266,29 +265,12 @@ await Promise.all([
   check('`Skills: none` is a legitimate answer and passes', () =>
     withRepo(
       {
-        '.spec-flow/skills.md': '# Skills\n\n| decision | skill |\n|---|---|\n| where a rule goes | where-does-it-live |\n',
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Skills: none\n',
       },
       (r) => {
         if (r.status !== 0) return `"none" was rejected, though it is what a planner writes when nothing applies: ${r.out}`;
-        return null;
-      },
-    ),
-  ),
-
-  check('a repo that declares no skills is not asked for the field', () =>
-    withRepo(
-      {
-        'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
-        'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
-        'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n',
-      },
-      (r) => {
-        if (r.status !== 0) {
-          return `a project with no .spec-flow/skills.md was made to write "Skills: none" on every milestone — ceremony for a field that routes nothing: ${r.out}`;
-        }
         return null;
       },
     ),

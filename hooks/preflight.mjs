@@ -29,7 +29,7 @@
  *      actually happen.
  *
  * It is NOT a general policy hook. `specs/` being empty, a missing
- * `skills.md`, an unwise test command — none of those stop a run from
+ * a missing skill, an unwise test command — none of those stop a run from
  * starting, so none of them belong here. Two checks, both fatal, both cheap:
  * one file read and, in most repos, one or two `git merge-base` calls.
  *

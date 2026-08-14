@@ -320,29 +320,27 @@ for (const slug of live) {
 
   // ---- every live milestone says what skills it needs ---------------------
   //
-  // `Skills:` is where the planner records its routing, read against
-  // `.spec-flow/skills.md` with nothing written yet — the one point in the
-  // flow where that is a decision rather than a judgement made mid-edit. The
+  // `Skills:` is where the planner records its routing, decided while reading
+  // the whole milestone with nothing written yet — the one point in the flow
+  // where that is a decision rather than a judgement made mid-edit. The
   // implementer loads what it names before its first change.
   //
-  // `none` is a legitimate and common answer. An ABSENT field is not the same
-  // thing: it cannot be told apart from a planner that never looked, and the
+  // `none` is a legitimate and common answer, and the only one a project that
+  // ships no skills will ever write. An ABSENT field is not the same thing:
+  // it cannot be told apart from a planner that never looked, and the
   // implementer has no way to know which it is either. Same distinction the
   // gate draws between `spec=0` and `spec=-`.
   //
-  // Only checked when the repo actually declares a skills table. A project
-  // that ships no skills has nothing for this field to route, and demanding
-  // `Skills: none` on every milestone there is ceremony — the same grace
-  // `extra_checks` gets for a script the repo has not written yet.
-  if (!existsSync(join(root, '.spec-flow', 'skills.md'))) continue;
-
+  // Unconditional, because the field lives in an artifact this flow writes
+  // and Claude Code lists the available skills to the planner by itself.
+  // There is nothing to declare and no file to check for first.
   const milestonesDir = join(SPECFLOW_DIR, slug, 'milestones');
   if (!existsSync(milestonesDir)) continue; // no plan yet — a run mid-spec is not a failure
 
   for (const file of readdirSync(milestonesDir).filter((f) => f.endsWith('.md')).sort()) {
     if (!/^[-*]?\s*\**Skills\**\s*:/m.test(readFileSync(join(milestonesDir, file), 'utf8'))) {
       problems.push(
-        `specflow/${slug}/milestones/${file} has no \`Skills:\` field. This repo declares .spec-flow/skills.md, so every milestone has to say which entries it needs — \`none\` when the answer is none. Absent is not the same answer: the implementer cannot tell it apart from a planner that never looked, and loads nothing either way.`,
+        `specflow/${slug}/milestones/${file} has no \`Skills:\` field. Every milestone says which skills it needs — \`none\` when the answer is none, which is what a project shipping no skills always writes. Absent is not the same answer: the implementer cannot tell it apart from a planner that never looked, and loads nothing either way.`,
       );
     }
   }

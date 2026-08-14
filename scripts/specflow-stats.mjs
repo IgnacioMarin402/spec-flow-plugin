@@ -222,7 +222,7 @@ if (agents.length === 0) {
   say(`  ${misses.length} miss(es): ${ranked.map(([m, n]) => `${m} x${n}`).join(', ')}`);
   if (ranked[0][1] >= 3) {
     warn.push(
-      `"${ranked[0][0]}" was needed but not routed ${ranked[0][1]} times. A skill the planner keeps missing is either absent from .spec-flow/skills.md, or described there in terms that do not match the decision it actually applies to.`,
+      `"${ranked[0][0]}" was needed but not routed ${ranked[0][1]} times. A skill the planner keeps missing usually has a description that does not match the decision it actually applies to — the description is what the planner routes on.`,
     );
   }
 }
