@@ -38,14 +38,25 @@ const fix = !process.argv.includes('--no-fix');
 // See spec-flow-config.mjs's header for the bash-era bug this replaces.
 const config = loadConfig(root);
 
-const base = resolveBase(root);
+// Unguarded for the same reason `loadConfig` is: `resolveBase` throws rather
+// than falling back to a base that matches nothing, and catching that to
+// print "no changed files" would make this command report a clean tree it
+// never looked at — the same lie the gate used to tell. See resolveBase in
+// changed-files.mjs.
+let base;
+try {
+  base = resolveBase(root, config);
+} catch (err) {
+  console.error(`spec-flow check: ${err.message}`);
+  process.exit(1);
+}
+
 const files = changedFiles(root, config.verify.scope_globs, base);
 
 let lintRc = 0;
-let testRc = 0;
 
 if (files.length === 0) {
-  console.log(`No changed files in scope vs ${base} — skipping lint and tests.`);
+  console.log(`No changed files in scope vs ${base} — skipping lint.`);
 } else {
   console.log(`Checking ${files.length} changed file(s) vs ${base}:`);
   for (const f of files) console.log(`  ${f}`);
@@ -55,17 +66,21 @@ if (files.length === 0) {
   console.log(`--- ${config.verify.lint_name} ${fix ? '' : '(no fix)'} ---`);
   const lintRes = spawnSync(lintArgv[0], [...lintArgv.slice(1), ...files], { cwd: root, stdio: 'inherit' });
   lintRc = lintRes.status ?? 1;
-
-  // NOT scoped to `files` — same reason as hooks/gate.mjs: this alias and the
-  // gate hook run the SAME file, so "same files, same commands, same result"
-  // stays structural rather than a promise two copies keep only while they
-  // happen to agree (see this file's own header). A trailing path filters
-  // TEST files to these runners, not "run what's related to these sources".
-  console.log(`\n--- ${config.verify.test_name} ---`);
-  const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), { cwd: root, stdio: 'inherit' });
-  testRc = testRes.status ?? 1;
   console.log('');
 }
+
+// Outside the `files.length` branch, and NOT scoped to `files` — both for the
+// same reason as hooks/gate.mjs, which this file must agree with command for
+// command: this alias and the gate hook run the SAME file, so "same files,
+// same commands, same result" stays structural rather than a promise two
+// copies keep only while they happen to agree (see this file's own header).
+// A trailing path filters TEST files to these runners, not "run what's
+// related to these sources"; and an empty diff is a fact about the diff, not
+// about whether the suite passes.
+console.log(`--- ${config.verify.test_name} ---`);
+const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), { cwd: root, stdio: 'inherit' });
+const testRc = testRes.status ?? 1;
+console.log('');
 
 // ---- the unscoped checks ---------------------------------------------------
 // Not scoped to the changed files, and they run even when no file changed at

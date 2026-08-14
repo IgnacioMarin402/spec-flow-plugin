@@ -5,16 +5,23 @@
  * - Only enforces while the flow is in the `implement` phase.
  * - Scopes LINT to the files CHANGED on this branch (vs the base branch), so
  *   a milestone is never blocked by pre-existing lint debt in files it never
- *   touched. Which files count is declared in `.spec-flow/config.json`.
- * - Does NOT scope tests the same way, on purpose. `lint(file)` is a total,
- *   local predicate over one file — file-scoping it is exact. A test suite's
- *   outcome is not a property of one file; it is a property of the system. A
- *   scoped test run can stay green while this change breaks a consumer
- *   outside the diff — silent-pass through the import graph, which is the
- *   exact failure this engine exists to close, reintroduced one level up in
- *   the test command's argv. `verify.test` runs unscoped whenever at least
- *   one file in scope changed; a red suite routes to the implementer first
- *   (attempt 1) before it is treated as evidence the plan is wrong.
+ *   touched. Which files count is declared in `.spec-flow/config.json`, and
+ *   which branch they are compared against is resolved by `resolveBase` —
+ *   which refuses to guess, because the guess used to disarm this gate
+ *   entirely in any repo whose default branch is not named `main`.
+ * - Does NOT scope tests the same way, on purpose, and does not skip them
+ *   when the scope is empty either. `lint(file)` is a total, local predicate
+ *   over one file — file-scoping it is exact. A test suite's outcome is not a
+ *   property of one file; it is a property of the system. A scoped test run
+ *   can stay green while this change breaks a consumer outside the diff —
+ *   silent-pass through the import graph, which is the exact failure this
+ *   engine exists to close, reintroduced one level up in the test command's
+ *   argv. The same argument applies to the degenerate case: "no file in scope
+ *   changed" is a statement about the diff, not about the system, and an
+ *   empty diff is not always real — a mis-resolved base manufactures one. So
+ *   `verify.test` runs on EVERY armed gate. A red suite routes to the
+ *   implementer first (attempt 1) before it is treated as evidence the plan
+ *   is wrong.
  * - Also runs the unscoped checks, so a milestone cannot close while the specs
  *   and the tests that prove them disagree.
  * - Skips entirely (allowing the stop) while the tree is dirty: implementers
@@ -22,6 +29,17 @@
  *   snapshot produces false failures. The environment's own git-check owns
  *   dirty trees; this gate owns clean ones.
  * - Every invocation appends one line to `state/gate-history.log`.
+ * - Declares an explicit `timeout` in hooks.json (1800s), which is the one
+ *   guarantee in this file that this file cannot make. A `command` hook that
+ *   reaches its timeout is CANCELED: its output is discarded and it renders
+ *   no decision — and a Stop hook that renders no decision allows the stop.
+ *   That is a clean pass with no history line, produced one layer above the
+ *   catch-all at the bottom of this file, where nothing here can reach it.
+ *   The default budget is 600s, which a full unscoped suite can plausibly
+ *   exceed on a large repo now that `verify.test` is never scoped down. The
+ *   declared value buys headroom; it does not remove the ceiling, so the
+ *   README tells repos with longer suites to declare a smoke subset as
+ *   `verify.test` instead of hoping.
  * - On pass: allows the agent to stop. On fail: blocks and routes the failure
  *   back to PLAN or straight to the implementer, depending on its class.
  * - Caps the loop at MAX_ATTEMPTS, then hands control to a human, writing
@@ -152,17 +170,32 @@ await run(
     };
 
     // ---- scope: only the files this branch touched, per the contract ----------
-    const base = resolveBase(root);
-    const files = changedFiles(root, config.verify.scope_globs, base);
+    // `resolveBase` throws rather than guessing a base it could not find, and
+    // that is caught HERE rather than by the catch-all at the bottom, because
+    // it is not an engine defect: it is a repo whose base branch this engine
+    // cannot name, which a human fixes in the contract. Before it threw, it
+    // fell back to `'HEAD'` — a base that yields an empty changed-file list
+    // by construction — and this gate read that as "nothing in scope
+    // changed" and reported a clean pass over a red linter and a red suite,
+    // on every repo whose default branch is not called `main`.
+    let base, files;
+    try {
+      base = resolveBase(root, config);
+      files = changedFiles(root, config.verify.scope_globs, base);
+    } catch (err) {
+      hist('fail:base', '-', '-', histDashes(config), '-');
+      emitBlock(
+        `GATE FAILED — the base branch could not be resolved: ${err.message} Do not proceed and do not change the phase. Nothing was linted or tested, so treat NOTHING as verified. A human needs to add "base_ref" under "verify" in .spec-flow/config.json.`,
+      );
+      return;
+    }
 
     // ---- the unscoped checks — run even when no file in scope changed ---------
     const result = runUnscopedChecks(root, config);
 
-    if (files.length === 0) {
-      if (result.allPass) return passAndExit('-', '-', histFields(result), 0);
-    }
-
-    let lintOut = '', lintRc = 0, testOut = '', testRc = 0;
+    // LINT is scoped, so it has nothing to do when nothing in scope changed.
+    let lintOut = '(no files in scope changed)';
+    let lintRc = 0;
     if (files.length > 0) {
       const lintRes = spawnSync(config.verify.lint[0], [...config.verify.lint.slice(1), ...files], {
         cwd: root,
@@ -170,27 +203,37 @@ await run(
       });
       lintOut = `${lintRes.stdout ?? ''}${lintRes.stderr ?? ''}`;
       lintRc = lintRes.status ?? 1;
-
-      // NOT scoped to `files` — see this file's header. A trailing path
-      // argument is a per-FILE filter to the runners this contract
-      // documents (positional args match against TEST file paths), not
-      // "run what's related to these sources"; appending changed source
-      // files here either matches nothing (a false RED that burns an Opus
-      // REPLAN on a milestone that touched no test file) or silently
-      // narrows coverage to whichever test happens to share a path segment.
-      const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), {
-        cwd: root,
-        encoding: 'utf8',
-      });
-      testOut = `${testRes.stdout ?? ''}${testRes.stderr ?? ''}`;
-      testRc = testRes.status ?? 1;
-    } else {
-      lintOut = '(no files in scope changed)';
-      testOut = '(no files in scope changed)';
     }
 
+    // The suite runs on EVERY armed gate, including when no file in scope
+    // changed — not scoped to `files`, and not gated on `files` being
+    // non-empty either. Both halves of that follow from the same fact: a
+    // suite's outcome is a property of the SYSTEM, not of any file. Scoping
+    // it to the diff lets a green run hide a broken consumer; skipping it
+    // because the diff is empty is the same mistake at its degenerate case,
+    // and the empty diff is not always real — a base this engine resolves
+    // wrongly produces one out of thin air. Running the suite unconditionally
+    // is what makes that a slow gate instead of a disarmed one.
+    //
+    // (Not scoped, specifically: a trailing path argument is a per-FILE
+    // filter to the runners this contract documents — positional args match
+    // against TEST file paths — not "run what's related to these sources".
+    // Appending changed source files either matches nothing, a false RED that
+    // burns an Opus REPLAN on a milestone that touched no test file, or
+    // silently narrows coverage to whichever test shares a path segment.)
+    const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    const testOut = `${testRes.stdout ?? ''}${testRes.stderr ?? ''}`;
+    const testRc = testRes.status ?? 1;
+
+    // `lint=-` in the history when lint had nothing to run: reporting `lint=0`
+    // for a linter that was never invoked is the same lie in miniature.
+    const lintField = files.length > 0 ? lintRc : '-';
+
     if (lintRc === 0 && testRc === 0 && result.allPass) {
-      return passAndExit(lintRc, testRc, histFields(result), files.length);
+      return passAndExit(lintField, testRc, histFields(result), files.length);
     }
 
     // ---- failure path -----------------------------------------------------
@@ -221,7 +264,7 @@ await run(
         `--- scope (${files.length} changed file(s) vs ${base}) ---`,
         files.join('\n'),
         '',
-        `--- ${config.verify.lint_name} (rc=${lintRc}) ---`,
+        `--- ${config.verify.lint_name} (rc=${lintField}) ---`,
         lintOut,
         '',
         `--- ${config.verify.test_name} (rc=${testRc}) ---`,
@@ -237,8 +280,10 @@ await run(
         `--- scope (${files.length} changed file(s) vs ${base}) ---`,
         files.join('\n'),
         '',
-        `--- ${config.verify.lint_name} (rc=${lintRc}) ---`,
-        lintRc === 0 ? '(clean)' : truncate(lintOut, MAX_LINT_LINES),
+        `--- ${config.verify.lint_name} (rc=${lintField}) ---`,
+        // `lintOut` already says so when lint did not run; `(clean)` would
+        // claim a linter passed over files it was never given.
+        files.length === 0 ? lintOut : lintRc === 0 ? '(clean)' : truncate(lintOut, MAX_LINT_LINES),
         '',
         `--- ${config.verify.test_name} (rc=${testRc}, failures only) ---`,
         testRc === 0 ? '(all passing)' : summarizeTests(testOut, MAX_TEST_LINES),
@@ -246,14 +291,14 @@ await run(
       ].join('\n'),
     );
 
-    hist(`fail:${failureClass}`, lintRc, testRc, histFields(result), files.length);
+    hist(`fail:${failureClass}`, lintField, testRc, histFields(result), files.length);
 
     // Cap first: repeated failure of any class means a human should look.
     if (attempts >= MAX_ATTEMPTS) {
       writeFile(attFile, '0');
       writeFile(phaseFile, 'blocked');
       emitBlock(
-        `GATE FAILED ${attempts} times (lint rc=${lintRc}, test rc=${testRc}, ${summary(result)}). Auto-loop stopped to avoid thrashing; the phase is now 'blocked' so this stop-and-wait is allowed. Read .claude/state/gate-failure.log, summarize the blocker for the human (HITL), and wait. After their guidance, write 'implement' into .claude/state/phase and resume the milestone.`,
+        `GATE FAILED ${attempts} times (lint rc=${lintField}, test rc=${testRc}, ${summary(result)}). Auto-loop stopped to avoid thrashing; the phase is now 'blocked' so this stop-and-wait is allowed. Read .claude/state/gate-failure.log, summarize the blocker for the human (HITL), and wait. After their guidance, write 'implement' into .claude/state/phase and resume the milestone.`,
       );
       return;
     }
@@ -262,7 +307,7 @@ await run(
     if (failureClass === 'lint/trace' && attempts <= 2) {
       const hints = failedHints(result);
       emitBlock(
-        `GATE FAILED on lint and/or the unscoped checks (lint rc=${lintRc}, ${summary(result)}); the tests pass, so the plan is NOT in question. Do NOT re-plan and do NOT change the phase. Route the fix back to the session whose edits are being checked — the implementer of the CURRENT milestone, or the spec-writer if you just ran the FOLD step — with the output in .claude/state/gate-failure.log, and have it fix exactly those violations — nothing else. Note that the linter already applied everything auto-fixable, so what remains needs a real edit; if a violation comes from a project rule in ${config.verify.lint_config_hint}, read its message, which explains what it protects. ${hints} Then end your turn so the gate runs again.`,
+        `GATE FAILED on lint and/or the unscoped checks (lint rc=${lintField}, ${summary(result)}); the tests pass, so the plan is NOT in question. Do NOT re-plan and do NOT change the phase. Route the fix back to the session whose edits are being checked — the implementer of the CURRENT milestone, or the spec-writer if you just ran the FOLD step — with the output in .claude/state/gate-failure.log, and have it fix exactly those violations — nothing else. Note that the linter already applied everything auto-fixable, so what remains needs a real edit; if a violation comes from a project rule in ${config.verify.lint_config_hint}, read its message, which explains what it protects. ${hints} Then end your turn so the gate runs again.`,
       );
       return;
     }
@@ -276,14 +321,14 @@ await run(
     // wrong, which is what REPLAN below is actually for.
     if (failureClass === 'behaviour' && attempts === 1) {
       emitBlock(
-        `GATE FAILED (lint rc=${lintRc}, test rc=${testRc}, ${summary(result)}), attempt 1/${MAX_ATTEMPTS}. Do NOT re-plan yet and do NOT change the phase. Route the fix back to the implementer of the CURRENT milestone with the output in .claude/state/gate-failure.log: fix the code (and any lint violation alongside it) so everything passes. Do NOT skip, delete, or weaken the failing test to make this pass — spec-trace does not catch a test that still exists but no longer asserts anything. If you believe the PLAN itself is wrong rather than the code, say so in your reply instead of patching around the test. Then end your turn so the gate runs again.`,
+        `GATE FAILED (lint rc=${lintField}, test rc=${testRc}, ${summary(result)}), attempt 1/${MAX_ATTEMPTS}. Do NOT re-plan yet and do NOT change the phase. Route the fix back to the implementer of the CURRENT milestone with the output in .claude/state/gate-failure.log: fix the code (and any lint violation alongside it) so everything passes. Do NOT skip, delete, or weaken the failing test to make this pass — spec-trace does not catch a test that still exists but no longer asserts anything. If you believe the PLAN itself is wrong rather than the code, say so in your reply instead of patching around the test. Then end your turn so the gate runs again.`,
       );
       return;
     }
 
     // Everything else -> the plan may be wrong. Re-plan the current milestone.
     emitBlock(
-      `GATE FAILED (lint rc=${lintRc}, test rc=${testRc}, ${summary(result)}, class=${failureClass}) on the files this branch changed. Do NOT patch ad-hoc. Loop back to the PLAN phase: (1) write 'plan' into .claude/state/phase, (2) invoke the planner subagent in MODE=REPLAN for the CURRENT milestone, pointing it at the failure log .claude/state/gate-failure.log, (3) re-invoke the implementer for that milestone, (4) set phase back to 'implement'. The full output is in .claude/state/gate-failure.log.`,
+      `GATE FAILED (lint rc=${lintField}, test rc=${testRc}, ${summary(result)}, class=${failureClass}) on the files this branch changed. Do NOT patch ad-hoc. Loop back to the PLAN phase: (1) write 'plan' into .claude/state/phase, (2) invoke the planner subagent in MODE=REPLAN for the CURRENT milestone, pointing it at the failure log .claude/state/gate-failure.log, (3) re-invoke the implementer for that milestone, (4) set phase back to 'implement'. The full output is in .claude/state/gate-failure.log.`,
     );
   },
 
