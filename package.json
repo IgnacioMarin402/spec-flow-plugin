@@ -25,5 +25,5 @@
     "eslint": "^9.9.0",
     "typescript": "^5.5.0"
   },
-  "license": "UNLICENSED"
+  "license": "MIT"
 }
