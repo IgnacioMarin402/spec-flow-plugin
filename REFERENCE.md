@@ -175,16 +175,33 @@ which is what the budget is for. The counter is `.claude/state/opus_calls`.
 
 ## Project skills
 
-The agents ship with **no** `skills:` frontmatter, and cannot have one:
-preloading names specific skills, and a skill encodes how one codebase is
-built. Instead, `implementer` and `planner` carry the `Skill` tool and read
+The agents ship with **no** `skills:` frontmatter, by choice rather than by
+limitation: preloading has to name specific skills, and a skill encodes how
+one codebase is built — which is exactly what this engine has no business
+knowing. Instead, `implementer` and `planner` carry the `Skill` tool and read
 `.spec-flow/skills.md` — a decision→skill table your repo writes — loading
 what it routes them to on demand.
 
-Write that file if your repo ships skills; skip it if not. To get preloading
-back, add your own `agents/implementer.md` with a `skills:` line. Whether a
-project-level agent cleanly overrides a plugin-shipped one of the same name is
-not verified here — check before relying on it.
+Write that file if your repo ships skills; skip it if not.
+
+**On-demand loading is weaker than a preload, and the difference is real.** It
+fires only once the agent already suspects it needs the skill, which is
+precisely the moment a preload was there to protect.
+
+To get preloading back, add your own `.claude/agents/implementer.md` with a
+`skills:` line. That override works, and is documented: when several subagents
+share a name, Claude Code uses the higher-priority location, and the order is
+managed settings (1) → `--agents` CLI flag (2) → `.claude/agents/` (3) →
+`~/.claude/agents/` (4) → **a plugin's `agents/` directory (5, lowest)**. A
+project-level definition therefore wins over anything this plugin ships,
+cleanly and by design.
+
+Two constraints if you write one. A plugin subagent silently ignores the
+`hooks`, `mcpServers` and `permissionMode` frontmatter fields — none of the
+agents here use them, but a copy of one is not bound by that limit once it
+lives in your project. And if another installed plugin also ships an agent
+named `implementer`, the bare name is ambiguous; the scoped `plugin:agent`
+form disambiguates.
 
 ---
 
