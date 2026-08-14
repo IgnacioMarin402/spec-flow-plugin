@@ -7,6 +7,7 @@ Look-up material. For what spec-flow is and how a run unfolds, see the
 - [Four rules the contract cannot express](#four-rules-the-contract-cannot-express)
 - [The base branch](#the-base-branch)
 - [The second config file](#the-second-config-file)
+- [Staying current](#staying-current)
 - [Project skills](#project-skills)
 - [Commands and agents](#commands-and-agents)
 - [CLI](#cli)
@@ -197,6 +198,30 @@ One setting lives outside the contract, at `.claude/spec-flow.config.json`:
 It caps planner + architect calls per run and defaults to 6. When it runs out
 the spawn is denied and the orchestrator is told to summarize for a human —
 which is what the budget is for. The counter is `.claude/state/opus_calls`.
+
+---
+
+## Staying current
+
+Neither `plugin.json` nor the marketplace's entry for `spec-flow` declares a
+`version`, and that is deliberate. Claude Code resolves a plugin's version, to
+decide whether an update exists, from the first of these that is set:
+`plugin.json`'s `version` → the marketplace entry's `version` → the git commit
+SHA of the source. Leaving both fields out lets it fall to the SHA, so every
+push to `main` is a real version change — `/plugin marketplace update` (or
+`claude plugin update spec-flow`) picks it up.
+
+The alternative was a hand-maintained `version` field, bumped on every
+release. It shipped that way for the plugin's first nine PRs and nobody bumped
+it once: every install stayed pinned to `0.1.0` regardless of what landed on
+`main`, and `/plugin marketplace update` would have compared `0.1.0` against
+`0.1.0` and reported nothing to do — silently, the same way a hook that fails
+open reports nothing to do. A manual step nobody has a reason to remember is
+not a versioning strategy here; the SHA needs nobody to remember anything.
+
+No install is ever updated FOR you, either way — `/plugin marketplace update`
+is something you run, on whatever cadence you want the changes on this page
+to reach your repo.
 
 ---
 
