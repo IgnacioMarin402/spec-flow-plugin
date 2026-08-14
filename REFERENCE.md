@@ -184,9 +184,23 @@ what it routes them to on demand.
 
 Write that file if your repo ships skills; skip it if not.
 
-**On-demand loading is weaker than a preload, and the difference is real.** It
-fires only once the agent already suspects it needs the skill, which is
-precisely the moment a preload was there to protect.
+**The routing happens at plan time, not mid-work.** Each `milestones/Mk.md`
+carries a `Skills:` field, and the planner fills it by reading your table
+against the whole milestone before anything is written. The implementer loads
+what that field names **before its first edit**. `/spec-fix` does the same in
+the work order it writes itself.
+
+That ordering is the point. On-demand loading fires only once an agent already
+suspects it needs a skill — which is precisely the moment a preload was there
+to protect, because by then it has usually started and a skill arriving after
+the first guess arrives too late to prevent it. Moving the decision to the
+planner does not restore preloading, but it moves the suspicion to the one
+agent that is reading the whole milestone with nothing written yet, and it
+records the answer in a file the implementer cannot skip.
+
+The implementer keeps the on-demand path as a fallback, for a milestone
+written by hand or one whose routing missed something, and reports the miss in
+its `NOTES:` so the gap is visible rather than absorbed.
 
 To get preloading back, add your own `.claude/agents/implementer.md` with a
 `skills:` line. That override works, and is documented: when several subagents
