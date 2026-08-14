@@ -41,6 +41,29 @@ of this argument would have been indistinguishable from the second to anyone
 reading only the outcome. What separated them was whether anyone had gone
 looking for the half that disagreed.
 
+**Before proposing that something be ENFORCED, check what its peers get.**
+The twin of the rule above, with the same failure mode reversed: a sound
+argument for hardening one check feels like the end of the investigation, and
+it never asks whether the thing being hardened is one of a set.
+
+`Skills:` was made a hard `spec-trace` failure on an argument that held up —
+`none` is a real assertion, an absent field cannot be told apart from a
+planner that never looked, and review alone had already missed one. What
+nobody asked is what the field's siblings get. `Spec deltas`, `Tests`,
+`Objective` and `Files to add/change` sit in the same template and are
+checked by the reviewer and nothing else. So `Skills:` became the only
+milestone field that could fail a gate on its own, and that asymmetry was
+never a decision — it accumulated over two commits, the second of which
+tightened it further without noticing.
+
+Asking the second question also moved the first one. The check had been
+justified by where the field lives: in an artifact this flow writes, so
+nothing needs declaring first. True, and beside the point — what a repo has
+to declare is whether it routes skills at all, which no file here can detect,
+since skills also arrive from installed plugins and from the user's own
+directory. It is now a contract opt-in, off by default. Once again the two
+versions of the argument are indistinguishable from the enforcement alone.
+
 ## Proving a fix
 
 **Every fix that can have a regression test gets one, and the test must be run
