@@ -78,7 +78,7 @@ jobs:
       - name: spec-trace behaviour
         run: npm run trace:check
 
-      # The other eight hooks. Shallower than the gate fixture, and that is
+      # The other nine hooks. Shallower than the gate fixture, and that is
       # the right trade: they are eight small adapters over one protocol, and
       # what a port breaks in them is coarse — a hook that crashes, or fires
       # when it should be transparent.

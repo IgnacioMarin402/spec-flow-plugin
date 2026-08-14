@@ -101,6 +101,53 @@ async function withRepo(files, assert) {
 }
 
 await Promise.all([
+  // ---- an empty spec layer: grace while adopting, contradiction after a ship ----
+  //
+  // With no capability specs there are no requirements, so "every requirement
+  // is proven" holds over the empty set and this check reports green. For a
+  // repo adopting the engine that is correct — capability specs are written
+  // BY the flow, as milestones fold their deltas in. The grace has to end
+  // somewhere, and SHIPPED is the only artifact that says where: a fold
+  // stamps it to assert those deltas landed in specs/.
+  check('an empty spec layer passes while nothing has shipped yet', () =>
+    withRepo({ 'tests/placeholder.test.ts': 'it("unrelated", () => {});\n' }, (r) => {
+      if (r.status !== 0) return `a repo mid-adoption was blocked: ${r.out}`;
+      if (!/nothing to check/.test(r.out)) return `unexpected output: ${r.out}`;
+      return null;
+    }),
+  ),
+
+  check('an empty spec layer FAILS once a change is stamped SHIPPED', () =>
+    withRepo(
+      {
+        'specflow/archive/add-users/spec.md': '# Spec — add users\n\n**Status:** SHIPPED 2026-07-30\n\nDeltas.\n',
+        'specflow/archive/add-users/proposal.md': '# Proposal\n\nWhy.\n',
+        'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
+      },
+      (r) => {
+        if (r.status === 0) {
+          return `a change claims its deltas landed in specs/, which holds nothing, and spec-trace reported green — every requirement check here is vacuous and the gate would pass over a spec layer that does not exist. out: ${r.out}`;
+        }
+        if (!/SHIPPED/.test(r.out)) return `the failure does not name what makes this a contradiction: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('a REJECTED change keeps the grace — it asserts nothing landed', () =>
+    withRepo(
+      {
+        'specflow/archive/turned-down/spec.md': '# Spec — turned down\n\n**Status:** REJECTED 2026-07-30\n\nDeltas.\n',
+        'specflow/archive/turned-down/proposal.md': '# Proposal\n\nWhy not.\n',
+        'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
+      },
+      (r) => {
+        if (r.status !== 0) return `a rejected change blocked a repo that has still shipped nothing: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
   // ---- the happy path, and the separators a requirement heading may use ----
   check('a requirement proven by a test title passes, in both directions', () =>
     withRepo(

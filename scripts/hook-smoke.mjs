@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process';
 const ENGINE = process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
 
-function makeRepo({ phase = 'implement', withContract = true } = {}) {
+function makeRepo({ phase = 'implement', withContract = true, git = true } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
   mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
@@ -56,6 +56,19 @@ function makeRepo({ phase = 'implement', withContract = true } = {}) {
     );
   }
   writeFileSync(join(repo, '.claude/state/phase'), phase);
+
+  // A real repo with a base branch, because the engine's scope is a
+  // merge-base diff and `preflight` refuses to start a run without one. Off
+  // only for the case that asserts exactly that refusal.
+  if (git) {
+    const g = (...args) => spawnSync('git', args, { cwd: repo, stdio: 'ignore' });
+    g('init', '-q', '.');
+    g('symbolic-ref', 'HEAD', 'refs/heads/main');
+    g('config', 'user.email', 'smoke@example.com');
+    g('config', 'user.name', 'smoke');
+    g('commit', '-q', '--allow-empty', '-m', 'baseline');
+  }
+
   return repo;
 }
 
@@ -79,6 +92,52 @@ function t(name, fn, repoOpts) {
     rmSync(repo, { recursive: true, force: true });
   }
 }
+
+// ---- preflight: the run refuses to start rather than dying at the gate ----
+//
+// Before this hook, the contract's first BLOCKING check was the gate, on
+// Stop, while implementing. A repo with an unusable contract therefore spent
+// spec-writer, the human sign-off, an Opus planner call, the reviewer and a
+// whole implementer milestone before anything said the engine could not run
+// here. These cases pin the two halves of the fix: it denies what would have
+// failed later, and it is invisible everywhere else.
+t('preflight allows a run whose contract and base both resolve', (repo) => {
+  const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+  if (r.status !== 0) return `a valid setup was denied — exit ${r.status}: ${r.stderr}`;
+  return null;
+});
+
+t(
+  'preflight denies the first spawn when the contract is unusable',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `expected the PreToolUse denial (exit 2), got ${r.status}: ${r.stderr}`;
+    if (!/PREFLIGHT FAILED/.test(r.stderr)) return `the denial does not say what happened: ${r.stderr}`;
+    return null;
+  },
+  { withContract: false, phase: 'spec' },
+);
+
+t(
+  'preflight denies when no base branch can be resolved',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `a run with no resolvable base was allowed to start — exit ${r.status}`;
+    if (!/base branch/.test(r.stderr)) return `the denial does not name the base as the problem: ${r.stderr}`;
+    return null;
+  },
+  { git: false, phase: 'spec' },
+);
+
+t(
+  'preflight is transparent outside a run, even with no contract at all',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'anything' } }, repo);
+    if (r.status !== 0) return `it denied a subagent spawned outside the flow — exit ${r.status}: ${r.stderr}`;
+    return null;
+  },
+  { withContract: false, git: false, phase: 'idle' },
+);
 
 t('arm-gate flips phase on an implementer spawn', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'plan');

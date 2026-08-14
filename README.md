@@ -263,7 +263,7 @@ npm run paths:check   # every ${CLAUDE_PLUGIN_ROOT} path resolves
 npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
-npm run hooks:check   # the other eight hooks
+npm run hooks:check   # the other nine hooks
 ```
 
 All eight run in CI on every push and PR.

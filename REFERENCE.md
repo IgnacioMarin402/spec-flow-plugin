@@ -194,6 +194,7 @@ logs stay in gitignored state and `stats` has nothing to read.
 | hook | event | fires on | what it does |
 |---|---|---|---|
 | `session-start` | `SessionStart` | — | Resets a phase left at `implement`/`blocked` for 6h+ to `idle` |
+| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses to start a run whose contract does not load or whose base branch does not resolve |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `done-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies an unearned `done` |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
@@ -204,9 +205,16 @@ logs stay in gitignored state and `stats` has nothing to read.
 | `gate` | `Stop` | — | The external gate |
 
 Only `gate`, `lint-on-write` and `no-gate-cmds` are armed exclusively by the
-`implement` phase. `opus-budget`, `arm-gate` and `done-guard` stand down only
-outside a run. `register-agent`, `run-trace` and `session-start` never enforce
-anything.
+`implement` phase. `preflight`, `opus-budget`, `arm-gate` and `done-guard`
+stand down only outside a run. `register-agent`, `run-trace` and
+`session-start` never enforce anything.
+
+`preflight` runs first among the spawn hooks on purpose: it is the earliest
+point at which a run can be refused, and refusing there costs nothing. It is
+also the only place the contract is checked *before* the expensive calls — the
+gate is the next one, and by then a planner and an implementer have already
+run. It fails open on its own crash, like every hook but the gate; only a
+check that genuinely failed denies.
 
 ---
 
@@ -217,11 +225,11 @@ whether it is armed.
 
 | phase | written by | what it arms |
 |---|---|---|
-| `spec` | orchestrator, at intake | Opus budget, `done-guard`, `arm-gate` |
-| `plan` | orchestrator | Opus budget, `done-guard`, `arm-gate` |
-| `review` | orchestrator | Opus budget, `done-guard`, `arm-gate` |
-| `implement` | orchestrator — or `arm-gate`, if it forgot | **the gate**, **lint-on-write**, **the command deny**, Opus budget, `done-guard` |
-| `blocked` | **the gate itself**, at the attempt cap | Opus budget, `done-guard`, `arm-gate` |
+| `spec` | orchestrator, at intake | `preflight`, Opus budget, `done-guard`, `arm-gate` |
+| `plan` | orchestrator | `preflight`, Opus budget, `done-guard`, `arm-gate` |
+| `review` | orchestrator | `preflight`, Opus budget, `done-guard`, `arm-gate` |
+| `implement` | orchestrator — or `arm-gate`, if it forgot | **the gate**, **lint-on-write**, **the command deny**, `preflight`, Opus budget, `done-guard` |
+| `blocked` | **the gate itself**, at the attempt cap | `preflight`, Opus budget, `done-guard`, `arm-gate` |
 | `done` | orchestrator, if `done-guard` allows | nothing |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
 
