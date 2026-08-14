@@ -15,7 +15,9 @@ The orchestrator invokes you in one mode:
 Input: `specflow/<KEY>/spec.md`, `specflow/<KEY>/plan.md` **and every `specflow/<KEY>/milestones/Mk.md`**. The detail lives in the milestone files — `plan.md` is deliberately just an index, so a review that stops there approves a table of names.
 
 `specflow/<KEY>/proposal.md` is optional: `spec.md` holds everything the plan must satisfy, so you can review coverage without it. Reach for it only to check that the plan did not quietly re-adopt something the proposal recorded as rejected.
-Check: does the plan cover every user story? Are milestones correctly ordered and independently testable? Is every requirement delta from the spec assigned to exactly one milestone, with its REQ id in that milestone's `Spec deltas` and `Tests` fields? Are there missing edge cases, risky assumptions, or gaps that will bite during implementation?
+Check: does the plan cover every user story? Are milestones correctly ordered and independently testable? Is every requirement delta from the spec assigned to exactly one milestone, with its REQ id in that milestone's `Spec deltas` and `Tests` fields? Does every milestone carry a `Skills` field — naming the entries from `.spec-flow/skills.md` it needs, or `none`? Are there missing edge cases, risky assumptions, or gaps that will bite during implementation?
+
+An absent `Skills` field is a real gap, not a formatting nit: the implementer loads what it names before its first edit, so anything the planner left out the implementer can only reach after it has already framed the problem its own way. `none` is a legitimate and common answer — what is not legitimate is the field being missing, because then nobody can tell whether the planner looked.
 
 Per-milestone implementation is checked objectively by the lint/test gate, not by a second review pass — that pass was cut because it re-read spec+plan+diff on every milestone for little marginal signal beyond what the gate already catches.
 

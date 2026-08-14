@@ -89,9 +89,23 @@ const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
  * be: this engine is itself a Node program, and no dependency tree contains a
  * capability spec's proof. Dot-directories go for the same reason plus one
  * more — `.git` alone can hold tens of thousands of objects.
+ *
+ * Build output is skipped for a second reason, and it is correctness rather
+ * than speed. A compiled or copied test under `dist/` matches the same suffix
+ * as its source, so it registers as proof of the requirement its title names
+ * — and keeps registering after the SOURCE test is deleted. The requirement
+ * then reads as proven by an artifact nobody can run, which is the silent
+ * pass this whole check exists to refuse. Reproduced: deleting
+ * `tests/user.test.js` while `dist/tests/user.test.js` remained left
+ * spec-trace green.
+ *
+ * The contract still wins over this list: a directory named by
+ * `trace.proof_dir` is never skipped, whatever it is called. A repo that
+ * genuinely keeps its proofs in a directory named `dist` is unusual and
+ * entitled to say so, and an engine heuristic must not quietly exclude the
+ * surface the repo declared.
  */
-const NEVER_WALK = new Set(['node_modules']);
-const skipDir = (name) => name.startsWith('.') || NEVER_WALK.has(name);
+const NEVER_WALK = new Set(['node_modules', 'dist', 'build', 'coverage', 'out', 'vendor']);
 
 /**
  * Every file under `dir` matching `test`, walked without extra dependencies.
@@ -156,6 +170,11 @@ const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 // loudly. See spec-flow-config.mjs's header.
 const CONFIG = loadConfig(root);
 const SPECS_DIR = join(root, CONFIG.trace.specs_dir);
+
+// Defined here, below the contract, because the contract overrides it: see
+// NEVER_WALK's header for why the declared proof surface outranks this
+// engine's list of directories that are usually build output.
+const skipDir = (name) => name !== CONFIG.trace.proof_dir && (name.startsWith('.') || NEVER_WALK.has(name));
 
 // `proof_dir` is a directory NAME to look for as a path segment, wherever it
 // appears — a project's tests might live several levels under the repo root,
@@ -316,9 +335,21 @@ for (const slug of live) {
 // artifacts contradicting each other — and the one this script exists to
 // trust says something landed where nothing is. REJECTED and SUPERSEDED
 // assert nothing landed, so they keep the grace.
+// A SHIPPED change only contradicts an empty spec layer if it CLAIMED a
+// requirement. `/spec-fix` case 4 (INFRA) and any wiring-only change ship with
+// `- none — infrastructure only` by design: the contract's proof surface does
+// not cover them, so they assert nothing about `specs/` and the grace holds.
+// Without this, the first such change in a repo blocked every gate afterwards,
+// and the only way out was writing a capability spec the change never needed.
 const shipped = archived.filter((slug) => {
   const specPath = join(ARCHIVE_DIR, slug, 'spec.md');
-  return existsSync(specPath) && /^\*\*Status:\*\*\s+SHIPPED\b/m.test(readFileSync(specPath, 'utf8'));
+  if (!existsSync(specPath)) return false;
+  const body = readFileSync(specPath, 'utf8');
+  // `new RegExp(REQ_TAG.source)` rather than REQ_TAG itself: that one carries
+  // the `g` flag, which makes `.test()` stateful through `lastIndex` — across
+  // this filter's iterations it would answer about where the previous slug's
+  // match ended rather than about this file.
+  return /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body) && new RegExp(REQ_TAG.source).test(body);
 });
 
 if (specFiles.length === 0) {
