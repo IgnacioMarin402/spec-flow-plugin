@@ -48,11 +48,17 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
-// The README is scanned too, and it is not an afterthought: it is the most
-// public surface this plugin has, the first thing an adopting repo reads, and
-// it was the one file the coupling check did not cover — which is exactly how
-// it ended up naming the repo this engine was extracted from, and pointing at
-// a design document that exists only in that repo.
+// The prose docs are scanned too, and that is not an afterthought: they are
+// the most public surface this plugin has, the first thing an adopting repo
+// reads, and they were the one place the coupling check did not cover — which
+// is exactly how the README ended up naming the repo this engine was
+// extracted from, and pointing at a design document that exists only there.
+//
+// EVERY prose doc goes in this list, not just the entry point. The moment a
+// reference doc is split out of the README, the unscanned file becomes the
+// path of least resistance for exactly the vocabulary this check exists to
+// keep out — the leak simply moves one file over, which is worse than never
+// having scanned at all, because now it looks covered.
 //
 // `examples/` is deliberately NOT scanned. A contract example is stack-specific
 // BY DEFINITION — that is the entire job of `.spec-flow/config.json`, to hold
@@ -60,7 +66,7 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // runner and a real layout is useful for precisely the reason it would fail
 // the token check, so it lives outside the scan rather than inside an
 // exception list that would have to grow with every stack.
-const SCAN_FILES = ['README.md'];
+const SCAN_FILES = ['README.md', 'REFERENCE.md'];
 
 // Whole-word or path-shaped tokens — a substring match on "application" would
 // also flag the English word inside unrelated prose ("the application of

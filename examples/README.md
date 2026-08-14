@@ -11,8 +11,8 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 | `vitest-typescript.json` | TypeScript + Vitest, tests under `test/`, npm |
 | `nestjs-jest.json` | NestJS + Jest, hexagonal layout, pnpm, one `extra_check` |
 
-`_comment` is ignored by the reader — every other key is documented in the
-root README's contract table.
+`_comment` is ignored by the reader — every other key is documented in
+[REFERENCE.md](../REFERENCE.md#the-contract).
 
 These files are the one place in this repository allowed to name a specific
 stack, and `scripts/no-repo-refs.mjs` skips this directory for that reason. A
