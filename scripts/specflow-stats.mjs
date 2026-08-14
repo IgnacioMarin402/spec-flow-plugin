@@ -200,6 +200,34 @@ if (agents.length === 0) {
 }
 say('');
 
+// ---- 3b. does the plan's skill routing actually land? ----------------------
+// `Skills:` in a milestone is filled by the planner reading the whole
+// milestone before anything is written; the implementer reports what it
+// needed and did not find there. One miss is noise. A pattern is the only
+// evidence that would justify changing where that routing happens — which is
+// the standard this flow sets for changing itself.
+const misses = trace.flatMap((e) => (e.skill_miss ? e.skill_miss.split(',') : []));
+
+say('Skill routing');
+if (agents.length === 0) {
+  say('  no subagent outcomes recorded yet.');
+} else if (misses.length === 0) {
+  say(`  no misses reported across ${agents.length} subagent return(s).`);
+} else {
+  const tally = misses.reduce((acc, m) => {
+    acc[m] = (acc[m] ?? 0) + 1;
+    return acc;
+  }, {});
+  const ranked = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+  say(`  ${misses.length} miss(es): ${ranked.map(([m, n]) => `${m} x${n}`).join(', ')}`);
+  if (ranked[0][1] >= 3) {
+    warn.push(
+      `"${ranked[0][0]}" was needed but not routed ${ranked[0][1]} times. A skill the planner keeps missing usually has a description that does not match the decision it actually applies to — the description is what the planner routes on.`,
+    );
+  }
+}
+say('');
+
 // ---- 4. what the run READ, which is the only record of its inputs ----------
 const reads = runs.flatMap((r) => r.trace).filter((e) => e.raw?.includes(' read file='));
 

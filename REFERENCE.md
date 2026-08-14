@@ -202,30 +202,34 @@ which is what the budget is for. The counter is `.claude/state/opus_calls`.
 
 ## Project skills
 
+Your skills live where Claude Code puts them — `.claude/skills/` — and this
+plugin adds no file of its own to index them. It does not need one: Claude
+Code lists every skill's name and description to the model automatically, so
+the agents can see what your project ships without being told.
+
 The agents ship with **no** `skills:` frontmatter, by choice rather than by
 limitation: preloading has to name specific skills, and a skill encodes how
 one codebase is built — which is exactly what this engine has no business
-knowing. Instead, `implementer` and `planner` carry the `Skill` tool and read
-`.spec-flow/skills.md` — a decision→skill table your repo writes — loading
-what it routes them to on demand.
-
-Write that file if your repo ships skills; skip it if not.
+knowing. `implementer` and `planner` carry the `Skill` tool instead, and load
+what they need.
 
 **The routing happens at plan time, not mid-work.** Each `milestones/Mk.md`
-carries a `Skills:` field, and the planner fills it by reading your table
-against the whole milestone before anything is written. The implementer loads
-what that field names **before its first edit**. `/spec-fix` does the same in
-the work order it writes itself.
+carries a `Skills:` field, and the planner fills it while reading the whole
+milestone with nothing written yet. The implementer loads what that field
+names **before its first edit**. `/spec-fix` does the same in the work order
+it writes itself. `spec-trace` fails a live milestone that has no such field —
+`none` is the answer when nothing applies, and the only one a project shipping
+no skills will ever write.
 
 That ordering is the point, and it is worth being exact about what on-demand
 loading actually costs, because it is not blindness. Claude Code lists every
 skill's **name and description** to the model automatically, so an agent
 always knows what is available and roughly when each applies. Two things it
 does not have: the skill's *body*, which is where the actual procedure lives,
-and any statement from your project that a given decision **requires** a given
-skill. Descriptions drive invocation when the model judges it relevant; a
-`Skills:` field and `.spec-flow/skills.md` turn that "when relevant" into an
-instruction.
+and any statement that a given milestone **requires** a given skill.
+Descriptions drive invocation when the model judges it relevant; the `Skills:`
+field turns that "when relevant" into an instruction, decided by the planner
+and checked by `spec-trace`.
 
 So the weakness is timing rather than ignorance. The implementer decides
 whether a skill applies after it has already framed the problem its own way,

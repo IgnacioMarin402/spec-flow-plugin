@@ -81,7 +81,25 @@ function traceAgent(input, res, payload, missLog) {
   const type = [input.subagent_type, input.subagentType, input.agent_type].find((v) => typeof v === 'string') ?? '?';
   const text = typeof res === 'string' ? res : JSON.stringify(res ?? '');
   const status = /STATUS:\s*([A-Z_]+)/.exec(text);
-  if (status) return `agent type=${type} status=${status[1]}`;
+  if (status) {
+    // `SKILL_MISS:` mirrors `STATUS:` on purpose — a skill the milestone
+    // failed to route is the one observable this flow produces that had
+    // nowhere to go. Reported as prose in NOTES it reaches the orchestrator
+    // and then vanishes; recorded here it survives into the archived
+    // telemetry, which is what makes "does the planner's routing miss often?"
+    // answerable at all. That question is the only thing that could justify
+    // changing the routing design, and this engine's own change policy
+    // accepts evidence rather than argument.
+    //
+    // Slashes and spaces are stripped from the value: this line is `k=v`
+    // pairs read back by a whitespace split, so a skill name with a space in
+    // it would look like a second field.
+    const misses = [...text.matchAll(/SKILL_MISS:\s*([^\n"\\]+)/g)]
+      .map((m) => m[1].trim().replace(/\s+/g, '-'))
+      .filter(Boolean);
+    const missField = misses.length > 0 ? ` skill_miss=${[...new Set(misses)].join(',')}` : '';
+    return `agent type=${type} status=${status[1]}${missField}`;
+  }
 
   appendUnique(
     missLog,
