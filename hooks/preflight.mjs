@@ -21,15 +21,9 @@
  *
  *   0. The Node running this engine is one the engine declares support for.
  *      `package.json`'s `engines.node` is the single source — a floor written
- *      twice drifts, and this one has a standard place to live. Checked here
- *      rather than in `validate()` for the same reason the base branch is:
- *      it is a property of the ENVIRONMENT, not of a file, so the same repo
- *      can be fine on one machine and unusable on another.
- *
- *      Only the major version, and only when it parses. A floor this engine
- *      cannot confidently compare against is not a floor worth denying a run
- *      over, and a denial that fires on a version string nobody predicted is
- *      worse than the incompatibility it was guarding.
+ *      twice drifts. Major version only, and only when it parses: a floor this
+ *      engine cannot compare against confidently is not worth denying a run
+ *      over. Why Node gets a floor and Claude Code does not: see ADR-004.
  *
  *   1. The contract loads and validates. Same reader every hook uses, so this
  *      cannot disagree with what the gate would have said later.

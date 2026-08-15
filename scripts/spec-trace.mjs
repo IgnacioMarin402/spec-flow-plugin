@@ -15,26 +15,9 @@
 // the runner REPORTED as executed — a tag in a comment or a helper string
 // proves nothing, because no test ran under that name.
 //
-// **This script used to read source code, and that was its only coupling to
-// any language.** It matched `it(...)`/`test(...)` call shapes for the title
-// and `.skip`/`.todo` for whether a test runs, which made every other stack
-// fail closed: a genuine pytest proof read as "has no test", and since this
-// check sits in the gate, no milestone in such a repo could ever pass.
-//
-// The fix was not more idioms. "Did this test run?" is a RUNTIME fact, and
-// deriving it statically is what forced the engine to know a language at all
-// — the skip marker sits in the same expression in JS, on the line above in
-// pytest, JUnit and Rust, and inside the body behind a possible runtime
-// condition in Go, which no expression decides. So the runner answers it
-// instead. That is the same move the gate makes one level up: it does not ask
-// the model whether the tests passed, and this does not ask a regex whether a
-// test ran.
-//
-// What that bought, beyond the stacks: `it.each([foo(1)])('...')` and nested
-// parentheses were documented limitations of the old matcher and are simply
-// gone, because a runner reports names already expanded. And nothing walks
-// the repo looking for test files any more, so a vendored dependency tree can
-// no longer register its own tests as this repo's proof.
+// **Nothing here reads source code, and nothing walks the repo.** That is what
+// makes this check language-neutral, and it is a decision rather than an
+// implementation detail: see ADR-001.
 //
 // It is checked in BOTH directions:
 //

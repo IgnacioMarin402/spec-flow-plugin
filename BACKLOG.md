@@ -263,9 +263,22 @@ which shrinks the headers substantially without creating a document nothing
 checks. `no-repo-refs.mjs`'s SCAN_FILES exists to stop unchecked prose from
 accumulating; a `docs/` tree would be a large new surface arriving under it.
 
+**The rule and its machinery now exist** (`3d93f58` and the commit after it):
+`.claude/skills/engine-comments` states the three-way split,
+`CLAUDE.md` carries it plus the three verified git commands, `decisions/` holds
+the records, and `scripts/decisions.mjs` fails when a citation does not resolve
+or a record is cited by nothing. Four decisions that had been restated across
+several headers are now written once and cited.
+
+**What is left is the application pass, and it is most of the work.** The
+first files touched moved 46% to 44% comment, and spec-trace went from 61
+lines before its first import to 44 — real, and nowhere near the ~20 the rule
+implies, because only the DECISION category has been extracted so far. The
+transitions are still in the source, in every file, and they are the bulk.
+
 **Done looks like:** headers that open with what the file guarantees rather
-than with what it used to do, and a note in `CLAUDE.md` drawing the line so
-the next author knows which half they are writing.
+than with what it used to do, across `hooks/` and `scripts/`, with the
+transition text landing in commit messages as it goes.
 
 ---
 

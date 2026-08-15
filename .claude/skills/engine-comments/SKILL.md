@@ -79,10 +79,13 @@ Proof comes from what the runner reported, not from parsing source.
 **Goes in `decisions/`,** as a dated record: the question, what was chosen,
 what was refused and why.
 
-Then **cite it from the code** — `// see ADR-004` — rather than restating it.
-The citation is what keeps the record honest: a check binds the two
-directions, so an ADR nobody references and a reference to an ADR that does
-not exist both fail.
+Then **cite it from the code** — `// see ADR-NNN`, with the record's real
+number — rather than restating it.
+The citation is what keeps the record honest: `scripts/decisions.mjs` binds the two
+directions, so a record nobody references and a reference to a record that
+does not exist both fail. (This page writes `ADR-NNN` rather than a real
+number on purpose: an example is not a citation, and it would otherwise
+satisfy that check while governing nothing.)
 
 ### Why this does not rot the way `.spec-flow/skills.md` did
 

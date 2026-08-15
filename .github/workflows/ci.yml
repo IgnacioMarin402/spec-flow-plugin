@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · gate · trace · hooks · cold-start
+    name: lint · typecheck · coupling · init · paths · decisions · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +61,14 @@ jobs:
       # step that spent a while in exactly that state.
       - name: Plugin paths resolve
         run: npm run paths:check
+
+      # A decision record and the code it governs must reach each other. This
+      # is what separates decisions/ from a docs tree nobody reads: a citation
+      # that resolves to nothing, and a record nothing cites, both fail. See
+      # decisions/README.md for why a dated record does not rot the way this
+      # repo's last standalone document did.
+      - name: Decisions are reachable from the code
+        run: npm run decisions:check
 
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour

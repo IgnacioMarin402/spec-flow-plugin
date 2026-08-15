@@ -309,13 +309,10 @@ SHA of the source. Leaving both fields out lets it fall to the SHA, so every
 push to `main` is a real version change — `/plugin marketplace update` (or
 `claude plugin update spec-flow`) picks it up.
 
-The alternative was a hand-maintained `version` field, bumped on every
-release. It shipped that way for the plugin's first nine PRs and nobody bumped
-it once: every install stayed pinned to `0.1.0` regardless of what landed on
-`main`, and `/plugin marketplace update` would have compared `0.1.0` against
-`0.1.0` and reported nothing to do — silently, the same way a hook that fails
-open reports nothing to do. A manual step nobody has a reason to remember is
-not a versioning strategy here; the SHA needs nobody to remember anything.
+The alternative — a hand-maintained `version` field, bumped on every release —
+shipped that way for the plugin's first nine PRs and nobody bumped it once, so
+every install stayed pinned to `0.1.0` regardless of what landed. See ADR-003
+for why that field is not coming back.
 
 No install is ever updated FOR you, either way — `/plugin marketplace update`
 is something you run, on whatever cadence you want the changes on this page

@@ -403,25 +403,11 @@ export function buildContract(root) {
 /**
  * The `trace.executed_tests` translator, scaffolded into the adopting repo.
  *
- * Not generated FOR a runner, and that limit is worth stating because it is
- * the interesting part of this file.
- *
- * The obvious version of this scaffold detects the runner and emits working
- * code for it. It cannot be written here: `no-repo-refs.mjs` bans runner names
- * across `hooks/`, `scripts/`, `commands/` and `agents/`, so a branch per
- * runner would not survive `npm run check` — and that ban is not in the way of
- * this feature, it is a considered position. Its own header argues that a
- * worked artifact naming a real runner has to live outside the engine by
- * construction, because holding stack-specific values is the CONTRACT's job,
- * and that `init` needs no exemption precisely because "it names nothing, it
- * reads what the repo already declares".
+ * Not generated FOR a runner — see ADR-002 for why that limit is deliberate.
  *
  * So this writes the part that is the same for every runner — the contract,
  * the shape, and a failure loud enough that nobody ships without noticing —
- * and leaves the four lines that differ. What that buys is smaller than
- * generating the file and larger than naming a field in a report an adopter
- * has already scrolled past: the contract arrives as executable code, at the
- * path the config already points to, with one marked hole.
+ * and leaves the four lines that differ.
  *
  * Deliberately NOT silent when incomplete. A stub that exited 0 and printed
  * nothing would report every requirement as unproven at the first gate, which

@@ -72,29 +72,12 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // that file from the adopting repo instead, which needs no exemption: it
 // names nothing, it reads what the repo already declares.
 //
-// **That was tested once, deliberately, and it held.** When `trace.executed_tests`
-// arrived, the obvious next step was for `init` to detect the runner and
-// generate a working translator for it — which this ban forbids, since it
-// would mean a branch per runner name inside `scripts/`. Two ways past were
-// weighed: a `templates/` directory outside the scan holding one translator
-// per runner, selected by matching the `test_name` `init` already reads from
-// the repo; or relaxing the ban for `init` alone, on the ground that a
-// generator may know technologies while a checker may not.
-//
-// Neither was taken, and the reason is not that the ban won on a technicality.
-// **Configuring how a repo reports the tests it ran is the adopting project's
-// responsibility, the same as declaring its linter or its base branch**, and
-// the engine's scope ends at asking for it clearly. `init` scaffolds
-// `.spec-flow/tests-that-ran.mjs` with the contract written into it and a hole
-// that refuses loudly until filled — so the cost is four lines, once, in a
-// file that says what to write. Buying those four lines with a stack list
-// inside the engine is the trade this whole extraction exists to refuse, and a
-// list of runners is precisely the thing that looks maintained and quietly is
-// not.
-//
-// So the first paragraph above is not merely still true, it is now a decision
-// with a case behind it. Someone proposing a `templates/` directory is
-// reopening a settled question and should say what changed.
+// This was tested once and held: generating a translator per runner would have
+// meant a branch per runner name here. It was refused, with a `templates/`
+// directory and a per-file exemption both weighed — see ADR-002. Someone
+// proposing either is reopening a settled question and should say what
+// changed.
+
 // The workflow is in this list for a reason worth stating, because it is not
 // prose and looks out of place next to four Markdown files. It is the file that
 // demonstrated the gap: `ci.yml` spent several commits pointing readers at a
