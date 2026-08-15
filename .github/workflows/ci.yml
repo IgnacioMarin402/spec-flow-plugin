@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · gate · trace · hooks
+    name: lint · typecheck · coupling · init · paths · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,3 +83,13 @@ jobs:
       # when it should be transparent.
       - name: Hook behaviour
         run: npm run hooks:check
+
+      # The only check that fails when ADOPTION breaks. Every step above tests
+      # a piece of the engine in the stack the engine is written in; this takes
+      # a repo with no package.json, in a language this engine has no code for,
+      # from nothing to a green `spec-flow check` through the route the README
+      # documents — by path, out of a clone, with no environment variables.
+      # python3 is preinstalled on the runner and stands in for a linter and a
+      # runner; nothing is installed.
+      - name: Cold start (a repo that is not an npm package)
+        run: npm run cold:check

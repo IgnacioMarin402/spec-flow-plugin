@@ -36,9 +36,13 @@ An install does not stay current on its own. Run `/plugin marketplace update`
 since — see [REFERENCE](REFERENCE.md#staying-current) for why that command
 does nothing on some plugins and does not here.
 
-**2. Install the CLI too.** The hooks reach the engine through
-`${CLAUDE_PLUGIN_ROOT}`, which only exists inside a Claude Code session. Your
-terminal and CI need the same checks:
+**2. Give your terminal and CI the same checks.** The hooks reach the engine
+through `${CLAUDE_PLUGIN_ROOT}`, which only exists inside a Claude Code
+session. Two ways to get at the same file from outside one — and whichever you
+pick, it *is* the same file, so "same commands, same result" is structural
+rather than two copies that agree today.
+
+**If your repo is already an npm package:**
 
 ```bash
 npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
@@ -54,13 +58,31 @@ npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
 }
 ```
 
-The hook and these aliases run the **same file**, so "same files, same
-commands, same result" is structural rather than two copies that agree today.
+**If it is not** — a Python, Go, Java or Rust repo has no reason to grow a
+`package.json` to hold a checker — clone the engine and run it directly:
+
+```bash
+git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin /tmp/spec-flow
+node /tmp/spec-flow/scripts/check-changed.mjs      # = spec-flow check
+node /tmp/spec-flow/scripts/spec-trace.mjs         # = spec-flow trace
+node /tmp/spec-flow/scripts/specflow-stats.mjs     # = spec-flow stats
+```
+
+Run them from your repo's root and they need no arguments and no environment
+variables. Nothing is installed into your repo: **the engine has no runtime
+dependencies** — every import is `node:` or its own — so a bare clone runs. It
+adds no requirement this page does not already list, since git and Node are
+both above.
+
+One caveat worth knowing rather than discovering: a clone follows `main`, so CI
+picks up whatever has landed. Clone at a commit you chose if you would rather
+that not happen.
 
 **3. Generate the contract.**
 
 ```bash
-npx spec-flow init
+npx spec-flow init                       # if you took the npm route
+node /tmp/spec-flow/scripts/init.mjs     # if you took the clone route
 ```
 
 It writes `.spec-flow/config.json` by reading what your repo already declares
@@ -75,9 +97,9 @@ three buckets, and it tells you which:
 detected  verify.test — from the "test" script: node node_modules/.bin/vitest run
 REVIEW    trace.proof_dir is "lib" — a guess. Your tests are not in a
           directory of their own, so no segment identifies one.
-MISSING   trace.executed_tests — argv whose output lists the tests that RAN,
-          one per line. A requirement is proven when a reported line contains
-          its id.
+MISSING   trace.executed_tests — a translator stub was written to
+          .spec-flow/tests-that-ran.mjs and the contract already points at
+          it. Complete the one function it marks.
 ```
 
 `detected` is read from your repo. `REVIEW` is an inference worth confirming.
@@ -105,7 +127,8 @@ directly. Every field is documented in
 **4. Check it.**
 
 ```bash
-npx spec-flow check
+npx spec-flow check                              # or, from the clone:
+node /tmp/spec-flow/scripts/check-changed.mjs
 ```
 
 Lints the files this branch changed, runs your suite, and runs the
@@ -310,9 +333,13 @@ npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
 npm run hooks:check   # the other nine hooks
+npm run cold:check    # a repo that is not an npm package, from zero to green
 ```
 
-All eight run in CI on every push and PR.
+All of these run in CI on every push and PR. The last one is the only check
+that fails when *adoption* breaks rather than a piece of the engine: it takes
+a repo with no `package.json`, in a language this engine has no code for,
+through the install route above and asserts a green check at the end.
 
 ---
 

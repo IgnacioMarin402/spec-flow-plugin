@@ -12,9 +12,9 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B9, B11, B3, B4, B5. B9 is now documentation — its hypothesis
-was verified — and B11 is the half of B10 that is a decision rather than work.
-B2 is not an item: it is the acceptance test for B9.
+**Open order:** B3, B4, B5 — and none of the three is blocked by code. B3 is
+work with its own judgement calls, B4 needs real runs on a real repo, and B5
+needs a fact only the author has.
 
 ---
 
@@ -85,89 +85,59 @@ either exempting a template directory from the scan, or accepting a runner list
 that rots. Neither is obviously right, and it is a decision rather than work,
 so it is split out as B11.
 
+### B9 — the CLI half had a path that is not npm all along — `PENDING`
+
+Logged as three trades to investigate. It was one hypothesis to run, and it
+held: a Python repo with no `package.json` and no `node_modules` runs
+`node <clone>/scripts/check-changed.mjs` green, from its own root, with no
+arguments and no environment variables. The engine has zero runtime
+dependencies — `dependencies` is empty and every import is `node:` or relative
+— so a bare clone runs, adding no requirement the README did not already list.
+
+Node on the PATH was never the coupling. Requiring the consuming repo to BE an
+npm package was, and it turned out not to be required at all. Documented in
+the README as the second of two install routes.
+
+### B11 — `init` will not generate the translator, and that is the scope — `PENDING`
+
+Decided rather than deferred: **configuring how a repo reports the tests it
+ran is the adopting project's responsibility**, like declaring its linter or
+its base branch, and the engine's job ends at asking for it clearly. A
+`templates/` directory outside the coupling scan and a relaxed ban for `init`
+were both weighed and both refused — buying four lines of an adopter's time
+with a stack list inside the engine is the trade this extraction exists to
+refuse, and a runner list is exactly the thing that looks maintained and
+quietly is not.
+
+Recorded in `no-repo-refs.mjs`'s own header, where the argument it settles
+already lived, so reopening it means saying what changed.
+
+### B2 — a cold start is now the only check that fails when ADOPTION breaks — `PENDING`
+
+Logged as "nothing has ever run the documented install", then demoted to an
+acceptance test for other items. With B9 and B10 closed it became an item
+again and shipped as `scripts/cold-start.mjs`, in CI.
+
+It builds a repo with no `package.json` and no `node_modules`, in a language
+this engine has no code for, and takes it through the README's second install
+route — by path, out of a clone, from the repo's own root, with no arguments
+and no environment variables — to a green `spec-flow check`. Then it removes
+the test from the report and asserts the requirement goes unproven, which is
+what a skip looks like from the engine's side.
+
+Red against `92a7d72` with three failures, including the central one. It also
+counts the fields an adopter is asked to fill, so adoption cost going up turns
+CI red rather than being absorbed.
+
+What it is not: proof that `claude marketplace add` works. Steps 1 and 2 of
+the plugin half still have no automated run, and that gap is smaller than it
+was but real.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
 of which exists here. Reference removed, and the workflow added to
 `SCAN_FILES`.
-
----
-
-## B9 — the CLI half of the install has no path that is not npm
-
-**Priority: first among what is open, and now documentation rather than
-design — the hypothesis below was executed and held.**
-
-**The run.** A Python repo with no `package.json` and no `node_modules`, and a
-clone of the engine with neither:
-
-```
-git clone <engine> && node <engine>/scripts/check-changed.mjs
-  --- ruff --- --- pytest --- --- spec-trace ---
-  spec-trace: OK — 1 requirement(s), every one proven by a test.   exit 0
-```
-
-It works because the engine has **zero runtime dependencies**: `dependencies`
-is empty and every import is `node:` or relative — the linter and type-checker
-are development-only. `git` and Node are already in the README's requirements,
-so this path adds none.
-
-So what remains is a README section, not an investigation.
-
-The README's step 2 is `npm install --save-dev github:...` plus three npm
-scripts, and it exists for a real structural reason: hooks reach the engine
-through `${CLAUDE_PLUGIN_ROOT}`, which exists only inside a session, so a
-terminal and CI need their own route to the same file. That "same file, same
-commands, same result" property is one of the strongest things this project
-claims.
-
-A repo with no `package.json` has no documented way to get it. It would have
-to add one solely to host this CLI — which is the engine asking the consuming
-repo to adopt a stack, the exact direction the whole extraction reverses.
-
-Worth stating precisely, because the neighbouring claim is false: **the engine
-being written in Node is not the coupling.** `hooks.json` invokes
-`node ${CLAUDE_PLUGIN_ROOT}/...`, the gate runs the contract's argv and never
-learns what it is running, and a checker written in one language checking a
-repo written in another is ordinary. Requiring Node *on the PATH* is an install
-requirement. Requiring the consuming repo to be an npm package is a coupling.
-Only the second is this item.
-
-**Done looks like:** the Python cold-start job in B2 reaching a green
-`spec-flow check` without the repo having acquired a `package.json`.
-
----
-
-## B11 — should `init` generate the translator for a runner it detects?
-
-**A decision, not work, which is why it is its own item.** B10 stopped at a
-stub because going further requires naming test runners inside `scripts/`, and
-`no-repo-refs.mjs` bans exactly that. The ban is not an obstacle that grew
-around this feature — its header argues the position, and names `init` as
-needing no exemption *because* "it names nothing, it reads what the repo
-already declares".
-
-Two ways past it, and they are not equivalent:
-
-1. **A `templates/` directory outside the scan**, holding one worked
-   translator per runner, which `init` selects by matching the `test_name` it
-   already read from the repo. No runner name appears in any scanned file —
-   the knowledge is data, keyed on what the repo declared. Against it: the
-   check's header explicitly says there is no exemption list and no
-   `examples/` directory, so this creates the thing that text says does not
-   exist.
-2. **Accept a runner list in `init`** and relax the ban for that file, on the
-   ground that a generator may know technologies while the checker may not.
-   Against it: a list rots, and the ban currently needs no per-file reasoning
-   to apply.
-
-Worth noting what the cost of doing neither actually is: an adopter writes
-four lines into a file that already tells them what to write, once. That is a
-real cost and a small one, which is why this is not urgent.
-
-**Done looks like:** a stated decision in `no-repo-refs.mjs`'s own header,
-whichever way it goes, so the next person to meet this reads the reasoning
-rather than re-deriving it.
 
 ---
 
@@ -246,40 +216,6 @@ the table is wanted here.
 
 **Done looks like:** a supported-versions statement in REFERENCE, and a
 preflight refusal with a fixture case for a Node version below the floor.
-
----
-
-## B2 — nothing has ever run the documented install
-
-**Not an item on its own any more: this is the acceptance test for B1 and B9.**
-A CI job that takes an empty **Python** repo through the README verbatim and
-ends on a green `spec-flow check` fails today for exactly two reasons — the
-source reader (B1) and the absence of any non-Node path to the CLI (B9) — and
-for no others. That makes it the check that says when both are actually done,
-rather than a third pile of work.
-
-`gate-fixture` and `init-fixture` build throwaway repos and cover steps 3 and
-4 of the README (`init`, `check`), including installing the engine at a
-separate path the way it actually ships. Steps **1 and 2 are unexercised**:
-no run of `claude marketplace add`, `claude plugin install`, or
-`npm install --save-dev github:...` exists anywhere in CI or in a fixture.
-
-That is also the gap `.github/workflows/ci.yml:4` already names — it points
-readers at a `conformance/` directory and a `docs/spec-flow-as-a-plugin.md`,
-**neither of which exists in this repo** (see B6).
-
-The reframe worth making: the goal is not *fewer* install commands. The two
-installs are structural — hooks reach the engine through
-`${CLAUDE_PLUGIN_ROOT}`, which exists only inside a session, while a terminal
-and CI need the same file. Collapsing them would trade away the "same file,
-same result" property that makes the local check and the gate agree by
-construction. The gap is that the path is undocumented in the directions that
-have no happy case: **updating and uninstalling**, and what a partial install
-looks like from the adopter's side.
-
-**Done looks like:** a CI job that takes an empty repo through the README
-verbatim and asserts a green `spec-flow check` at the end, plus documented
-update and uninstall paths.
 
 ---
 
