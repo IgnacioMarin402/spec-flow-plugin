@@ -20,7 +20,9 @@ This is not bookkeeping; it is the difference between a routing decision and a h
 
 It is also the cheaper place to be wrong. Layer placement is usually enforced by the project's own linter, so a bad guess comes back as a gate failure and costs a full implementer pass plus a gate cycle; naming the skill costs a line. A project that ships no skills gets `none`, which is a normal answer and not a gap.
 
-**Name the test files by path, on the proof surface the contract declares.** `trace.proof_dir` (a directory segment) and `trace.proof_suffix` (a filename ending) in `.spec-flow/config.json` are what `spec-trace` searches, and nothing outside that surface is proof no matter how good the test is. So a milestone whose `Tests to add/change` says only *what* to test invites the implementer to colocate the file next to the module, where the check will not see it — the requirement then reads as unproven and the gate blocks on a test that exists and passes. Where the repo already has proofs, mirror their layout.
+**Name the test files by path, and name what each test is CALLED.** The path follows the surface the contract declares — `trace.proof_dir` and `trace.proof_suffix` in `.spec-flow/config.json` — so the repo stays consistent; where it already has proofs, mirror their layout.
+
+The name matters more, and it is the half a plan usually omits. `spec-trace` binds a requirement to a test through the name the RUNNER reports, so a milestone whose `Tests to add/change` says only *what* to test leaves the implementer to invent a title, and a title that does not carry the REQ id leaves the requirement unproven with a passing test sitting right there. State the id as part of the test's name.
 
 You are invoked in three modes; the orchestrator tells you which:
 
@@ -81,9 +83,10 @@ When a milestone delivers a delta, order its Steps **test-first**: the failing R
 - Steps: <ordered, concrete engineering steps>
 - Spec deltas: <the REQ ids this milestone ADDS/CHANGES/REMOVES in
   specs/<capability>.md, with the exact requirement text to write — or "none">
-- Tests to add/change: <the tests proving the ACs, each BY PATH and on the
+- Tests to add/change: <the tests proving the ACs, each BY PATH on the
   contract's proof surface (a `trace.proof_dir` segment, a `trace.proof_suffix`
-  filename); each test proving a delta names its REQ id>
+  filename) AND BY NAME; each test proving a delta carries its REQ id in the
+  name the runner will report>
 - Lint/type notes: <linter/type-checker gotchas for this milestone>
 - Definition of done: the gate passes (the project's lint command on the
   changed files, its test command on the whole suite, plus spec-trace)

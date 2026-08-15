@@ -1,99 +1,143 @@
 # Backlog
 
-Ordered by what each item changes, not by size. Every entry states the run
-behind it — a proposal with no run attached is a hypothesis, and this file
-keeps the two apart on purpose.
+Every entry states the run behind it — a proposal with no run attached is a
+hypothesis, and this file keeps the two apart on purpose. Items are written so
+that "done" is a check that goes red before the fix and green after, not a
+paragraph someone judges; where an item cannot be proven that way, it says so.
 
-Items are written so that "done" is a check that goes red before the fix and
-green after, not a paragraph someone judges. Where an item cannot be proven
-that way, it says so.
+**Shipped items are compressed into the record below rather than deleted.**
+What is worth keeping about a finished item is the finding, not the argument
+that led to it — the argument now lives in the commit that carried it and in
+the comments next to the code, where it is read by whoever changes that code
+next. A backlog that keeps re-stating settled decisions is the same liability
+as a doc nothing checks.
 
----
-
-## B1 — spec-trace recognises one family of test idioms, the README promises all of them
-
-**Priority: first.** This is the only item here that makes a documented
-capability fail closed on a new adopter's first run.
-
-The README's second paragraph says the engine "has no opinion about your
-language, framework or architecture". `spec-trace` does. Its title matcher is
-
-```js
-/\b(?:it|fit|test)((?:\.\w+)*)\s*\(\s*(?:(['"`])...
-```
-
-which is the `it(...)` / `test(...)` call idiom. A test written any other way
-is not seen at all — not "seen and rejected", not seen.
-
-**The run.** Two throwaway repos, identical in every respect except the test
-idiom: same capability spec, same requirement id, same scope marker, a real
-test that names the requirement and is not skipped.
-
-```
-repo A   tests/auth.test.ts    it('REQ-AUTH-001 — a bad password is rejected', ...)
-         -> spec-trace: OK — 1 requirement(s), every one proven by a test.  exit 0
-
-repo B   tests/auth_test.py    def test_REQ_AUTH_001_a_bad_password_is_rejected():
-         -> REQ-AUTH-001 (specs/auth.md) has no test.                       exit 1
-```
-
-`pytest`, Go, JUnit, Rust and RSpec all land in repo B's column; RSpec is the
-one worth noticing, because `it "..." do` is the same *word* and still misses
-— the matcher requires the parenthesis, so this is narrower than "JS-family".
-
-What that costs downstream is the whole run, not one check: spec-trace is in
-the gate, so every milestone fails, the failure survives the retry ladder,
-and five failures write `phase blocked` for a human. A repo on any other
-stack cannot complete a single milestone.
-
-Worth separating from its neighbour, because they behave differently:
-`trace.proof_suffix` is already contract-driven, so **finding** `_test.py` works
-fine. It is only reading the title that is hardcoded. And `init` on a
-non-Node repo degrades honestly — it detects nothing, writes MISSING for every
-field, and exits non-zero (`init-fixture.mjs:417` covers exactly that). So the
-engine is honest at setup and silently wrong at the gate, which is the worse
-half to get wrong.
-
-**Two ways to close it, and the choice is a real one.**
-
-1. Make the matcher part of the contract — `trace.title_pattern`, or a named
-   idiom list the contract selects from. Keeps the README's claim true.
-2. Narrow the README to say the engine is JS-family only today.
-
-Either is defensible. Shipping neither is not: this repo's own rule is that a
-check which looks armed and is not is the failure it exists to close, and a
-doc claim nothing checks is that failure one level up.
-
-**Done looks like:** a repo-B case in `spec-trace-fixture.mjs` that goes red
-against `HEAD` today. If option 2 wins, the case asserts the *refusal* is
-loud and named rather than a silent "has no test".
+**Open order:** B10, B9, B3, B4, B5. B10 leads because B1 is not usable
+without it: the engine supports any stack now, and `init` cannot finish the
+contract for any of them. B2 is not an item — it is the acceptance test for
+B9 and B10 together.
 
 ---
 
-## B2 — nothing has ever run the documented install
+## Shipped
 
-`gate-fixture` and `init-fixture` build throwaway repos and cover steps 3 and
-4 of the README (`init`, `check`), including installing the engine at a
-separate path the way it actually ships. Steps **1 and 2 are unexercised**:
-no run of `claude marketplace add`, `claude plugin install`, or
-`npm install --save-dev github:...` exists anywhere in CI or in a fixture.
+### B1 — the engine read source code in exactly one place, and that was the whole coupling — `331ea1b`
 
-That is also the gap `.github/workflows/ci.yml:4` already names — it points
-readers at a `conformance/` directory and a `docs/spec-flow-as-a-plugin.md`,
-**neither of which exists in this repo** (see B6).
+`spec-trace.mjs:233` was the only line in the engine reading a source file the
+consuming repo wrote in its own language, and its two constants (`TEST_TITLE`,
+`NOT_RUN`) were the entire coupling to a stack: a genuine pytest proof read as
+"has no test", and since the check sits in the gate, no milestone in such a
+repo could pass.
 
-The reframe worth making: the goal is not *fewer* install commands. The two
-installs are structural — hooks reach the engine through
-`${CLAUDE_PLUGIN_ROOT}`, which exists only inside a session, while a terminal
-and CI need the same file. Collapsing them would trade away the "same file,
-same result" property that makes the local check and the gate agree by
-construction. The gap is that the path is undocumented in the directions that
-have no happy case: **updating and uninstalling**, and what a partial install
-looks like from the adopter's side.
+The fix was not more idioms. "Did this test run?" is a runtime fact being
+derived statically, and that derivation is what forced the engine to know a
+language at all. The contract now declares `trace.executed_tests` — argv whose
+output names the tests that RAN — and a requirement is proven when a reported
+line contains its id. The engine knows lines, not formats.
 
-**Done looks like:** a CI job that takes an empty repo through the README
-verbatim and asserts a green `spec-flow check` at the end, plus documented
-update and uninstall paths.
+Went with it: the whole-repo walk, and `NEVER_WALK` — an ecosystem list the
+engine could not keep current, missing `venv`, `site-packages`, `__pycache__`
+and `target`. Its regression test needs no second language: a vendored
+dependency with a `tests/` segment had its own tests judged as this repo's.
+Also gone are two documented limitations of the old matcher, since a runner
+reports names already expanded.
+
+Found by the fixture rather than by the design: `REQ_TAG`'s `\b` delimiters
+failed on Go and pytest names, which glue an id to its neighbours with
+underscores. The boundaries now say what matters — not glued to a preceding
+letter or digit, not followed by a fourth digit.
+
+Left behind, and now B10: `init` cannot detect `executed_tests`, so every
+adopter fills one field by hand.
+
+### B7 — the state that survived a crash could resume the checking, not the run — `98477a5`
+
+Which milestone was current and which session was `IMPL_SESSION` lived only in
+the orchestrator's context, so a crash mid-milestone left an armed gate, a
+live attempt count and nothing able to say what was being implemented.
+`register-agent` — the one place a spawn's type and its session id are both in
+hand — now records both, from the spawn's own input. `session-start` no longer
+erases the position when it disarms a stale run: the phase arms hooks, the
+position arms nothing, and the two were never one act.
+
+### B8 — the test-first metric was not blind, it was fabricating — `98477a5`
+
+Logged as "hardcoded to one extension, fails by going quiet". Running it
+showed worse: `file.replace(/\.ts$/, '.spec.ts')` is a no-op off TypeScript,
+so every source file was looked up as itself, found itself, and produced a
+verdict. A Python trace reported two `no-red-run` MISSes for files never
+paired with anything. Pairing is now contract-driven and matches on basename,
+since the old version also assumed a test sits beside its source.
+
+### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
+
+`ci.yml` pointed at a `conformance/` directory and a design document, neither
+of which exists here. Reference removed, and the workflow added to
+`SCAN_FILES`.
+
+---
+
+## B10 — every adopter fills in one field by hand, and `init` is where that ends
+
+**Priority: first among what is open, and it is the whole difference between
+"supports your stack" and "supports your stack after you write a script".**
+
+B1 moved proof to `trace.executed_tests`, and `init` reports it MISSING on
+every repo without exception. That is correct behaviour for `init` as it
+stands — it never invents a value it could not determine, and nothing in a
+repo declares how its runner can be made to list what it executed — but the
+result is that `npx spec-flow init` cannot produce a usable contract for
+anybody, which it could before.
+
+The resolution is the split B1 established rather than a weakening of it:
+**`init` may know technologies; the engine may not.** A generator's job is
+reading what a repo already declares about itself, and a wrong guess there is
+reported as `REVIEW` rather than silently run. The checker has to be right
+about repos nobody has seen, which is why it holds no runner names.
+
+So `init` detects the runner it can already see in the repo's own scripts —
+it does this for `verify.test` today — and writes a translator into the
+adopting repo, pointing `executed_tests` at it. The translator belongs in the
+repo, not in the engine, so that changing runners changes the repo's script
+and nothing here.
+
+**Done looks like:** `init` on a repo with a detectable runner produces a
+contract that validates with no hand-editing, and the fixture case that
+currently asserts "exactly one field is undetectable" asserts zero instead.
+
+---
+
+## B9 — the CLI half of the install has no path that is not npm
+
+**Priority: second among what is open, and independent of B1 and B10 — it
+survives both untouched.**
+
+The README's step 2 is `npm install --save-dev github:...` plus three npm
+scripts, and it exists for a real structural reason: hooks reach the engine
+through `${CLAUDE_PLUGIN_ROOT}`, which exists only inside a session, so a
+terminal and CI need their own route to the same file. That "same file, same
+commands, same result" property is one of the strongest things this project
+claims.
+
+A repo with no `package.json` has no documented way to get it. It would have
+to add one solely to host this CLI — which is the engine asking the consuming
+repo to adopt a stack, the exact direction the whole extraction reverses.
+
+Worth stating precisely, because the neighbouring claim is false: **the engine
+being written in Node is not the coupling.** `hooks.json` invokes
+`node ${CLAUDE_PLUGIN_ROOT}/...`, the gate runs the contract's argv and never
+learns what it is running, and a checker written in one language checking a
+repo written in another is ordinary. Requiring Node *on the PATH* is an install
+requirement. Requiring the consuming repo to be an npm package is a coupling.
+Only the second is this item.
+
+No recommendation yet, and that is deliberate — publishing to a registry, a
+standalone launcher, and documenting a minimal manifest are three different
+trades and none has been investigated. Logged with the question stated rather
+than a guess dressed as a plan.
+
+**Done looks like:** the Python cold-start job in B2 reaching a green
+`spec-flow check` without the repo having acquired a `package.json`.
 
 ---
 
@@ -175,37 +219,37 @@ preflight refusal with a fixture case for a Node version below the floor.
 
 ---
 
-## B6 — the coupling check does not scan `.yml`, and CI already proves why
+## B2 — nothing has ever run the documented install
 
-`no-repo-refs.mjs` scans `SCAN_DIRS` plus an explicit `SCAN_FILES` list, and
-its own header argues that every prose doc must be in that list or the
-unscanned file becomes the path of least resistance. Workflow files are
-outside both.
+**Not an item on its own any more: this is the acceptance test for B1 and B9.**
+A CI job that takes an empty **Python** repo through the README verbatim and
+ends on a green `spec-flow check` fails today for exactly two reasons — the
+source reader (B1) and the absence of any non-Node path to the CLI (B9) — and
+for no others. That makes it the check that says when both are actually done,
+rather than a third pile of work.
 
-The demonstration is sitting in the repo: `ci.yml:4` points at `conformance/`
-and `docs/spec-flow-as-a-plugin.md`, and neither exists here — the same class
-of dangling cross-reference the check was written to catch, in the one file
-type it cannot see.
+`gate-fixture` and `init-fixture` build throwaway repos and cover steps 3 and
+4 of the README (`init`, `check`), including installing the engine at a
+separate path the way it actually ships. Steps **1 and 2 are unexercised**:
+no run of `claude marketplace add`, `claude plugin install`, or
+`npm install --save-dev github:...` exists anywhere in CI or in a fixture.
 
-Small, and it belongs in the same commit as whichever item lands first.
+That is also the gap `.github/workflows/ci.yml:4` already names — it points
+readers at a `conformance/` directory and a `docs/spec-flow-as-a-plugin.md`,
+**neither of which exists in this repo** (see B6).
 
-**Done looks like:** the dangling reference resolved or removed, and `.yml`
-either scanned or excluded for a stated reason.
+The reframe worth making: the goal is not *fewer* install commands. The two
+installs are structural — hooks reach the engine through
+`${CLAUDE_PLUGIN_ROOT}`, which exists only inside a session, while a terminal
+and CI need the same file. Collapsing them would trade away the "same file,
+same result" property that makes the local check and the gate agree by
+construction. The gap is that the path is undocumented in the directions that
+have no happy case: **updating and uninstalling**, and what a partial install
+looks like from the adopter's side.
 
----
-
-## B7 — recovery covers process failure, not context exhaustion
-
-Most of what "robust recovery" usually means is already here: the phase file
-survives a crash, attempts are counted and capped, a fifth failure writes
-`phase blocked` rather than looping, each milestone gets a fresh session, and
-`gate-failure.log` is what a human reads.
-
-The uncovered case is an implementer that runs out of context **mid-milestone**
-— not a failure the gate can see, because a half-written tree is skipped as
-dirty by design. Low priority: no run has hit it yet, and this repo's policy
-is that a proposal without a failing run attached defaults to no. Logged so
-the first occurrence is recognised rather than re-diagnosed.
+**Done looks like:** a CI job that takes an empty repo through the README
+verbatim and asserts a green `spec-flow check` at the end, plus documented
+update and uninstall paths.
 
 ---
 
@@ -220,18 +264,3 @@ the first occurrence is recognised rather than re-diagnosed.
   it cannot exist here: a contract's job is to hold exactly the stack-specific
   values the engine refuses to know. `init` generates it from the adopting
   repo instead.
-
----
-
-## Reproducing B1
-
-```bash
-mkdir -p /tmp/b1/{specs,tests,.spec-flow} && cd /tmp/b1 && git init -q .
-# .spec-flow/config.json with trace.proof_dir="tests", trace.proof_suffix="_test.py"
-printf '<!-- spec-scope: modules/auth -->\n\n# Auth\n\n### REQ-AUTH-001 — a bad password is rejected\n' > specs/auth.md
-printf 'def test_REQ_AUTH_001_a_bad_password_is_rejected():\n    assert True\n' > tests/auth_test.py
-CLAUDE_PROJECT_DIR=/tmp/b1 node <plugin>/scripts/spec-trace.mjs   # exit 1: "has no test"
-```
-
-Swap the test for `it('REQ-AUTH-001 ...', ...)` in `tests/auth.test.ts`, set
-`proof_suffix` to `.test.ts`, and the same repo exits 0.

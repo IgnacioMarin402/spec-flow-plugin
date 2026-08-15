@@ -8,12 +8,35 @@
 //
 // It binds two artifacts the contract names:
 //
-//   <trace.specs_dir>/<capability>.md          what the system does today
-//   <trace.proof_dir>/**/*<trace.proof_suffix>  the tests that prove it
+//   <trace.specs_dir>/<capability>.md   what the system does today
+//   <trace.executed_tests>              argv naming the tests that RAN
 //
-// The binding is the requirement id (REQ-USER-001), and it only binds from a
-// test's TITLE — a tag in a comment or a helper string proves nothing,
-// because no test runs under that name. It is checked in BOTH directions:
+// The binding is the requirement id (REQ-USER-001), and it binds from a test
+// the runner REPORTED as executed — a tag in a comment or a helper string
+// proves nothing, because no test ran under that name.
+//
+// **This script used to read source code, and that was its only coupling to
+// any language.** It matched `it(...)`/`test(...)` call shapes for the title
+// and `.skip`/`.todo` for whether a test runs, which made every other stack
+// fail closed: a genuine pytest proof read as "has no test", and since this
+// check sits in the gate, no milestone in such a repo could ever pass.
+//
+// The fix was not more idioms. "Did this test run?" is a RUNTIME fact, and
+// deriving it statically is what forced the engine to know a language at all
+// — the skip marker sits in the same expression in JS, on the line above in
+// pytest, JUnit and Rust, and inside the body behind a possible runtime
+// condition in Go, which no expression decides. So the runner answers it
+// instead. That is the same move the gate makes one level up: it does not ask
+// the model whether the tests passed, and this does not ask a regex whether a
+// test ran.
+//
+// What that bought, beyond the stacks: `it.each([foo(1)])('...')` and nested
+// parentheses were documented limitations of the old matcher and are simply
+// gone, because a runner reports names already expanded. And nothing walks
+// the repo looking for test files any more, so a vendored dependency tree can
+// no longer register its own tests as this repo's proof.
+//
+// It is checked in BOTH directions:
 //
 //   requirement with no test     -> the spec claims something nobody proves.
 //   test tag with no requirement -> behaviour is protected that no spec
@@ -37,6 +60,7 @@
 
 import { readdirSync, readFileSync, statSync, lstatSync, realpathSync, existsSync } from 'node:fs';
 import { join, relative, basename } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -44,68 +68,69 @@ const LIST = process.argv.includes('--list');
 // `### REQ-USER-001 — Title`. The separator is optional and may be an em
 // dash, a hyphen or a colon: the id is what matters.
 const REQ_HEADING = /^###\s+(REQ-[A-Z0-9-]+-\d{3})\b\s*[—:-]?\s*(.*)$/;
-const REQ_TAG = /\bREQ-[A-Z0-9-]+-\d{3}\b/g;
 
-// A tag proves a requirement only when it sits in a test TITLE — the string
-// argument of `it(...)` / `test(...)`, including the curried
-// `it.each(table)('title')` form, which the inner alternative catches.
+// Deliberately NOT `\b`-delimited, and that is a consequence of reading a
+// runner's report instead of a JS string literal.
 //
-// Both alternatives are anchored to the test function's own name, and that
-// anchoring is load-bearing. The curried branch used to be a bare `)\s*(\s*`
-// — ANY `)(` followed by a string, anywhere in the file — so an ordinary
-// curried call or an IIFE whose argument merely mentioned a requirement id
-// registered as proof for a requirement no test runs.
+// A title in source is free text, so `it('REQ-USER-001 rejects …')` leaves
+// spaces around the id and `\b` held. A reported test name often is not free
+// text: Go and pytest build names out of identifiers, which cannot contain
+// spaces or hyphens, so the id arrives glued to its neighbours —
+// `TestAuth/REQ-USER-001_rejects_a_bad_password`,
+// `tests/auth_test.py::test_REQ-USER-001_rejects`. `_` is a word character,
+// so `\b` fails on BOTH sides there and a genuine, executed proof read as
+// absent.
 //
-// Group 1 is the modifier chain (`.only`, `.each`, `.skip.each`, ...), kept
-// so the caller can reject the ones that do not RUN. `xit`/`xtest` are
-// absent from the name list for the same reason `.skip` and `.todo` are
-// rejected below: they are skipped-test forms, and a test that never
-// executes proves nothing. Accepting them let the cheapest possible way of
-// silencing a red test — skip it — leave the requirement reading as covered.
-//
-// Known limitation: the curried branch's `[^()]*` does not span nested
-// parentheses, so `it.each([foo(1)])('...')` is not matched. Widening it
-// costs the anchoring above, which is the more valuable property.
-const TEST_TITLE =
-  /\b(?:it|fit|test)((?:\.\w+)*)\s*\(\s*(?:(['"`])((?:(?!\2)[\s\S])*?)\2|[^()]*\)\s*\(\s*(['"`])((?:(?!\4)[\s\S])*?)\4)/g;
+// So the boundaries say what actually matters instead: the id may not be
+// glued to a preceding letter or digit (which would make it a different
+// token), and may not be followed by a fourth digit (which would make
+// `REQ-USER-0011` match as `REQ-USER-001`). An underscore on either side is
+// ordinary punctuation in a test name, not a different id.
+const REQ_TAG = /(?<![A-Z0-9])REQ-[A-Z0-9-]+-\d{3}(?!\d)/g;
 
-/** `.skip` / `.todo` anywhere in the modifier chain means the test does not run. */
-const NOT_RUN = /\.(skip|todo)\b/;
+// The anchoring the old title matcher provided — a tag counts only from a
+// test's own name, never from a comment or a helper string — is now provided
+// by the source of the lines rather than by their shape. A runner reports
+// tests; it does not report comments. Nothing here has to defend against an
+// IIFE or a curried call whose argument merely mentions an id, because none
+// of those is a line in a report of what executed.
+//
+// Skipped tests need no rejecting either, for the same reason: a runner that
+// skipped a test did not run it, so the repo's translator has nothing to
+// report for it. That is what makes the rule survive a change of language —
+// `.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]` and a conditional
+// `t.Skip()` all end in the same place, which is absence from the report.
 const SCOPE_MARKER = /^<!--\s*spec-scope:\s*(.+?)\s*-->$/m;
 
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
 const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
 
 /**
- * Directories a source walk must never descend into.
+ * There is no longer a list of directories a walk must avoid, and removing it
+ * was part of the same change that removed the source reader.
  *
- * This is not an optimisation, it is the difference between a check that runs
- * at every gate and one nobody can afford to run. Measured on a mid-size
- * project: 204 files under the source tree, 34,860 under `node_modules` —
- * walking both took 9.7s against 0.11s, and `spec-trace` runs on every gate,
- * every phase-guard and every check command.
+ * It used to hold `node_modules, dist, build, coverage, out, vendor` — an
+ * ecosystem opinion the engine had no way to keep current. It was missing
+ * `venv`, `site-packages`, `__pycache__` and `target`, and the contract could
+ * override it in only one direction: `proof_dir` was never skipped, but a repo
+ * could not ADD to the list. Measured: an ordinary Python virtualenv put 202
+ * vendored test files inside the walk, down into `site-packages`, and a
+ * vendored test naming any `REQ-` id failed this repo's gate over a third
+ * party's code.
  *
- * `node_modules` is not repo-specific vocabulary the way a layer name would
- * be: this engine is itself a Node program, and no dependency tree contains a
- * capability spec's proof. Dot-directories go for the same reason plus one
- * more — `.git` alone can hold tens of thousands of objects.
+ * Both of its jobs are now done by something that cannot drift. Cost: nothing
+ * walks a dependency tree because nothing walks looking for tests at all — the
+ * runner reports them. Correctness: a stale compiled copy under `dist/` can no
+ * longer prove a requirement whose source test was deleted, because a report
+ * lists what RAN, and the deleted test did not.
  *
- * Build output is skipped for a second reason, and it is correctness rather
- * than speed. A compiled or copied test under `dist/` matches the same suffix
- * as its source, so it registers as proof of the requirement its title names
- * — and keeps registering after the SOURCE test is deleted. The requirement
- * then reads as proven by an artifact nobody can run, which is the silent
- * pass this whole check exists to refuse. Reproduced: deleting
- * `tests/user.test.js` while `dist/tests/user.test.js` remained left
- * spec-trace green.
- *
- * The contract still wins over this list: a directory named by
- * `trace.proof_dir` is never skipped, whatever it is called. A repo that
- * genuinely keeps its proofs in a directory named `dist` is unusual and
- * entitled to say so, and an engine heuristic must not quietly exclude the
- * surface the repo declared.
+ * What remains is the specs walk, over Markdown this flow itself writes. Only
+ * dot-directories are skipped there, and only for size — `.git` alone can hold
+ * tens of thousands of objects. Skipping build-output names here would be a
+ * liability rather than a saving: a repo whose capability is called `build` is
+ * entitled to `specs/build/`.
  */
-const NEVER_WALK = new Set(['node_modules', 'dist', 'build', 'coverage', 'out', 'vendor']);
+const skipWalk = (name) => name.startsWith('.');
 
 /**
  * Every file under `dir` matching `test`, walked without extra dependencies.
@@ -151,7 +176,7 @@ function walk(dir, test, found = [], seen = new Set()) {
     }
 
     if (isDir) {
-      if (skipDir(entry)) continue;
+      if (skipWalk(entry)) continue;
       walk(full, test, found, seen);
     } else if (test(full)) {
       found.push(full);
@@ -171,17 +196,6 @@ const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const CONFIG = loadConfig(root);
 const SPECS_DIR = join(root, CONFIG.trace.specs_dir);
 
-// Defined here, below the contract, because the contract overrides it: see
-// NEVER_WALK's header for why the declared proof surface outranks this
-// engine's list of directories that are usually build output.
-const skipDir = (name) => name !== CONFIG.trace.proof_dir && (name.startsWith('.') || NEVER_WALK.has(name));
-
-// `proof_dir` is a directory NAME to look for as a path segment, wherever it
-// appears — a project's tests might live several levels under the repo root,
-// or right at it; this engine has no opinion. So the search root is
-// the repo root, and matching is "does this test file's path include a
-// segment named `proof_dir`".
-const SEARCH_ROOT = root;
 const ARCHIVE_DIR = join(root, 'specflow', 'archive');
 
 const problems = [];
@@ -220,42 +234,81 @@ for (const file of specFiles) {
   }
 }
 
-// ---- read the tests that claim to prove them -------------------------------
-const testFiles = walk(SEARCH_ROOT, (f) => f.endsWith(CONFIG.trace.proof_suffix)).filter((f) =>
-  relative(root, f).split(/[\\/]/).includes(CONFIG.trace.proof_dir),
-);
+// ---- ask the runner which tests actually ran -------------------------------
+//
+// Everything below reads LINES. No format, no schema, no runner: the contract
+// names a command, the command prints one line per executed test, and an id
+// found in a line is a proof. What produced those lines is the repo's
+// business, which is the whole reason this engine no longer has a stack.
+const report = spawnSync(CONFIG.trace.executed_tests[0], CONFIG.trace.executed_tests.slice(1), {
+  cwd: root,
+  encoding: 'utf8',
+  maxBuffer: 64 * 1024 * 1024,
+});
 
-/** id -> [test files that mention it] */
+const reportCmd = CONFIG.trace.executed_tests.join(' ');
+
+/**
+ * Three ways to have no proof, and they must never collapse into one outcome.
+ *
+ * This engine has twice had to remove a check that inferred a pass from an
+ * absence, and this is the same shape upside down: "every requirement is
+ * unproven" and "I could not find out what ran" both exit non-zero, so the
+ * EXIT CODE cannot be what tells them apart. The message has to, because one
+ * of them sends an implementer to write a test that already exists while the
+ * suite that proves it never ran.
+ */
+const reportFailed = report.error || (report.status ?? 1) !== 0;
+const reportedLines = (report.stdout ?? '')
+  .split('\n')
+  .map((l) => l.trim())
+  .filter(Boolean);
+
+if (reportFailed) {
+  const why = report.error ? report.error.message : `exit ${report.status}`;
+  problems.push(
+    `trace.executed_tests (\`${reportCmd}\`) failed: ${why}. Nothing was learned about which tests ran, so no requirement can be called proven OR unproven. ` +
+      `Fix the command — this is a refusal, not a finding about your specs.${report.stderr ? `\n\n${report.stderr.trim()}` : ''}`,
+  );
+} else if (reportedLines.length === 0 && requirements.size > 0) {
+  problems.push(
+    `trace.executed_tests (\`${reportCmd}\`) reported no tests at all, while ${CONFIG.trace.specs_dir}/ declares ${requirements.size} requirement(s). ` +
+      `That is not ${requirements.size} unproven requirement(s) — it is a report that says nothing, which usually means the suite has not run yet in this working tree, or the command names the wrong output. ` +
+      `Run the suite (\`spec-flow check\` does it in the right order) and try again.`,
+  );
+}
+
+/** id -> [reported lines that name it] */
 const proofs = new Map();
 
-for (const file of testFiles) {
-  const rel = relative(root, file);
-  const text = readFileSync(file, 'utf8');
-  for (const match of text.matchAll(TEST_TITLE)) {
-    const [, modifiers, , directTitle, , curriedTitle] = match;
-    if (NOT_RUN.test(modifiers)) continue; // a skipped or todo test executes nothing
-    const title = directTitle ?? curriedTitle ?? '';
-
-    for (const id of title.match(REQ_TAG) ?? []) {
+if (!reportFailed) {
+  for (const line of reportedLines) {
+    for (const id of line.match(REQ_TAG) ?? []) {
       if (!proofs.has(id)) proofs.set(id, []);
-      if (!proofs.get(id).includes(rel)) proofs.get(id).push(rel);
+      if (!proofs.get(id).includes(line)) proofs.get(id).push(line);
     }
   }
 }
 
 // ---- both directions --------------------------------------------------
-for (const [id, req] of requirements) {
-  if (!proofs.has(id)) {
-    problems.push(
-      `${id} (${req.spec}) has no test. Add a test under ${req.scope ?? 'the capability'}/${CONFIG.trace.proof_dir} whose name contains ${id}, or delete the requirement — an unproven requirement is a wish, not a spec.`,
-    );
+// Suppressed entirely when the report could not be read: naming individual
+// requirements there would be inventing findings out of an unanswered
+// question, and the refusal above already says what to fix.
+if (!reportFailed && reportedLines.length > 0) {
+  for (const [id, req] of requirements) {
+    if (!proofs.has(id)) {
+      problems.push(
+        `${id} (${req.spec}) has no test that RAN. Add a test under ${req.scope ?? 'the capability'}/${CONFIG.trace.proof_dir} whose name contains ${id}, or delete the requirement — an unproven requirement is a wish, not a spec. ` +
+          `Note that a test which exists but was skipped counts as absent here: it is reported by nothing, which is exactly what makes skipping useless as a way to silence this.`,
+      );
+    }
   }
 }
 
 for (const [id, files] of proofs) {
   if (!requirements.has(id)) {
     problems.push(
-      `${id} is referenced by ${files.join(', ')} but no spec declares it. Either add it to the capability spec or drop the tag — a test proving something unspecified is drift in the other direction.`,
+      `${id} is proven by a test that ran (${files.join(', ')}) but no spec declares it. Either add it to the capability spec or drop the tag — a test proving something unspecified is drift in the other direction.`,
     );
   }
 }

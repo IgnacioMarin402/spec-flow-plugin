@@ -17,7 +17,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const INIT = join(ROOT, 'scripts', 'init.mjs');
@@ -114,12 +114,52 @@ const COMPLETE = {
 
 await Promise.all([
   // ---- the claim this file exists to hold ----
-  check('what init writes validates through the same reader the hooks use', () =>
+  // This case used to assert that a fully discoverable repo got a contract
+  // that validated outright. It cannot any more, and the change is a decision
+  // rather than a regression: `trace.executed_tests` names how this repo
+  // reports the tests it RAN, and nothing in a repo declares that. Every
+  // runner can produce it, no two agree how, so `init` leaves it empty and
+  // says so — the same rule that leaves `lint_config_hint` empty rather than
+  // guessing a linter's config file.
+  //
+  // What is asserted instead is stronger, because it pins the size of the gap:
+  // exactly ONE field is left, init names it, and filling in only that field
+  // makes the contract validate through the reader every hook uses. If init
+  // ever gets a second undetectable field, or gets this one wrong, this goes
+  // red rather than degrading into "the adopter has some editing to do".
+  check('init leaves exactly one field undetectable, and filling it validates', () =>
     withRepo(COMPLETE, async (dir) => {
       const res = await run([], dir);
-      if (res.status !== 0) return `init exited ${res.status} on a fully discoverable repo: ${res.stdout} ${res.stderr}`;
-      if (!/The contract is valid/.test(res.stdout)) {
-        return `init wrote a contract it could not validate — an adopter's gate would refuse to start. stdout: ${res.stdout}`;
+      if (res.status === 0) return `init reported a complete contract though executed_tests cannot be detected: ${res.stdout}`;
+      if (!/trace\.executed_tests/.test(res.stdout)) {
+        return `init did not name the one field it could not determine, so an adopter is left to diff the reference: ${res.stdout}`;
+      }
+
+      const missing = res.stdout.split('\n').filter((l) => l.trim().startsWith('MISSING'));
+      if (missing.length !== 1) {
+        return `expected exactly one MISSING field on a fully discoverable repo, got ${missing.length}:\n${missing.join('\n')}`;
+      }
+
+      const contract = JSON.parse(readFileSync(join(dir, '.spec-flow', 'config.json'), 'utf8'));
+      contract.trace.executed_tests = ['node', '-e', 'process.exit(0)'];
+      writeFileSync(join(dir, '.spec-flow', 'config.json'), JSON.stringify(contract, null, 2));
+
+      // Validated through `loadConfig` itself — the single reader every hook
+      // goes through — rather than through anything this fixture reimplements.
+      const reader = join(ROOT, 'scripts', 'spec-flow-config.mjs');
+      const after = await new Promise((resolve) => {
+        const child = spawn(
+          process.execPath,
+          ['--input-type=module', '-e', `import { loadConfig } from ${JSON.stringify(pathToFileURL(reader).href)}; loadConfig(process.argv[1]);`, dir],
+          { cwd: dir },
+        );
+        let err = '';
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (d) => (err += d));
+        child.on('close', (status) => resolve({ status, err }));
+      });
+      if (after.status !== 0) {
+        return `filling in the one field init asked for still left a contract the hooks' own reader rejects: ${after.err}`;
       }
       return null;
     }),

@@ -7,8 +7,10 @@ running **outside the model**.
 
 Two commands — `/spec-flow` for a feature, `/spec-fix` for a defect — drive
 five subagents, each pinned to the model its job needs. The engine has no
-opinion about your language, framework or architecture: that lives in one file
-your repo writes, `.spec-flow/config.json`.
+opinion about your language, framework or architecture, and that is structural
+rather than aspirational: **it reads no source code.** It runs the commands
+your repo declares in one file it writes, `.spec-flow/config.json`, and reads
+their output.
 
 Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 
@@ -73,13 +75,23 @@ three buckets, and it tells you which:
 detected  verify.test — from the "test" script: node node_modules/.bin/vitest run
 REVIEW    trace.proof_dir is "lib" — a guess. Your tests are not in a
           directory of their own, so no segment identifies one.
-MISSING   verify.lint_config_hint — no config file for the linter was found.
+MISSING   trace.executed_tests — argv whose output lists the tests that RAN,
+          one per line. A requirement is proven when a reported line contains
+          its id.
 ```
 
 `detected` is read from your repo. `REVIEW` is an inference worth confirming.
 `MISSING` is left empty on purpose, so the contract does not validate until
 you fill it — a plausible wrong value would run, and a missing one is
 reported. Init exits non-zero while anything is missing.
+
+**`trace.executed_tests` is MISSING on every repo, and will be until `init`
+learns to write it.** It is the one field nothing in a repo declares: every
+runner can list the tests it executed and no two agree on how. Point it at a
+small script of your own that turns your runner's output into one line per
+executed test — that script lives in your repo on purpose, so that changing
+runners changes it and not this engine. See
+[REFERENCE](REFERENCE.md#executed_tests--the-only-thing-that-makes-a-requirement-proven).
 
 Fill in what it asks for, then re-run with `--force` or edit the file
 directly. Every field is documented in
@@ -231,7 +243,7 @@ flowchart TD
     DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
-    BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> spec-trace, then every extra_check"]
+    BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
     RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
     RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
     CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
@@ -242,6 +254,14 @@ flowchart TD
 
 - **A dirty tree is not judged.** Implementers run in the background, so a
   `Stop` can fire mid-write; judging that snapshot manufactures failures.
+- **spec-trace runs after the suite, and that ordering is load-bearing.** It
+  establishes which requirements are proven by asking your contract's
+  `trace.executed_tests` what actually ran, so it has to judge *this*
+  invocation's test run. Ahead of the suite it would read a stale report — or
+  none at all on a fresh clone — and a report that says nothing is a refusal,
+  so the gate would block on the ordering rather than on the code. The same
+  reason `spec-flow check` runs your suite before the checks and
+  `spec-flow trace` alone does not.
 - **Lint is scoped to the changed files, tests never are** — and an empty
   scope does not skip the suite either. `lint(file)` is a predicate about one
   file; a suite's outcome is a property of the system.
@@ -257,9 +277,19 @@ flowchart TD
   printing *allows the stop*, so an unhandled throw would report a clean
   milestone rather than skip the gate.
 
-**A test that does not run is not proof.** A title tagged with a requirement
-id under `it.skip`, `it.todo`, `xit` or `xtest` counts as unproven, exactly as
-if it were absent — skipping is the cheapest way to silence a red suite.
+**A test that does not run is not proof.** Proof comes from `trace.executed_tests`
+— a command your contract declares, whose output names the tests that actually
+ran — so a skipped test is absent from it and its requirement reads as
+unproven. That holds for `it.skip`, `@pytest.mark.skip`, `@Disabled`,
+`#[ignore]` and a runtime skip alike, because none of them ends up in a report
+of what executed. Skipping is the cheapest way to silence a red suite, and this
+is the check that makes it useless.
+
+**The engine reads no source code.** That is why it has no opinion about your
+language: it runs the commands your contract names and reads lines. Requirement
+ids are bound from the test names your runner reports, so what the id has to
+survive is your runner's naming, not a parser's idea of what a test looks
+like.
 
 ---
 

@@ -50,16 +50,50 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 | key | required | what it is |
 |---|---|---|
 | `specs_dir` | no | Where capability specs live. Default `specs` |
-| `proof_dir` | yes | Directory segment that marks a test as proof, e.g. `test` |
-| `proof_suffix` | yes | Test filename suffix, e.g. `.test.ts` |
+| `executed_tests` | yes | Argv whose output names the tests that RAN, one per line |
+| `proof_dir` | yes | Directory a new test goes in, e.g. `test` |
+| `proof_suffix` | yes | What a test file is called here, e.g. `.test.ts` |
 | `not_a_capability` | no | Filenames under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
 | `require_skills_field` | no | Fail a live milestone with no `Skills:` field. Default `false` |
 
-`proof_dir` and `proof_suffix` do two jobs: they are what `spec-trace`
-searches, **and** where the planner and implementer are told to put a new
-test. An agent that writes its test elsewhere produces a requirement that
-reads as unproven and a gate that blocks on a test which exists and passes.
-Set them to where your tests actually live.
+#### `executed_tests` — the only thing that makes a requirement proven
+
+A requirement is proven when a line of this command's output contains its id.
+That is the whole binding. The engine parses no source and knows no report
+format — not JUnit XML, not TAP, not any runner's native output. It knows
+"lines naming a test that executed".
+
+The small script that turns your runner's output into those lines belongs in
+your repo, and that placement is the design rather than an omission: when your
+runner changes how it reports, your script changes and this engine does not.
+Most runners emit something usable behind a reporter flag.
+
+```json
+"executed_tests": ["node", "tools/tests-that-ran.mjs"]
+```
+
+Two properties it must have, and the second is the one worth checking:
+
+- **Lines carry test NAMES**, since the id is matched inside them. An id may
+  sit against underscores — `TestAuth/REQ-USER-001_rejects` and
+  `test_REQ-USER-001_rejects` both bind — but a fourth digit does not, so
+  `REQ-USER-0011` is never read as `REQ-USER-001`.
+- **A skipped test must not appear.** That absence is what makes skipping
+  useless as a way to silence this check, and it is why the rule survives a
+  change of language: `it.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]`
+  and a runtime skip all end in the same place.
+
+`spec-trace` runs this command itself, after the suite, and refuses loudly if
+it fails or reports nothing while `specs_dir` declares requirements — "nothing
+is proven" and "I could not find out" must not produce the same outcome. Run
+`spec-flow check` rather than `spec-flow trace` alone: the first runs your
+suite before the checks, the second reads whatever the last run left.
+
+`proof_dir` and `proof_suffix` no longer decide what counts as proof. They kept
+their other job — telling the planner and implementer where a new test goes and
+what it is called — so set them to where your tests actually live. A test the
+runner reports proves its requirement wherever it sits; getting these wrong now
+costs consistency, not a blocked gate.
 
 **An empty `specs_dir` passes, but only until your first ship.** With no
 capability specs there are no requirements, so "every requirement is proven"

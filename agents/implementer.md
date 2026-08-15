@@ -28,10 +28,15 @@ For each spec delta the milestone delivers, in this order:
 
 The red run is not you checking your work — it validates the **test**. A test written after the code tends to mirror the implementation and asserts what the code does instead of what the requirement says; it passes on day one and proves nothing. Seeing it fail first is the only cheap evidence that it can fail at all. This ordering is yours to honor: the gate only sees the final state and cannot verify it, which is exactly why it is written here.
 
-## Where a proof file goes — the contract already says, so do not colocate by habit
-A test counts as proof only if `spec-trace` can find it, and it looks in exactly one place: a file whose path contains a segment named `trace.proof_dir` and whose name ends with `trace.proof_suffix`, both declared in `.spec-flow/config.json`. Read those two values **before** you write a milestone's first test — it is the same file you already read for the scoped command shapes — and put the file on that surface, mirroring where the repo's existing proofs sit (glob for the suffix under that segment and follow the layout you find).
+## What makes a test count as proof — it has to RUN, and its name has to carry the id
+`spec-trace` does not read your test files. It asks the contract's `trace.executed_tests` which tests the runner actually executed, and a requirement is proven when one of those reported lines contains its id. Two things follow, and only the second is a habit worth forming.
 
-Dropping the test next to the module it covers is the default habit and it is the wrong one here: outside that segment the file is invisible to the check, so the requirement reads as unproven, the gate blocks on spec-trace, and what fixes it is a file move that cost a whole cycle. If `Mk.md` names a test path that is not on that surface, the contract wins — write it where the contract says and flag the discrepancy in your `NOTES`.
+**The id goes in the test's own name**, the part a runner prints — not a comment, not a variable, not a `describe` block you assume gets concatenated (check how your runner reports nested names before relying on it). An id nowhere in a reported name is a requirement nobody proves.
+
+**A test that does not run is not proof, whatever made it not run.** A skipped test is absent from a report of what executed, so `it.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]` and a conditional runtime skip all land in the same place: the requirement reads as unproven. There is no spelling of "skip" that gets past this, which is the point — skipping is otherwise the cheapest way to make a red test stop failing.
+
+## Where a proof file goes — the contract says, so do not colocate by habit
+`trace.proof_dir` and `trace.proof_suffix` in `.spec-flow/config.json` say where a new test goes and what it is called. They no longer decide what counts as proof — a test the runner reports proves its requirement wherever it lives — so getting this wrong costs consistency rather than a blocked gate. Read them before you write a milestone's first test and mirror where the repo's existing proofs sit. If `Mk.md` names a test path that is not on that surface, the contract wins: write it where the contract says and flag the discrepancy in your `NOTES`.
 
 ## Write in the repo's voice — the comments are not the deliverable
 Match the comment density of the file you are editing and of its neighbours. A repo that explains itself in prose gets prose from you; a repo whose functions carry none gets none. Three habits in particular cost this flow more than they give:

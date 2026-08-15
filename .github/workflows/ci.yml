@@ -1,7 +1,6 @@
 name: CI
 
-# This is the engine's own gate. It has no consuming repo to check against —
-# see conformance/ once step 4 of docs/spec-flow-as-a-plugin.md lands — so
+# This is the engine's own gate. It has no consuming repo to check against, so
 # what it verifies is narrower and different in kind: that the engine is
 # internally consistent (lint, types), that it holds under its own documented
 # failure modes (gate-fixture, run against a throwaway repo), and that it

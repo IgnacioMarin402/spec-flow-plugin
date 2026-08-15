@@ -195,7 +195,17 @@ async function fixture({
           // what exercises the automatic resolution ladder.
           ...(baseRef === undefined ? {} : { base_ref: baseRef }),
         },
-        trace: { specs_dir: 'specs', proof_dir: 'application', proof_suffix: '.spec.ts', not_a_capability: [] },
+        trace: {
+          specs_dir: 'specs',
+          proof_dir: 'tests',
+          proof_suffix: '.spec.ts',
+          // Unused by these cases — this fixture stubs spec-trace out entirely,
+          // deliberately, so the gate's own behaviour is what is under test.
+          // Present because the contract requires it, which is itself the point:
+          // a repo cannot reach the gate without declaring how proof is found.
+          executed_tests: ['node', '-e', 'process.exit(0)'],
+          not_a_capability: [],
+        },
         extra_checks: extraChecks,
         unscoped_denied: { scripts: [], tools: [], scoped_allowed: [], scoped_alternative: '', scoped_examples: [] },
       },

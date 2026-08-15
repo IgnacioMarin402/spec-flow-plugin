@@ -51,8 +51,25 @@ await run(async () => {
 
   writeFile(phaseFile, 'idle');
   writeFile(attFile, '0');
+
+  // `current-milestone` is deliberately NOT cleared, and it is the reason this
+  // message can say more than it used to.
+  //
+  // Disarming a stale run is right — an abandoned phase must not gate work it
+  // has nothing to do with. Forgetting WHERE it was is a separate act, and
+  // there was never a reason for the two to happen together: the phase is what
+  // arms hooks, the position arms nothing. Keeping it turns "re-run
+  // /spec-flow" — start over — into "this run was at Mk, and the plan for it is
+  // still on disk".
+  const at = readFileOrDefault(join(stateDir(root), 'current-milestone'), '');
+  const [slug, milestone] = at.split(' ');
+
   console.log(
     `[spec-flow] Phase was '${phase}' and untouched for ${Math.floor(ageHours)}h, so it was treated as an abandoned ` +
-      `run and reset to 'idle'. The lint/test gate is disarmed. If you meant to resume that run, re-run /spec-flow.`,
+      `run and reset to 'idle'. The lint/test gate is disarmed.` +
+      (slug && milestone
+        ? ` That run was implementing ${milestone} of "${slug}"; its plan is still at specflow/${slug}/, and specflow/${slug}/milestones/${milestone}.md is where it stopped. ` +
+          `To pick it up rather than start over, re-read that milestone, write 'implement' into .claude/state/phase and re-invoke the implementer for it.`
+        : ` If you meant to resume that run, re-run /spec-flow.`),
   );
 });

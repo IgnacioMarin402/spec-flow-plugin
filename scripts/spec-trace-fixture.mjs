@@ -66,27 +66,64 @@ const CONFIG = {
     lint_name: 'fixture-lint',
     lint_config_hint: 'fixture.config',
   },
-  trace: { specs_dir: 'specs', proof_dir: 'tests', proof_suffix: '.test.ts', not_a_capability: ['README.md'] },
+  // `executed_tests` names the one requirement `spec()` declares, so every
+  // case that is not ABOUT proof keeps reading the way it did when a walk
+  // found `tests/user.test.ts`. Cases that assert an absence of proof override
+  // it with `ran()` — an empty report — which is now the honest way to say
+  // "nothing ran" rather than deleting a file and hoping the walk missed it.
+  trace: {
+    specs_dir: 'specs',
+    proof_dir: 'tests',
+    proof_suffix: '.test.ts',
+    executed_tests: ['node', '-e', 'console.log("tests/user.test.ts::REQ-USER-001 the user can do the thing")'],
+    not_a_capability: ['README.md'],
+  },
   extra_checks: [],
   unscoped_denied: { scripts: [], tools: [], scoped_allowed: [], scoped_alternative: '', scoped_examples: [] },
 };
+
+/** A capability spec declaring one requirement, with the scope marker spec-trace requires. */
+function spec(id = 'REQ-USER-001', title = 'the user can do the thing', scope = 'modules/user') {
+  return `<!-- spec-scope: ${scope} -->\n\n# User\n\n### ${id} — ${title}\n\nThe system does the thing.\n`;
+}
+
+/**
+ * A `trace.executed_tests` command reporting exactly these lines as the tests
+ * that RAN — the port B1 replaces source-parsing with.
+ *
+ * The engine's whole contract here is "lines naming a test that executed", so
+ * a fixture can express any runner's output by writing the lines directly.
+ * That is the point of the port: what the repo's translator emits is the
+ * repo's business, and these cases prove the engine never needs to know which
+ * runner produced them.
+ */
+const ran = (...lines) => ['node', '-e', `console.log(${JSON.stringify(lines.join('\n'))})`];
+
+/**
+ * The default contract with a different report: the tests this run executed.
+ *
+ * `contract()` with no lines is a suite that ran and reported nothing, which
+ * is how a case says "no proof" now. Deleting a test FILE no longer says it —
+ * files stopped being what proof is made of.
+ */
+const contract = (...lines) =>
+  JSON.stringify({ ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran(...lines) } }, null, 2);
 
 /**
  * The contract of a project that DOES route skills and has asked for the
  * milestone field to be enforced. Written out by the cases that test the
  * check, so none of them depends on what the default happens to be — the
  * default is a decision with its own case, not scaffolding for these.
+ *
+ * Reports nothing, because those cases declare no capability specs: a report
+ * naming a requirement no spec declares is drift, and would fail them for a
+ * reason that has nothing to do with skills.
  */
 const SKILLS_REQUIRED = JSON.stringify(
-  { ...CONFIG, trace: { ...CONFIG.trace, require_skills_field: true } },
+  { ...CONFIG, trace: { ...CONFIG.trace, require_skills_field: true, executed_tests: ran() } },
   null,
   2,
 );
-
-/** A capability spec declaring one requirement, with the scope marker spec-trace requires. */
-function spec(id = 'REQ-USER-001', title = 'the user can do the thing', scope = 'modules/user') {
-  return `<!-- spec-scope: ${scope} -->\n\n# User\n\n### ${id} — ${title}\n\nThe system does the thing.\n`;
-}
 
 /**
  * Builds a repo from a plain {relativePath: contents} map and runs the real
@@ -113,6 +150,113 @@ async function withRepo(files, assert) {
 }
 
 await Promise.all([
+  // ==== B1: proof comes from what the runner REPORTED as executed ============
+  //
+  // These five cases are the red half of B1. Four of them describe the port
+  // that replaces source-parsing; the first describes a defect the current
+  // static walk has TODAY, in plain TypeScript, with no other language
+  // involved — which is why it leads.
+
+  // A dependency directory is not in NEVER_WALK unless someone thought of its
+  // name. `venv` was not thought of, and neither were `site-packages`,
+  // `__pycache__` or `target` — but the failure needs none of those: any
+  // vendored tree with a `tests/` segment and a matching suffix is walked and
+  // its contents registered as this repo's proof. Here that manufactures a
+  // requirement the repo never declared, out of a third party's test, and
+  // fails a gate over it.
+  check('a vendored dependency tree does not register as this repo\'s proof', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'tests/user.test.ts': `it('REQ-USER-001 x', () => {});\n`,
+        'venv/lib/site-packages/pkg/tests/vendored.test.ts': `it('REQ-USER-999 a third party proves its own thing', () => {});\n`,
+      },
+      (r) => {
+        if (/REQ-USER-999/.test(r.out)) {
+          return `a vendored test became this repo's problem: ${r.out}`;
+        }
+        if (r.status !== 0) return `a repo whose own specs and tests agree was blocked: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // The engine reads lines, not a language. pytest's node ids and Go's
+  // subtest paths are just two shapes of line, and neither is known to the
+  // engine — the repo's translator emitted them.
+  check('a pytest-shaped report proves a requirement', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/auth_test.py::test_REQ-USER-001_rejects') } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+      },
+      (r) => (r.status === 0 ? null : `a real, executed pytest proof was reported as absent: ${r.out}`),
+    ),
+  ),
+
+  check('a Go-shaped subtest report proves a requirement', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('--- PASS: TestAuth/REQ-USER-001_rejects_a_bad_password (0.00s)') } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+      },
+      (r) => (r.status === 0 ? null : `a real, executed Go proof was reported as absent: ${r.out}`),
+    ),
+  ),
+
+  // The two outcomes this engine has twice refused to let collapse: "nothing
+  // was proven" and "I could not tell". Both exit non-zero, so the exit code
+  // cannot be the thing that distinguishes them — the MESSAGE has to, because
+  // one sends an implementer to write a test that already exists.
+  check('an empty report with requirements is a named refusal, not "has no test"', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran() } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+      },
+      (r) => {
+        if (r.status === 0) return `an empty report passed: ${r.out}`;
+        if (/has no test/.test(r.out)) {
+          return `an empty report was reported as an unproven requirement, which sends someone to write a test that may already exist: ${r.out}`;
+        }
+        if (!/report|executed_tests|no tests/i.test(r.out)) {
+          return `the refusal did not name the report as the problem: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  check('a report command that fails is a refusal, not an absence of proof', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ['node', '-e', 'process.exit(3)'] } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+      },
+      (r) => {
+        if (r.status === 0) return `a broken report command passed: ${r.out}`;
+        if (/has no test/.test(r.out)) return `a broken report command read as an unproven requirement: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
   // ---- an empty spec layer: grace while adopting, contradiction after a ship ----
   //
   // With no capability specs there are no requirements, so "every requirement
@@ -122,7 +266,7 @@ await Promise.all([
   // somewhere, and SHIPPED is the only artifact that says where: a fold
   // stamps it to assert those deltas landed in specs/.
   check('an empty spec layer passes while nothing has shipped yet', () =>
-    withRepo({ 'tests/placeholder.test.ts': 'it("unrelated", () => {});\n' }, (r) => {
+    withRepo({ '.spec-flow/config.json': contract('an unrelated test that proves no requirement') }, (r) => {
       if (r.status !== 0) return `a repo mid-adoption was blocked: ${r.out}`;
       if (!/no requirements to bind/.test(r.out)) return `unexpected output: ${r.out}`;
       return null;
@@ -162,7 +306,7 @@ await Promise.all([
         'specflow/archive/wiring-only/spec.md':
           '# Fix — wiring only\n\n**Status:** SHIPPED 2026-08-14\n\n## Case\ncase 4 — INFRA\n\n## Requirement deltas\n- none — infrastructure only\n',
         'specflow/archive/wiring-only/proposal.md': '# Proposal\n\nWhy.\n',
-        'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
+        '.spec-flow/config.json': contract('an unrelated test that proves no requirement'),
       },
       (r) => {
         if (r.status !== 0) {
@@ -173,15 +317,23 @@ await Promise.all([
     ),
   ),
 
-  // ---- build output is not proof ----
+  // ---- build output is not proof, and now it cannot be by construction ----
   //
-  // A compiled or copied test under dist/ matches the same suffix as its
-  // source and registers as proof — and keeps registering after the SOURCE is
-  // deleted, leaving the requirement proven by an artifact nobody runs.
-  check('a test surviving only in build output does not prove a requirement', () =>
+  // The old failure: a compiled or copied test under `dist/` matched the same
+  // suffix as its source, so it registered as proof of the requirement its
+  // title named — and kept registering after the SOURCE test was deleted,
+  // leaving the requirement proven by an artifact nobody runs. It needed a
+  // hardcoded skip list to defend against, which then had to stay current with
+  // every ecosystem's build directory and did not.
+  //
+  // Nothing defends against it now. A stale artifact cannot be reported as
+  // having run when it did not run, so the case that used to need a list needs
+  // nothing.
+  check('a stale test surviving only in build output does not prove a requirement', () =>
     withRepo(
       {
         'specs/user.md': spec(),
+        '.spec-flow/config.json': contract('tests/other.test.ts::an unrelated test that did run'),
         'dist/tests/user.test.ts': `it('REQ-USER-001 lets the user do the thing', () => {});\n`,
       },
       (r) => {
@@ -194,26 +346,28 @@ await Promise.all([
     ),
   ),
 
-  check('the declared proof surface outranks the build-output list', () =>
+  // ---- and the reverse: where a test LIVES stopped being a question ----
+  //
+  // Two cases used to live here — one asserting a test outside `proof_dir` was
+  // not proof, one asserting a contract declaring `proof_dir: "dist"` beat the
+  // engine's skip list. Both existed because location was the only signal
+  // available for telling a real test from a string that resembled one.
+  //
+  // "The runner executed it" is a strictly stronger claim than "it sits in the
+  // right directory", so location is not consulted at all. That is a behaviour
+  // change worth a case of its own rather than a silent deletion: a repo whose
+  // tests live somewhere this engine would never have guessed is now correct
+  // by default instead of needing to declare its way out.
+  check('a reported test proves its requirement wherever it lives', () =>
     withRepo(
       {
-        // A repo whose contract says its proofs live in a directory named
-        // `dist`. Unusual, and its to declare — the engine's heuristic must
-        // not quietly exclude the surface the repo chose.
-        '.spec-flow/config.json': JSON.stringify(
-          { ...CONFIG, trace: { ...CONFIG.trace, proof_dir: 'dist' } },
-          null,
-          2,
-        ),
         'specs/user.md': spec(),
-        'dist/user.test.ts': `it('REQ-USER-001 lets the user do the thing', () => {});\n`,
+        '.spec-flow/config.json': contract('somewhere/nobody/would/guess::REQ-USER-001 the user can do the thing'),
       },
-      (r) => {
-        if (r.status !== 0) {
-          return `the contract declared proof_dir "dist" and the walk skipped it anyway, so nothing in this repo can ever be proof: ${r.out}`;
-        }
-        return null;
-      },
+      (r) =>
+        r.status !== 0
+          ? `a test the runner reported was rejected for living outside proof_dir, which no longer decides anything: ${r.out}`
+          : null,
     ),
   ),
 
@@ -222,7 +376,7 @@ await Promise.all([
       {
         'specflow/archive/turned-down/spec.md': '# Spec — turned down\n\n**Status:** REJECTED 2026-07-30\n\nDeltas.\n',
         'specflow/archive/turned-down/proposal.md': '# Proposal\n\nWhy not.\n',
-        'tests/placeholder.test.ts': 'it("unrelated", () => {});\n',
+        '.spec-flow/config.json': contract('an unrelated test that proves no requirement'),
       },
       (r) => {
         if (r.status !== 0) return `a rejected change blocked a repo that has still shipped nothing: ${r.out}`;
@@ -355,6 +509,7 @@ await Promise.all([
         'specflow/add-users/spec.md': '# Spec — add users\n\nDeltas.\n',
         'specflow/add-users/proposal.md': '# Proposal\n\nWhy.\n',
         'specflow/add-users/milestones/M1.md': '# M1 — first\n\n- Objective: do the thing\n- Files to add/change: lib/a.ts\n',
+        '.spec-flow/config.json': contract(),
       },
       (r) => {
         if (r.status !== 0) {
@@ -407,8 +562,7 @@ await Promise.all([
       {
         'specs/user.md':
           `<!-- spec-scope: modules/user -->\n\n### REQ-USER-001 — em dash\n\n### REQ-USER-002 - hyphen\n\n### REQ-USER-003: colon\n`,
-        'tests/user.test.ts':
-          `it('REQ-USER-001 a', () => {});\nit('REQ-USER-002 b', () => {});\nit('REQ-USER-003 c', () => {});\n`,
+        '.spec-flow/config.json': contract('REQ-USER-001 a', 'REQ-USER-002 b', 'REQ-USER-003 c'),
       },
       (r) => {
         if (r.status !== 0) return `one of the three separators failed to parse: ${r.out}`;
@@ -420,7 +574,7 @@ await Promise.all([
 
   // ---- direction 1: the spec claims something nobody proves ----
   check('a requirement with no test is reported', () =>
-    withRepo({ 'specs/user.md': spec(), 'tests/user.test.ts': `it('unrelated', () => {});\n` }, (r) => {
+    withRepo({ 'specs/user.md': spec(), '.spec-flow/config.json': contract('an unrelated test') }, (r) => {
       if (r.status === 0) return 'an unproven requirement passed — the spec layer is decorative again';
       if (!/REQ-USER-001/.test(r.out)) return `the failure did not name the unproven requirement: ${r.out}`;
       return null;
@@ -430,7 +584,7 @@ await Promise.all([
   // ---- direction 2: a test proves something no spec declares ----
   check('a test tag with no requirement behind it is reported', () =>
     withRepo(
-      { 'specs/user.md': spec(), 'tests/user.test.ts': `it('REQ-USER-001 ok', () => {});\nit('REQ-USER-999 orphan', () => {});\n` },
+      { 'specs/user.md': spec(), '.spec-flow/config.json': contract('REQ-USER-001 ok', 'REQ-USER-999 orphan') },
       (r) => {
         if (r.status === 0) return 'an orphan test tag passed — a renamed/removed requirement would leave this behind silently';
         if (!/REQ-USER-999/.test(r.out)) return `the failure did not name the orphan tag: ${r.out}`;
@@ -439,97 +593,106 @@ await Promise.all([
     ),
   ),
 
-  // ---- the curried form: it.each(table)('title') ----
-  check('the curried it.each(...)(title) form counts as proof', () =>
+  // ---- parameterised tests: the runner reports the names it expanded ----
+  //
+  // The old matcher had to recognise `it.each(table)('title')` as a shape, and
+  // documented its own failure at `it.each([foo(1)])('...')` — a nested paren
+  // it could not span. There is nothing to recognise now: a table-driven test
+  // reports one line per case, already expanded, so this works for the form
+  // that used to be a known limitation.
+  check('a parameterised test proves through its expanded names', () =>
     withRepo(
       {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('REQ-USER-001 handles 1', 'REQ-USER-001 handles 2') } },
+          null,
+          2,
+        ),
         'specs/user.md': spec(),
-        'tests/user.test.ts': `it.each([1, 2])('REQ-USER-001 handles %s', (n) => {});\n`,
       },
-      (r) => {
-        if (r.status !== 0) return `a table-driven test did not register as proof: ${r.out}`;
-        return null;
-      },
+      (r) => (r.status !== 0 ? `a table-driven test did not register as proof: ${r.out}` : null),
     ),
   ),
 
-  // ---- and the false positive that form's own pattern invites ----
+  // ---- an id in SOURCE is not proof, whatever it is sitting in ----
   //
-  // The curried alternative used to be a bare `)\s*(\s*` — ANY `)(` followed
-  // by a string literal, anywhere in the file, with nothing tying it to a
-  // test declaration. An ordinary curried call or an IIFE mentioning a
-  // requirement id in a string would register as proof for a requirement no
-  // test actually runs.
-  check('a bare )( followed by a string is NOT proof — only a real test declaration is', () =>
+  // This case survives its own mechanism. It used to guard one specific
+  // parser bug: the curried branch was a bare `)(` followed by a string, so an
+  // ordinary curried call mentioning an id registered as proof. The property
+  // it was protecting was always the broader one — a requirement is proven by
+  // a test that RUNS, not by its id appearing somewhere — and that property is
+  // now structural rather than defended by anchoring. Nothing reads the file
+  // at all; the id can sit in a test declaration, a comment or a helper string
+  // and none of them reaches this check.
+  check('an id present in source but absent from the report is not proof', () =>
     withRepo(
       {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/user.test.ts::something else entirely') } },
+          null,
+          2,
+        ),
         'specs/user.md': spec(),
         'tests/user.test.ts':
+          `// REQ-USER-001 is mentioned here\n` +
           `const describeThing = (a) => (b) => a + b;\n` +
           `describeThing('x')('REQ-USER-001 this is not a test');\n` +
-          `it('something else entirely', () => {});\n`,
+          `it('REQ-USER-001 a real declaration that the runner did not report', () => {});\n`,
       },
       (r) => {
-        if (r.status === 0) {
-          return 'a non-test curried call registered as proof — a requirement nothing runs would read as proven';
-        }
-        if (!/REQ-USER-001/.test(r.out)) return `expected REQ-USER-001 to be reported unproven, got: ${r.out}`;
+        if (r.status === 0) return 'an id that no reported test carried registered as proof';
+        if (!/REQ-USER-001/.test(r.out)) return `expected REQ-USER-001 reported unproven, got: ${r.out}`;
         return null;
       },
     ),
   ),
 
-  // ---- a skipped test runs nothing, so it proves nothing ----
+  // ---- a test that did not run proves nothing, in any language ----
   //
-  // This matters more since the gate's attempt-1 route hands a red suite
-  // straight back to an implementer: `it.skip` is the cheapest way to make a
-  // failing test stop failing, and if spec-trace accepts it as proof, the
-  // requirement still looks covered while nothing executes.
-  check('it.skip does not count as proof', () =>
-    withRepo({ 'specs/user.md': spec(), 'tests/user.test.ts': `it.skip('REQ-USER-001 skipped', () => {});\n` }, (r) => {
-      if (r.status === 0) return 'a skipped test registered as proof — the requirement is unproven but reads as covered';
-      if (!/REQ-USER-001/.test(r.out)) return `expected REQ-USER-001 reported unproven, got: ${r.out}`;
-      return null;
-    }),
-  ),
-
-  check('xit does not count as proof', () =>
-    withRepo({ 'specs/user.md': spec(), 'tests/user.test.ts': `xit('REQ-USER-001 skipped', () => {});\n` }, (r) => {
-      if (r.status === 0) return 'an xit (skipped) test registered as proof';
-      return null;
-    }),
-  ),
-
-  check('it.todo does not count as proof', () =>
-    withRepo({ 'specs/user.md': spec(), 'tests/user.test.ts': `it.todo('REQ-USER-001 not written yet');\n` }, (r) => {
-      if (r.status === 0) return 'a todo placeholder registered as proof';
-      return null;
-    }),
-  ),
-
-  check('it.skip.each does not count as proof either', () =>
-    withRepo(
-      { 'specs/user.md': spec(), 'tests/user.test.ts': `it.skip.each([1])('REQ-USER-001 skipped table', () => {});\n` },
-      (r) => {
-        if (r.status === 0) return 'a skipped table-driven test registered as proof';
-        return null;
-      },
-    ),
-  ),
-
-  // ---- but the ordinary modifiers still are proof: those tests DO run ----
-  check('it.only and test.concurrent still count as proof', () =>
+  // This used to be four cases — `it.skip`, `xit`, `it.todo`, `it.skip.each` —
+  // one per spelling the matcher had to know, and it covered exactly the
+  // spellings someone had thought of. It is one case now, and a stronger one:
+  // whatever the language calls skipping, a skipped test is absent from a
+  // report of what executed. `@pytest.mark.skip`, `@Disabled`, `#[ignore]` and
+  // a runtime `t.Skip()` need no support here, which is what "no opinion about
+  // your language" has to mean to be worth claiming.
+  //
+  // It matters more than it looks, because the gate's attempt-1 route hands a
+  // red suite straight back to an implementer, and skipping is the cheapest
+  // way to make a failing test stop failing.
+  check('a test that exists in every language\'s skipped form is not proof', () =>
     withRepo(
       {
-        'specs/user.md':
-          `<!-- spec-scope: modules/user -->\n\n### REQ-USER-001 — a\n\n### REQ-USER-002 — b\n`,
-        'tests/user.test.ts':
-          `it.only('REQ-USER-001 runs', () => {});\ntest.concurrent('REQ-USER-002 runs', () => {});\n`,
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/other.test.ts::an unrelated test that did run') } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+        'tests/user.test.ts': `it.skip('REQ-USER-001 skipped', () => {});\n`,
+        'tests/user_test.py': `@pytest.mark.skip\ndef test_REQ_USER_001_skipped(): pass\n`,
+        'tests/user_test.go': `func TestUser(t *testing.T) { t.Skip(); t.Run("REQ-USER-001 x", nil) }\n`,
       },
       (r) => {
-        if (r.status !== 0) return `a running test was rejected as proof: ${r.out}`;
+        if (r.status === 0) return 'a skipped test registered as proof — the requirement is unproven but reads as covered';
+        if (!/REQ-USER-001/.test(r.out)) return `expected REQ-USER-001 reported unproven, got: ${r.out}`;
         return null;
       },
+    ),
+  ),
+
+  // ---- and a test that DID run is proof, whatever modifiers it carried ----
+  check('tests the runner reports as executed count as proof', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('REQ-USER-001 runs', 'REQ-USER-002 runs') } },
+          null,
+          2,
+        ),
+        'specs/user.md': `<!-- spec-scope: modules/user -->\n\n### REQ-USER-001 — a\n\n### REQ-USER-002 — b\n`,
+      },
+      (r) => (r.status !== 0 ? `a running test was rejected as proof: ${r.out}` : null),
     ),
   ),
 
@@ -557,16 +720,6 @@ await Promise.all([
   ),
 
   // ---- only files under proof_dir with proof_suffix are proof ----
-  check('a test outside proof_dir does not count as proof', () =>
-    withRepo(
-      { 'specs/user.md': spec(), 'elsewhere/user.test.ts': `it('REQ-USER-001 x', () => {});\n` },
-      (r) => {
-        if (r.status === 0) return 'a file outside the declared proof_dir registered as proof';
-        return null;
-      },
-    ),
-  ),
-
   // ---- the archive declares what became of every change ----
   check('an archived change with a status passes', () =>
     withRepo(
@@ -661,7 +814,7 @@ await Promise.all([
 
   // ---- an unconfigured repo says so, rather than reporting everything proven ----
   check('a repo with no specs and nothing archived says what it is not checking', () =>
-    withRepo({}, (r) => {
+    withRepo({ '.spec-flow/config.json': contract() }, (r) => {
       if (r.status !== 0) return `expected a clean exit for an unconfigured repo, got rc=${r.status}: ${r.out}`;
       if (!/no requirements to bind/.test(r.out)) return `it did not say the repo has no specs — silence here reads as "all proven": ${r.out}`;
       if (!/still checked/.test(r.out)) return `it did not say the grace covers only the binding, which is what made it swallow everything else: ${r.out}`;
@@ -669,8 +822,14 @@ await Promise.all([
     }),
   ),
 
-  // ---- node_modules is never walked: not an optimisation, a hard requirement ----
-  check('node_modules is not walked for proof files', () =>
+  // ---- no dependency tree is read, because no tree is read at all ----
+  //
+  // This used to assert that one hardcoded name was skipped. It now asserts
+  // the general property that replaced the list: a dependency's own tests
+  // cannot become this repo's problem, whatever its directory is called —
+  // which is what the `venv` case at the top of this file proves from the
+  // other side.
+  check("a dependency's own tests are never judged as this repo's", () =>
     withRepo(
       {
         'specs/user.md': spec(),
