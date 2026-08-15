@@ -140,7 +140,25 @@ await Promise.all([
         return `expected exactly one MISSING field on a fully discoverable repo, got ${missing.length}:\n${missing.join('\n')}`;
       }
 
+      // The stub is written and pointed at, so the CONTRACT is already
+      // complete — what is incomplete is the code behind it, which is why
+      // init still exits non-zero. Assert both halves: the file exists, and
+      // running it refuses rather than reporting nothing.
+      const translator = join(dir, '.spec-flow', 'tests-that-ran.mjs');
+      if (!existsSync(translator)) return 'no translator stub was written, so the adopter is left to invent the shape';
+
+      const stub = spawnSync(process.execPath, [translator], { cwd: dir, encoding: 'utf8' });
+      if (stub.status === 0) {
+        return 'an unfinished translator exited 0 — a gate would read every requirement as unproven instead of saying setup is incomplete';
+      }
+      if (!/tests-that-ran/.test(`${stub.stdout}${stub.stderr}`)) {
+        return `the stub's refusal does not name itself, so the file to edit is not obvious: ${stub.stderr}`;
+      }
+
       const contract = JSON.parse(readFileSync(join(dir, '.spec-flow', 'config.json'), 'utf8'));
+      if (contract.trace.executed_tests.join(' ') !== 'node .spec-flow/tests-that-ran.mjs') {
+        return `the contract does not point at the stub it wrote: ${contract.trace.executed_tests.join(' ')}`;
+      }
       contract.trace.executed_tests = ['node', '-e', 'process.exit(0)'];
       writeFileSync(join(dir, '.spec-flow', 'config.json'), JSON.stringify(contract, null, 2));
 
@@ -160,6 +178,30 @@ await Promise.all([
       });
       if (after.status !== 0) {
         return `filling in the one field init asked for still left a contract the hooks' own reader rejects: ${after.err}`;
+      }
+      return null;
+    }),
+  ),
+
+  // A GUARD, not proof of a defect: it passes against the commit before the
+  // translator existed too, because there was no file to overwrite. Saying so
+  // matters — it caught a real mistake during development (the first version
+  // let `--force` replace the stub, on the exact command the README tells an
+  // adopter to run after filling things in) but it cannot demonstrate that
+  // mistake against history, only prevent its return.
+  //
+  // Worth having because the damage is silent: a fresh stub reports nothing,
+  // so every requirement turns unproven at the next gate with no edit to blame.
+  check('re-running init does not overwrite a translator someone finished', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const translator = join(dir, '.spec-flow', 'tests-that-ran.mjs');
+      const mine = 'console.log("tests/a.test.ts::REQ-USER-001 mine");\n';
+      writeFileSync(translator, mine);
+
+      await run(['--force'], dir);
+      if (readFileSync(translator, 'utf8') !== mine) {
+        return 'a finished translator was replaced by a fresh stub, silently unproving every requirement';
       }
       return null;
     }),

@@ -12,10 +12,9 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B10, B9, B3, B4, B5. B10 leads because B1 is not usable
-without it: the engine supports any stack now, and `init` cannot finish the
-contract for any of them. B2 is not an item — it is the acceptance test for
-B9 and B10 together.
+**Open order:** B9, B11, B3, B4, B5. B9 is now documentation — its hypothesis
+was verified — and B11 is the half of B10 that is a decision rather than work.
+B2 is not an item: it is the acceptance test for B9.
 
 ---
 
@@ -69,6 +68,23 @@ verdict. A Python trace reported two `no-red-run` MISSes for files never
 paired with anything. Pairing is now contract-driven and matches on basename,
 since the old version also assumed a test sits beside its source.
 
+### B10 — `init` scaffolds the translator (the generation half became B11)
+
+B1 left `trace.executed_tests` MISSING on every repo, so `npx spec-flow init`
+could not produce a working contract for anybody. `init` now writes
+`.spec-flow/tests-that-ran.mjs` carrying the contract, the shape and a loud
+refusal, and points the config at it; the four lines that read a runner's
+report are left.
+
+**The half that did not land, and why it is not simply deferred:** generating
+code per runner requires naming runners inside `scripts/`, which
+`no-repo-refs.mjs` bans — and its header argues the position rather than just
+enforcing it, saying `init` needs no exemption precisely because "it names
+nothing, it reads what the repo already declares". Closing that half means
+either exempting a template directory from the scan, or accepting a runner list
+that rots. Neither is obviously right, and it is a decision rather than work,
+so it is split out as B11.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -77,40 +93,26 @@ of which exists here. Reference removed, and the workflow added to
 
 ---
 
-## B10 — every adopter fills in one field by hand, and `init` is where that ends
-
-**Priority: first among what is open, and it is the whole difference between
-"supports your stack" and "supports your stack after you write a script".**
-
-B1 moved proof to `trace.executed_tests`, and `init` reports it MISSING on
-every repo without exception. That is correct behaviour for `init` as it
-stands — it never invents a value it could not determine, and nothing in a
-repo declares how its runner can be made to list what it executed — but the
-result is that `npx spec-flow init` cannot produce a usable contract for
-anybody, which it could before.
-
-The resolution is the split B1 established rather than a weakening of it:
-**`init` may know technologies; the engine may not.** A generator's job is
-reading what a repo already declares about itself, and a wrong guess there is
-reported as `REVIEW` rather than silently run. The checker has to be right
-about repos nobody has seen, which is why it holds no runner names.
-
-So `init` detects the runner it can already see in the repo's own scripts —
-it does this for `verify.test` today — and writes a translator into the
-adopting repo, pointing `executed_tests` at it. The translator belongs in the
-repo, not in the engine, so that changing runners changes the repo's script
-and nothing here.
-
-**Done looks like:** `init` on a repo with a detectable runner produces a
-contract that validates with no hand-editing, and the fixture case that
-currently asserts "exactly one field is undetectable" asserts zero instead.
-
----
-
 ## B9 — the CLI half of the install has no path that is not npm
 
-**Priority: second among what is open, and independent of B1 and B10 — it
-survives both untouched.**
+**Priority: first among what is open, and now documentation rather than
+design — the hypothesis below was executed and held.**
+
+**The run.** A Python repo with no `package.json` and no `node_modules`, and a
+clone of the engine with neither:
+
+```
+git clone <engine> && node <engine>/scripts/check-changed.mjs
+  --- ruff --- --- pytest --- --- spec-trace ---
+  spec-trace: OK — 1 requirement(s), every one proven by a test.   exit 0
+```
+
+It works because the engine has **zero runtime dependencies**: `dependencies`
+is empty and every import is `node:` or relative — the linter and type-checker
+are development-only. `git` and Node are already in the README's requirements,
+so this path adds none.
+
+So what remains is a README section, not an investigation.
 
 The README's step 2 is `npm install --save-dev github:...` plus three npm
 scripts, and it exists for a real structural reason: hooks reach the engine
@@ -131,13 +133,41 @@ repo written in another is ordinary. Requiring Node *on the PATH* is an install
 requirement. Requiring the consuming repo to be an npm package is a coupling.
 Only the second is this item.
 
-No recommendation yet, and that is deliberate — publishing to a registry, a
-standalone launcher, and documenting a minimal manifest are three different
-trades and none has been investigated. Logged with the question stated rather
-than a guess dressed as a plan.
-
 **Done looks like:** the Python cold-start job in B2 reaching a green
 `spec-flow check` without the repo having acquired a `package.json`.
+
+---
+
+## B11 — should `init` generate the translator for a runner it detects?
+
+**A decision, not work, which is why it is its own item.** B10 stopped at a
+stub because going further requires naming test runners inside `scripts/`, and
+`no-repo-refs.mjs` bans exactly that. The ban is not an obstacle that grew
+around this feature — its header argues the position, and names `init` as
+needing no exemption *because* "it names nothing, it reads what the repo
+already declares".
+
+Two ways past it, and they are not equivalent:
+
+1. **A `templates/` directory outside the scan**, holding one worked
+   translator per runner, which `init` selects by matching the `test_name` it
+   already read from the repo. No runner name appears in any scanned file —
+   the knowledge is data, keyed on what the repo declared. Against it: the
+   check's header explicitly says there is no exemption list and no
+   `examples/` directory, so this creates the thing that text says does not
+   exist.
+2. **Accept a runner list in `init`** and relax the ban for that file, on the
+   ground that a generator may know technologies while the checker may not.
+   Against it: a list rots, and the ban currently needs no per-file reasoning
+   to apply.
+
+Worth noting what the cost of doing neither actually is: an adopter writes
+four lines into a file that already tells them what to write, once. That is a
+real cost and a small one, which is why this is not urgent.
+
+**Done looks like:** a stated decision in `no-repo-refs.mjs`'s own header,
+whichever way it goes, so the next person to meet this reads the reasoning
+rather than re-deriving it.
 
 ---
 

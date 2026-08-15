@@ -340,23 +340,18 @@ export function buildContract(root) {
 
   // --- how this repo reports what RAN
   //
-  // Always MISSING, and that is this file's own rule rather than an omission:
-  // it never invents a value it could not determine, and there is nothing in a
-  // repo that says how its runner can be made to list the tests it executed.
-  // Every runner can do it and no two agree on how, so a guess here would
-  // produce a command that runs and reports nothing — which spec-trace refuses
-  // loudly, but only after an adopter has wondered why.
+  // Still MISSING rather than REVIEW, even though a file now gets written for
+  // it, and the distinction is the honest one: `init` exits non-zero until the
+  // contract actually WORKS, not until it is syntactically complete. A stub
+  // that reports nothing is not a working contract, and calling it REVIEW
+  // would let an adopter reach a gate believing setup was finished.
   //
-  // This is the one field a fully discoverable repo still has to write by
-  // hand. Teaching `init` the common runners is a real improvement and belongs
-  // to `init`, not to the engine: a generator may know technologies because it
-  // reads what the repo already declares about itself, while the checker may
-  // not, because it has to be right about repos nobody has seen.
+  // See `translatorStub` for why this is a hole rather than generated code.
+  const translatorPath = join('.spec-flow', 'tests-that-ran.mjs');
   missing.push(
-    'trace.executed_tests — argv whose output lists the tests that RAN, one per line, e.g. ["node", "tools/tests-that-ran.mjs"]. ' +
-      'A requirement counts as proven when a reported line contains its id, so the lines need to carry test NAMES. ' +
-      'Most runners emit this behind a reporter flag (JUnit XML, JSON, TAP); the small script that turns your runner\'s output into lines belongs in your repo, not in the engine, so that changing runners changes your script and nothing else. ' +
-      'A test that was skipped must not appear — that absence is what makes skipping useless as a way to silence this check.',
+    `trace.executed_tests — a translator stub was written to ${translatorPath.replace(/\\/g, '/')} and the contract already points at it. ` +
+      'Complete the one function it marks: return one string per test that RAN, each containing that test\'s name. ' +
+      'It refuses loudly until you do, so nothing can reach a gate believing your requirements are proven.',
   );
 
   const denyScripts = ['test', 'lint'].filter((s) => scripts[s]);
@@ -377,9 +372,10 @@ export function buildContract(root) {
       specs_dir: 'specs',
       proof_dir: proof.dir,
       proof_suffix: proof.suffix,
-      // Empty on purpose — see the MISSING entry above. A plausible wrong
-      // value would run; an empty one is reported.
-      executed_tests: [],
+      // Points at the stub `scaffold` writes. The contract is structurally
+      // complete from the first run — what is incomplete is the stub, which
+      // says so itself and exits non-zero until someone finishes it.
+      executed_tests: ['node', '.spec-flow/tests-that-ran.mjs'],
       not_a_capability: ['README.md', 'glossary.md'],
       // Written out at its default rather than omitted, so the choice is
       // visible in the file instead of being a behaviour of the engine the
@@ -402,6 +398,87 @@ export function buildContract(root) {
   if (baseRef) contract.verify.base_ref = baseRef;
 
   return { contract, detected, review, missing };
+}
+
+/**
+ * The `trace.executed_tests` translator, scaffolded into the adopting repo.
+ *
+ * Not generated FOR a runner, and that limit is worth stating because it is
+ * the interesting part of this file.
+ *
+ * The obvious version of this scaffold detects the runner and emits working
+ * code for it. It cannot be written here: `no-repo-refs.mjs` bans runner names
+ * across `hooks/`, `scripts/`, `commands/` and `agents/`, so a branch per
+ * runner would not survive `npm run check` — and that ban is not in the way of
+ * this feature, it is a considered position. Its own header argues that a
+ * worked artifact naming a real runner has to live outside the engine by
+ * construction, because holding stack-specific values is the CONTRACT's job,
+ * and that `init` needs no exemption precisely because "it names nothing, it
+ * reads what the repo already declares".
+ *
+ * So this writes the part that is the same for every runner — the contract,
+ * the shape, and a failure loud enough that nobody ships without noticing —
+ * and leaves the four lines that differ. What that buys is smaller than
+ * generating the file and larger than naming a field in a report an adopter
+ * has already scrolled past: the contract arrives as executable code, at the
+ * path the config already points to, with one marked hole.
+ *
+ * Deliberately NOT silent when incomplete. A stub that exited 0 and printed
+ * nothing would report every requirement as unproven at the first gate, which
+ * is the failure this engine exists to close, arriving through the file meant
+ * to prevent it.
+ */
+function translatorStub(testName) {
+  const runner = testName ? `\`${testName}\`` : 'your test runner';
+  return `#!/usr/bin/env node
+// Tells spec-flow which tests actually RAN.
+//
+// The contract is one line per executed test, on stdout, each line containing
+// that test's name. A requirement counts as proven when a reported line
+// contains its id (REQ-USER-001). Nothing else is read: not the exit code, not
+// the format, not where the test file lives.
+//
+// TWO RULES, and the second is the one that matters:
+//
+//   1. Lines must carry test NAMES, since ids are matched inside them. An id
+//      may sit against underscores — REQ-USER-001_rejects binds fine.
+//   2. A test that was SKIPPED must not appear. That absence is what makes
+//      skipping useless as a way to silence a red suite, and it is why the
+//      rule holds in any language.
+//
+// This runs AFTER the suite, in the same gate invocation, so it should read
+// what that run produced rather than run the tests again.
+//
+// ---------------------------------------------------------------------------
+// TODO — this is the part only you can write. It was left empty on purpose:
+// every runner can report what it executed and no two agree on how, so a
+// guess here would produce a command that runs and reports nothing.
+//
+// For ${runner}: find the reporter flag that writes a machine-readable report
+// (most runners have one — JUnit XML, JSON, TAP), have your test command emit
+// it, then read that file here and print one line per test that RAN.
+// ---------------------------------------------------------------------------
+
+function testsThatRan() {
+  // Return an array of strings, one per executed test, e.g.
+  //   ['tests/auth_test::REQ-USER-001 rejects a bad password']
+  return null; // <- replace this
+}
+
+const names = testsThatRan();
+
+if (names === null) {
+  console.error(
+    'spec-flow: .spec-flow/tests-that-ran.mjs has not been written yet.\\n' +
+      'Until it reports the tests that ran, no requirement can be proven — and this\\n' +
+      'fails loudly rather than reporting your specs as unproven, which would be the\\n' +
+      'same mistake this check exists to catch. See REFERENCE.md, "executed_tests".',
+  );
+  process.exit(1);
+}
+
+for (const name of names) console.log(name);
+`;
 }
 
 /**
@@ -516,6 +593,21 @@ if (isMain) {
   mkdirSync(join(root, '.spec-flow'), { recursive: true });
   writeFileSync(configPath, `${JSON.stringify(contract, null, 2)}\n`);
   console.log(`spec-flow init: wrote .spec-flow/config.json\n`);
+
+  // Never overwritten, and `--force` does NOT extend to it. That is not
+  // caution, it is the documented workflow: the README says to fill in what
+  // init asks for and re-run with `--force`, so a `--force` that replaced this
+  // file would destroy the translator on the exact command an adopter is told
+  // to run after writing it — and the damage is silent, since a fresh stub
+  // reports nothing and every requirement turns unproven at the next gate.
+  //
+  // The asymmetry decides it: regenerating a stub costs a delete and a re-run,
+  // and losing working code costs the work. Someone who wants a clean one
+  // removes the file.
+  const translator = join(root, '.spec-flow', 'tests-that-ran.mjs');
+  if (!existsSync(translator)) {
+    writeFileSync(translator, translatorStub(contract.verify.test_name));
+  }
 
   for (const line of scaffold(root)) console.log(`  ${line}`);
   if (detected.length > 0) console.log('');

@@ -68,9 +68,23 @@ your repo, and that placement is the design rather than an omission: when your
 runner changes how it reports, your script changes and this engine does not.
 Most runners emit something usable behind a reporter flag.
 
+`spec-flow init` scaffolds it at `.spec-flow/tests-that-ran.mjs` and points the
+contract there:
+
 ```json
-"executed_tests": ["node", "tools/tests-that-ran.mjs"]
+"executed_tests": ["node", ".spec-flow/tests-that-ran.mjs"]
 ```
+
+The stub carries the contract and one marked hole, and exits non-zero until you
+fill it — an unfinished translator that reported nothing would turn every
+requirement unproven, which is the failure this check exists to catch arriving
+through the file meant to prevent it. `init` will not overwrite it once written,
+`--force` included.
+
+It is **not** generated for your runner, and that is a limit rather than an
+oversight: naming runners here would put a stack list inside the engine, which
+`no-repo-refs.mjs` bans by design and which would rot. Holding stack-specific
+values is the contract's job, not the engine's.
 
 Two properties it must have, and the second is the one worth checking:
 
@@ -133,8 +147,9 @@ The system sends a single-use link, valid for one hour.
 
 Requirements are `###` headings with the id first; the separator after it may
 be an em dash, a hyphen or a colon. Ids are permanent — never renumbered,
-never reused. Every requirement needs a test whose **title** contains its id,
-on the proof surface above.
+never reused. Every requirement needs a test that **runs** and whose reported
+**name** contains its id — where that test's file lives is a convention your
+repo sets, not something this check decides.
 
 ### `extra_checks`
 

@@ -85,12 +85,17 @@ MISSING   trace.executed_tests — argv whose output lists the tests that RAN,
 you fill it — a plausible wrong value would run, and a missing one is
 reported. Init exits non-zero while anything is missing.
 
-**`trace.executed_tests` is MISSING on every repo, and will be until `init`
-learns to write it.** It is the one field nothing in a repo declares: every
-runner can list the tests it executed and no two agree on how. Point it at a
-small script of your own that turns your runner's output into one line per
-executed test — that script lives in your repo on purpose, so that changing
-runners changes it and not this engine. See
+**One field always needs you: `trace.executed_tests`.** It is what makes a
+requirement proven — argv whose output names the tests that actually ran — and
+it is the one thing nothing in a repo declares, because every runner can report
+it and no two agree how.
+
+`init` writes `.spec-flow/tests-that-ran.mjs` for you and points the contract at
+it. The contract, the shape and the two rules are already in that file; what is
+left is the four lines that read your runner's report. It **refuses loudly**
+until you write them, so nothing reaches a gate believing your requirements are
+proven. `init` never overwrites it afterwards — not even with `--force` — so
+finishing it and re-running is safe. See
 [REFERENCE](REFERENCE.md#executed_tests--the-only-thing-that-makes-a-requirement-proven).
 
 Fill in what it asks for, then re-run with `--force` or edit the file
