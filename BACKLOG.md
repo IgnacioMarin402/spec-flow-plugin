@@ -194,18 +194,61 @@ either scanned or excluded for a stated reason.
 
 ---
 
-## B7 — recovery covers process failure, not context exhaustion
+## B7 — the state that survives a crash can resume the checking, not the run
 
-Most of what "robust recovery" usually means is already here: the phase file
-survives a crash, attempts are counted and capped, a fifth failure writes
-`phase blocked` rather than looping, each milestone gets a fresh session, and
-`gate-failure.log` is what a human reads.
+**Priority: second, behind B1.** This entry replaces an earlier and weaker
+version of itself, which called the gap "context exhaustion mid-milestone" and
+filed it as low priority on the grounds that no run had hit it. That framing
+was wrong about which part is missing, and the correction is worth keeping
+visible: the problem is not a rare failure mode, it is that resumption is
+impossible by construction.
 
-The uncovered case is an implementer that runs out of context **mid-milestone**
-— not a failure the gate can see, because a half-written tree is skipped as
-dirty by design. Low priority: no run has hit it yet, and this repo's policy
-is that a proposal without a failing run attached defaults to no. Logged so
-the first occurrence is recognised rather than re-diagnosed.
+Most of what "robust recovery" usually means is genuinely here. `phase` and
+`gate_attempts` are files on disk, so they outlive the session that wrote
+them. A fifth failure writes `blocked` instead of looping. `preflight` refuses
+to start a run the engine could not finish. `session-start` resets a phase
+nobody has touched for six hours, so an abandoned run cannot arm the gate
+forever. `gate-failure.log` is what a human reads.
+
+What is **not** on disk is the pair of facts a resume would need:
+
+- **which milestone is current.** Every gate block message routes work to "the
+  implementer of the CURRENT milestone", and nothing anywhere records which
+  one that is.
+- **which session is `IMPL_SESSION`.** The command's own wording is "Remember
+  the id/name it returns" — an instruction to hold it in context. The
+  `agent-registry` file maps a session id to an agent type, but it exists for
+  the Opus budget and marks no session as the current milestone's.
+
+The whole state directory is `phase`, `gate_attempts`, `opus_calls`,
+`agent-registry` and logs. Neither fact is among them.
+
+**The run.** A repo with `phase=implement` and `gate_attempts=3`, the way an
+orchestrating session that died mid-milestone leaves it:
+
+```
+back after 10 minutes   session-start: no output. phase=implement, attempts=3
+                        gate still armed; on disk: phase, gate_attempts.
+                        Which milestone? Which implementer? Nowhere.
+
+back after 7 hours      "...treated as an abandoned run and reset to 'idle'.
+                         If you meant to resume that run, re-run /spec-flow."
+                        phase=idle, attempts=0
+```
+
+Those are the only two outcomes, and neither is a resume. The six-hour window
+is the worse of the two: an armed gate, a live attempt count, and a session
+with no idea what it is implementing. After it, the documented recovery is to
+start the run again from the top.
+
+Note what is *not* being proposed: keeping an implementer session alive across
+a crash, which is not this engine's to do. Persisting the milestone id and the
+implementer's session id costs two lines in a directory that already holds
+five files, and turns "re-run from the top" into "pick up at Mk".
+
+**Done looks like:** a fixture case that kills an orchestrator mid-milestone
+and asserts a new session can name the milestone it is resuming — red against
+`HEAD` today, because nothing writes it.
 
 ---
 
