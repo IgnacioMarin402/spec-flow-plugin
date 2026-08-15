@@ -45,7 +45,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents'];
+// `.claude/skills` is in this list for the reason the list exists: a skill is
+// prose that instructs, so an unscanned one is the cheapest possible place for
+// stack vocabulary to reappear — and it would reappear in the file that tells
+// the next author how to write. Directories are scanned whole, so a skill
+// added later is covered without anyone remembering this line.
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 // The prose docs are scanned too, and that is not an afterthought: they are
