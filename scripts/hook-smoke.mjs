@@ -376,6 +376,52 @@ t('session-start resets a stale phase', (repo) => {
   return null;
 });
 
+// ---- B7: the position a resume needs survives, and a reset reports it ------
+//
+// The two facts that made a run resumable lived only in the orchestrator's
+// context. These assert they now live on disk, and — the half that is easy to
+// get wrong — that disarming a stale run does not also erase where it was.
+t('register-agent records the milestone and session an implementer was given', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'implement');
+  const r = runHook(
+    'register-agent.mjs',
+    {
+      tool_name: 'Agent',
+      tool_input: { subagent_type: 'implementer', prompt: 'implement specflow/add-users/milestones/M2.md per the plan' },
+      tool_response: { session_id: 'abc123def4567890a' },
+    },
+    repo,
+  );
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const at = join(repo, '.claude/state/current-milestone');
+  if (!existsSync(at)) return 'nothing recorded — a crash here still loses which milestone was in flight';
+  const got = readFileSync(at, 'utf8').trim();
+  if (got !== 'add-users M2 abc123def4567890a') return `recorded "${got}"`;
+  return null;
+});
+
+t('a stale-phase reset disarms the run without forgetting where it was', (repo) => {
+  const pf = join(repo, '.claude/state/phase');
+  writeFileSync(pf, 'implement');
+  writeFileSync(join(repo, '.claude/state/current-milestone'), 'add-users M2 abc123def4567890a');
+  const old = new Date(Date.now() - 8 * 3600 * 1000);
+  utimesSync(pf, old, old);
+
+  const r = runHook('session-start.mjs', {}, repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (readFileSync(pf, 'utf8') !== 'idle') return 'the stale phase was not disarmed';
+  if (!existsSync(join(repo, '.claude/state/current-milestone'))) {
+    return 'the reset erased the position too, so the run is still unresumable';
+  }
+  if (!/M2/.test(r.stdout) || !/add-users/.test(r.stdout)) {
+    return `the message did not say where the run stopped, which is the whole point: ${r.stdout}`;
+  }
+  if (/re-run \/spec-flow/.test(r.stdout)) {
+    return `it still tells the user to start over though it knows where the run was: ${r.stdout}`;
+  }
+  return null;
+});
+
 t('session-start leaves a fresh phase alone', (repo) => {
   const r = runHook('session-start.mjs', {}, repo);
   if (r.status !== 0) return `exit ${r.status}`;

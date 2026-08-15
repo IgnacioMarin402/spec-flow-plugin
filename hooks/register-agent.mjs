@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * PostToolUse hook on Task|Agent — records which session ids belong to the
- * Opus agents (planner, architect).
+ * PostToolUse hook on Task|Agent — records which session id belongs to which
+ * agent, for the two agents a budget charges and the one a resume needs.
  *
  * opus-budget.mjs counts spawns by type, but a follow-up SendMessage into an
  * existing Opus session carries only an opaque hex session id — the type is
@@ -21,7 +21,7 @@
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readPayload, writeFile, run } from './lib/io.mjs';
 import { matchAgent } from './lib/agent-name.mjs';
 
 const ID_RE = /^[0-9a-f]{16,32}$/; // observed ids: 17 hex chars
@@ -44,8 +44,14 @@ await run(async () => {
   const typeFields = [input.subagent_type, input.subagentType, input.agent_type].filter(
     (v) => typeof v === 'string',
   );
-  const agent = matchAgent(typeFields, ['planner', 'architect']);
-  if (!agent) return; // not an Opus spawn
+  // `implementer` joins the two Opus agents here, and not for the budget's
+  // sake — nothing charges an implementer. It is here because this hook is the
+  // one place where a spawn's TYPE and its resulting SESSION ID are both in
+  // hand, and the implementer's session id is half of what a run needs to be
+  // resumable. Recording it costs one more line in a file already being
+  // written; deriving it later is impossible, which is the whole of B7.
+  const agent = matchAgent(typeFields, ['planner', 'architect', 'implementer']);
+  if (!agent) return; // not an agent this hook records
 
   // Still phase-INDEPENDENT, per this file's header — but not repo-independent.
   // A repo with no phase file has never run this engine, so there is no run
@@ -95,6 +101,31 @@ await run(async () => {
 
   if (id) {
     appendUnique(registry, `${id} ${agent}`);
+
+    // ---- the run's resumable position, for an implementer spawn -------------
+    //
+    // `phase` and `gate_attempts` survive a crash; which MILESTONE they refer
+    // to did not, and neither did which session was working it. Both lived
+    // only in the orchestrator's context — the command's own wording is
+    // "Remember the id/name it returns" — so an orchestrating session that
+    // died mid-milestone left an armed gate, a live attempt count, and no way
+    // for anything to say what was being implemented. The documented recovery
+    // was to start the run again from the top.
+    //
+    // Written from the SPAWN rather than asked of the orchestrator, for the
+    // reason preflight is a hook: state the model has to remember to write is
+    // not state. The milestone comes out of the spawn's own input because that
+    // is where it already is — the orchestrator passes the milestone file's
+    // path — so nothing new has to be declared or agreed.
+    //
+    // A follow-up `SendMessage` into the same session does not pass through
+    // here, and must not: it carries no milestone, and rewriting this from one
+    // would blank the position at the first lint retry.
+    if (agent === 'implementer') {
+      const text = JSON.stringify(input ?? '');
+      const at = /specflow[\\/]([^"\\/]+)[\\/]milestones[\\/](M\d+)\.md/.exec(text);
+      if (at) writeFile(join(state, 'current-milestone'), `${at[1]} ${at[2]} ${id}`);
+    }
     return;
   }
 

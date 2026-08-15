@@ -39,6 +39,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { loadConfig } from './spec-flow-config.mjs';
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const STATE = join(root, '.claude', 'state');
@@ -134,18 +135,73 @@ if (gate.length === 0) {
 say('');
 
 // ---- 2. test-first, by its observable signature ----------------------------
+//
+// Pairing a source file to its test used to be two hardcoded extensions —
+// `.spec.ts` and `.ts` — in the one part of this engine whose whole purpose is
+// saying whether the protocol in the implementer's prose is being followed. On
+// any repo that was not TypeScript the pairing matched nothing and this
+// section printed "no source file was written alongside its own spec", which
+// reads as "nothing to report" and meant "this metric cannot see your repo".
+// Reporting absence where the truth is blindness is the same failure as a
+// check that looks armed and is not, with the severity turned down because
+// nothing here gates anything.
+//
+// The contract already knew both halves: `trace.proof_suffix` is what a test
+// file is called, and `verify.scope_globs` names the source extensions. Read
+// defensively, because this script's header promises it never fails — an
+// unreadable contract makes the pairing UNKNOWN, which is said out loud rather
+// than reported as an absence of pairs.
+//
+// Two things the old version got wrong, and the second is why this pairs on
+// BASENAME rather than on the whole path:
+//
+//   - `file.replace(/\.ts$/, '.spec.ts')` is a no-op on a file that does not
+//     end in `.ts`, so on any other stack every source file was looked up as
+//     ITSELF, found itself, and produced a verdict. That is not blindness, it
+//     is fabricated data: a Python trace reported `no-red-run` MISSes for
+//     files that had never been paired with anything.
+//   - it assumed a test sits beside its source. That holds for a colocated
+//     layout and not for a repo that keeps proofs in a directory of their own,
+//     which the contract explicitly supports via `proof_dir`. Matching the
+//     basename covers both, and the trace has no other way to relate them.
 const trace = runs.flatMap((r) => r.trace);
 
+const baseOf = (path) => path.split(/[\\/]/).pop();
+
+let expectedTestName = null;
+let pairingProblem = '';
+try {
+  const config = loadConfig(root);
+  const suffix = config.trace.proof_suffix;
+  const sourceExts = [...new Set(config.verify.scope_globs.map((g) => g.replace(/^\*/, '')).filter((e) => e.startsWith('.')))];
+  if (!suffix || sourceExts.length === 0) {
+    pairingProblem = 'the contract names no proof_suffix or no source extension, so a source file cannot be paired to its test';
+  } else {
+    expectedTestName = (file) => {
+      const name = baseOf(file);
+      if (name.endsWith(suffix)) return null; // this IS a test file
+      const ext = sourceExts.find((e) => name.endsWith(e));
+      return ext ? `${name.slice(0, -ext.length)}${suffix}` : null;
+    };
+  }
+} catch (err) {
+  pairingProblem = `the contract could not be read (${err.message.split('\n')[0]})`;
+}
+
 const verdicts = [];
-for (const run of runs) {
+for (const run of expectedTestName ? runs : []) {
   const firstWrite = new Map();
+  const firstWriteByName = new Map();
   for (const [i, e] of run.trace.entries()) {
-    if (e.file && !firstWrite.has(e.file)) firstWrite.set(e.file, i);
+    if (!e.file) continue;
+    if (!firstWrite.has(e.file)) firstWrite.set(e.file, i);
+    if (!firstWriteByName.has(baseOf(e.file))) firstWriteByName.set(baseOf(e.file), i);
   }
 
   for (const [file, sourceIdx] of firstWrite) {
-    if (file.endsWith('.spec.ts')) continue;
-    const specIdx = firstWrite.get(file.replace(/\.ts$/, '.spec.ts'));
+    const testName = expectedTestName(file);
+    if (!testName) continue;
+    const specIdx = firstWriteByName.get(testName);
     if (specIdx === undefined) continue;
 
     const redBetween = run.trace.some((e, i) => i > specIdx && i < sourceIdx && e.verdict === 'red');
@@ -155,10 +211,13 @@ for (const run of runs) {
 }
 
 say('Test-first');
-if (trace.length === 0) {
+if (!expectedTestName) {
+  say(`  UNKNOWN — ${pairingProblem}.`);
+  say('  This is not "no misses found": nothing was measured. Fix the contract to get an answer.');
+} else if (trace.length === 0) {
   say('  no run trace yet — run-trace.mjs writes it during a live run.');
 } else if (verdicts.length === 0) {
-  say('  no source file was written alongside its own spec in this trace.');
+  say('  no source file was written alongside its own test in this trace.');
 } else {
   for (const { file, status, run } of verdicts) {
     const mark = status === 'red-first' ? 'OK  ' : 'MISS';

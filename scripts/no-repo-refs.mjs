@@ -66,7 +66,21 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // hold the values the engine refuses to know. `scripts/init.mjs` generates
 // that file from the adopting repo instead, which needs no exemption: it
 // names nothing, it reads what the repo already declares.
-const SCAN_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'LICENSE', 'BACKLOG.md'];
+// The workflow is in this list for a reason worth stating, because it is not
+// prose and looks out of place next to four Markdown files. It is the file that
+// demonstrated the gap: `ci.yml` spent several commits pointing readers at a
+// `conformance/` directory and a design document, neither of which exists here
+// — the same class of reference this check exists to keep out, sitting in the
+// one file type it could not see. A workflow is read by anyone evaluating the
+// project and can name a stack as easily as a README can.
+const SCAN_FILES = [
+  'README.md',
+  'REFERENCE.md',
+  'CLAUDE.md',
+  'LICENSE',
+  'BACKLOG.md',
+  '.github/workflows/ci.yml',
+];
 
 // Whole-word or path-shaped tokens — a substring match on "application" would
 // also flag the English word inside unrelated prose ("the application of
