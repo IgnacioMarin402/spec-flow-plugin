@@ -270,6 +270,35 @@ which is what the budget is for. The counter is `.claude/state/opus_calls`.
 
 ---
 
+## Versions
+
+Two versions matter, and the engine treats them differently on purpose.
+
+**Node — a floor, and it is enforced.** `package.json`'s `engines.node` is the
+single declaration; `preflight` reads it and refuses to start a run on
+anything below it, before any agent has been spent. Only the major version is
+compared, and only when both parse — a floor the engine cannot compare against
+confidently is not one worth denying a run over.
+
+The refusal happens *inside* a run only. A subagent spawned in a repository
+that never adopted this engine is never denied over a floor only this engine
+declares.
+
+**Claude Code — recorded, not checked.** Every gate invocation writes
+`cc=<version>` into `.claude/state/gate-history.log`, from
+`CLAUDE_CODE_VERSION`, or `cc=?` where the harness does not expose it.
+
+Nothing gates on it, and that is the honest position rather than a gap.
+Declaring a supported range means having evidence about versions outside it,
+and this project has none: it has been run by someone who always uses the
+latest, so every claim about an older Claude Code would be invented — and an
+invented floor denies real runs. What the engine can do instead is start
+collecting the fact, so the first time something breaks, the version that
+broke it is already in the record rather than reconstructed from memory.
+
+If you hit a version-dependent failure, `gate-history.log` is where the
+evidence to fix this section will come from.
+
 ## Staying current
 
 Neither `plugin.json` nor the marketplace's entry for `spec-flow` declares a

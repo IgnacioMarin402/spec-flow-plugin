@@ -12,9 +12,9 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B3, B4, B5 — and none of the three is blocked by code. B3 is
-work with its own judgement calls, B4 needs real runs on a real repo, and B5
-needs a fact only the author has.
+**Open order:** B13, B12, B3, B4, B14. None is blocked by code. B13 leads
+because it makes every file after it cheaper to read, and B14 depends on it
+landing first.
 
 ---
 
@@ -133,6 +133,21 @@ What it is not: proof that `claude marketplace add` works. Steps 1 and 2 of
 the plugin half still have no automated run, and that gap is smaller than it
 was but real.
 
+### B5 — Node is a floor and is enforced; Claude Code is recorded, not invented — `PENDING`
+
+`preflight` refuses a run on a Node below `package.json`'s `engines.node`,
+which stays the single declaration. Inside a run only — a subagent in a repo
+that never adopted this engine is not denied over a floor only this engine
+declares. That placement was wrong in the first draft and a hook-smoke case
+now catches it.
+
+Claude Code gets no floor, and that is the finding rather than the shortfall.
+Declaring a supported range means having evidence about versions outside it,
+and this project has one user who always runs the latest — so any claim about
+an older version would be invented, and an invented floor denies real runs.
+`CLAUDE_CODE_VERSION` is instead written into every gate-history line, so the
+first version-dependent failure arrives with the version already recorded.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -194,30 +209,77 @@ is cheap and keeps getting deferred.
 
 ---
 
-## B5 — declare compatibility, check it at preflight — do not re-add a plugin version
+## B12 — the README is too long to do the job it has
 
-The half worth doing: nothing states which Claude Code and Node versions this
-engine is known to work against, and `preflight` — which already refuses a run
-whose contract does not load — is where a mismatch should surface, before any
-agent has run.
+The author's own reading, and the right one: it is long and not intuitive. It
+is currently four documents in one — a pitch, an install guide, a tutorial and
+a design explanation — and a reader who wants any single one of them reads
+past the other three.
 
-**The half to refuse: semantic versioning on the plugin.** Commit `8fe3b8a`
-removed `version` from both `.claude-plugin/plugin.json` and the marketplace
-entry, on a verified reading of how Claude Code resolves a plugin's version:
-`plugin.json` → marketplace entry → git SHA, first one set wins. Both were
-pinned at `0.1.0` and unchanged across nine PRs of real behaviour change, so
-`/plugin marketplace update` compared `0.1.0` to `0.1.0`, found them equal,
-and told every install there was nothing new. Falling through to the SHA fixes
-it without depending on anyone remembering to bump a number.
+Worth separating from the doc question below, because the fix is different:
+this is a structure problem, not a volume problem. A front page's job is to
+get someone from "what is this" to a first run, with everything else one link
+away. The mermaid diagrams and the gate's reasoning are good material sitting
+in the wrong place.
 
-Re-adding a version string restores that bug the first time someone forgets.
-A compatibility table is a different artifact from a version field, and only
-the table is wanted here.
+Not urgent, and it competes with nothing: no check depends on the README's
+shape.
 
-**Done looks like:** a supported-versions statement in REFERENCE, and a
-preflight refusal with a fixture case for a Node version below the floor.
+**Done looks like:** a front page someone can read start to finish before
+deciding whether to install, with the run's internals moved behind links.
 
 ---
+
+## B13 — the comments are carrying two different things, and only one of them belongs there
+
+The proposal was a `docs/` folder — `spec-trace-doc.md` and friends — to take
+the prose currently living in source comments. The complaint behind it is
+real: reading `spec-trace.mjs` now means passing sixty lines of header before
+the first import, and that is not comfortable to work in.
+
+**The proposal as stated should not be taken, and this repo has already
+learned why.** `.spec-flow/skills.md` was deleted because nothing read it: no
+script parsed it, so it could name skills that had been renamed and nobody
+would learn. A `docs/spec-trace-doc.md` describing `spec-trace.mjs` is that
+artifact exactly — prose about code, in a file no check binds to the code, and
+the first person to find it wrong is someone who trusted it. Comments have one
+property no separate document can have: whoever changes the line has already
+opened the file.
+
+**But the complaint is still right, because the comments hold two kinds of
+thing and only one earns its place.**
+
+- *Why this line is the way it is* — the anchoring argument, the failure a
+  guard exists to prevent, the reason an ordering is load-bearing. This is
+  read exactly when someone is about to undo it, which is why co-location is
+  the whole value. It stays.
+- *What the code used to be* — "this used to match `it(...)`, then Python
+  arrived", "the curried branch used to be a bare `)(`". This is a commit
+  message that leaked into source. Git holds it already, better, with the
+  diff attached. Much of it arrived recently and in volume.
+
+So the work is a pass that moves the second kind out and keeps the first,
+which shrinks the headers substantially without creating a document nothing
+checks. `no-repo-refs.mjs`'s SCAN_FILES exists to stop unchecked prose from
+accumulating; a `docs/` tree would be a large new surface arriving under it.
+
+**Done looks like:** headers that open with what the file guarantees rather
+than with what it used to do, and a note in `CLAUDE.md` drawing the line so
+the next author knows which half they are writing.
+
+---
+
+## B14 — a skill for this repo's own conventions
+
+Raised alongside B13 and genuinely separate: a skill encoding how this project
+writes code and prose — the comment split above, the verify-before-claiming
+rule, the fixture-goes-red-first rule — so that the standard is loaded rather
+than re-explained.
+
+`CLAUDE.md` carries the reasoning today and is doing well at it. What a skill
+adds is applying it to a specific task on demand. Worth doing **after** B13,
+not before: a skill that encoded the current comment habit would make the
+thing B13 exists to fix harder to change.
 
 ## Deliberately not doing
 

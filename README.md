@@ -19,8 +19,25 @@ Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 ## Requirements
 
 - Claude Code, and a git repo with a base branch you branch off of
-- Node 20+
+- Node 20+ — enforced: a run refuses to start below it
 - A linter and a test runner you can invoke from the command line
+
+## What is yours and what is the engine's
+
+The engine knows nothing about your project that you have not told it. That is
+the design, and it means the list of things only you can supply is short,
+finite, and worth seeing before you start.
+
+| Yours | The engine's |
+|---|---|
+| **The contract** — which commands lint and test, what is in scope, where specs live. `init` reads most of it off your repo and reports what it could not | Running those commands, scoping lint to the changed files, never scoping the suite |
+| **`trace.executed_tests`** — a small script saying which tests RAN. Only you can write it: every runner reports differently | Binding each requirement to a reported test, in both directions, and refusing when it cannot tell |
+| **Writing the specs' words** — at sign-off, you approve what the system will claim to do | Refusing to let a requirement stay unproven, or a test prove something no spec declares |
+| **The judgement calls** — the sign-off, a `WRONG-SPEC` confirmation, and any run the gate hands back after five failures | Everything between those: planning, review, implementation, and the checks that run outside the model |
+| **Keeping Node and Claude Code current** | Refusing to start on a Node it does not support, and recording the Claude Code that ran each gate |
+
+Nothing else is asked of you mid-run. If the engine stops and waits, it is one
+of the rows above, and it says which.
 
 ## Install
 

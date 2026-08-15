@@ -17,7 +17,19 @@
  * the earliest enforceable moment and the one where a denial costs nothing —
  * no agent has produced anything yet.
  *
- * It checks the two things that stop a run dead, and nothing else:
+ * It checks the things that stop a run dead, and nothing else:
+ *
+ *   0. The Node running this engine is one the engine declares support for.
+ *      `package.json`'s `engines.node` is the single source — a floor written
+ *      twice drifts, and this one has a standard place to live. Checked here
+ *      rather than in `validate()` for the same reason the base branch is:
+ *      it is a property of the ENVIRONMENT, not of a file, so the same repo
+ *      can be fine on one machine and unusable on another.
+ *
+ *      Only the major version, and only when it parses. A floor this engine
+ *      cannot confidently compare against is not a floor worth denying a run
+ *      over, and a denial that fires on a version string nobody predicted is
+ *      worse than the incompatibility it was guarding.
  *
  *   1. The contract loads and validates. Same reader every hook uses, so this
  *      cannot disagree with what the gate would have said later.
@@ -28,10 +40,10 @@
  *      machine and unusable on another. Here it is checked where the run will
  *      actually happen.
  *
- * It is NOT a general policy hook. `specs/` being empty, a missing
- * a missing skill, an unwise test command — none of those stop a run from
- * starting, so none of them belong here. Two checks, both fatal, both cheap:
- * one file read and, in most repos, one or two `git merge-base` calls.
+ * It is NOT a general policy hook. `specs/` being empty, a missing skill, an
+ * unwise test command — none of those stop a run from starting, so none of
+ * them belong here. Every check above is fatal and cheap: two file reads and,
+ * in most repos, one or two `git merge-base` calls.
  *
  * Stands down outside a run (`idle`/`done`), so a subagent spawned for
  * something unrelated to the flow never sees it. And like every hook here
@@ -39,6 +51,9 @@
  * `onError` exits 0. Only a check that genuinely failed denies, and it does
  * so through the PreToolUse protocol: stderr plus exit 2.
  */
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { projectDir, phasePath, readFileOrDefault, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { resolveBase } from '../scripts/changed-files.mjs';
@@ -55,8 +70,28 @@ function deny(what, detail) {
   process.exit(2); // PreToolUse denial protocol
 }
 
+/**
+ * The engine's own declared floor, from the one place a Node project states it.
+ *
+ * Returns null when anything is unreadable or unparseable — a missing floor is
+ * "no opinion", never "deny". This runs before every subagent spawn of every
+ * run, so a throw here would be a permanent, inexplicable denial.
+ */
+function nodeFloor() {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8'),
+    );
+    const declared = /(\d+)/.exec(pkg?.engines?.node ?? '');
+    return declared ? Number(declared[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 await run(async () => {
   const root = projectDir();
+
   // `phasePath`, not `stateDir`: this hook only ever reads, and it fires on
   // every subagent spawn. Creating the directory here would drop
   // `.claude/state/` into every repository the user opens.
@@ -64,6 +99,26 @@ await run(async () => {
   if (['', 'idle', 'done'].includes(phase)) return; // not a run -> not this hook's business
 
   await readPayload(); // consumed, unused — this hook judges the repo, not the call
+
+  // AFTER the phase guard, and that placement is not incidental. This hook
+  // fires on every subagent spawn in every repository the user opens; a Node
+  // check ahead of the guard would deny agents that have nothing to do with
+  // this engine, in projects that never adopted it, over a floor only this
+  // engine declares. Standing down outside a run is the rule the whole file
+  // is built on and a new check does not get an exception from it.
+  //
+  // First WITHIN the run, though: a contract error reported by an engine that
+  // cannot run here at all would send someone to edit the wrong file.
+  const floor = nodeFloor();
+  const running = Number(/(\d+)/.exec(process.versions.node ?? '')?.[1]);
+  if (floor && Number.isFinite(running) && running < floor) {
+    deny(
+      `this engine needs Node ${floor} or newer, and it is running on ${process.versions.node}.`,
+      `Every hook, the gate and the CLI run through this same Node, so nothing downstream would be trustworthy — ` +
+        `a check that crashes on syntax it cannot parse looks the same from the outside as a check that found nothing wrong.`,
+    );
+    return;
+  }
 
   let config;
   try {

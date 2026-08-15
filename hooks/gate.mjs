@@ -128,7 +128,18 @@ await run(
 
     const attemptsNow = () => readFileOrDefault(attFile, '0');
     const line = (result, lintRc, testRc, unscopedFields, filesField) =>
-      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
+      // `cc=` records the Claude Code that ran this gate, and it is recorded
+      // rather than CHECKED on purpose. This project has one user who always
+      // runs the latest, so it has no evidence about which versions work and a
+      // declared floor would be fabricated — and a fabricated floor denies
+      // real runs. What it can honestly do is start collecting the fact, so
+      // that the first time something breaks, the version that broke it is
+      // already in the record instead of being reconstructed from memory.
+      //
+      // `?` when the harness does not expose it: this env var was observed in
+      // one environment, and an absent value must read as "not known here",
+      // never as a version.
+      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${process.env.CLAUDE_CODE_VERSION ?? '?'} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
     /**
      * The one failure this file's own catch-all cannot reach: a `command`
