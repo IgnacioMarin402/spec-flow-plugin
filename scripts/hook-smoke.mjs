@@ -43,7 +43,13 @@ function makeRepo({ phase = 'implement', withContract = true, git = true } = {})
           lint_name: 'flint',
           lint_config_hint: 'f.config',
         },
-        trace: { specs_dir: 'specs', proof_dir: 'application', proof_suffix: '.spec.ts', not_a_capability: [] },
+        trace: {
+          specs_dir: 'specs',
+          proof_dir: 'tests',
+          proof_suffix: '.spec.ts',
+          executed_tests: ['node', '-e', 'process.exit(0)'],
+          not_a_capability: [],
+        },
         extra_checks: [],
         unscoped_denied: {
           scripts: ['test', 'lint'],

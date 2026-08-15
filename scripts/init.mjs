@@ -338,6 +338,27 @@ export function buildContract(root) {
     );
   }
 
+  // --- how this repo reports what RAN
+  //
+  // Always MISSING, and that is this file's own rule rather than an omission:
+  // it never invents a value it could not determine, and there is nothing in a
+  // repo that says how its runner can be made to list the tests it executed.
+  // Every runner can do it and no two agree on how, so a guess here would
+  // produce a command that runs and reports nothing — which spec-trace refuses
+  // loudly, but only after an adopter has wondered why.
+  //
+  // This is the one field a fully discoverable repo still has to write by
+  // hand. Teaching `init` the common runners is a real improvement and belongs
+  // to `init`, not to the engine: a generator may know technologies because it
+  // reads what the repo already declares about itself, while the checker may
+  // not, because it has to be right about repos nobody has seen.
+  missing.push(
+    'trace.executed_tests — argv whose output lists the tests that RAN, one per line, e.g. ["node", "tools/tests-that-ran.mjs"]. ' +
+      'A requirement counts as proven when a reported line contains its id, so the lines need to carry test NAMES. ' +
+      'Most runners emit this behind a reporter flag (JUnit XML, JSON, TAP); the small script that turns your runner\'s output into lines belongs in your repo, not in the engine, so that changing runners changes your script and nothing else. ' +
+      'A test that was skipped must not appear — that absence is what makes skipping useless as a way to silence this check.',
+  );
+
   const denyScripts = ['test', 'lint'].filter((s) => scripts[s]);
   const denyTools = [testName, lintName].filter(Boolean);
 
@@ -356,6 +377,9 @@ export function buildContract(root) {
       specs_dir: 'specs',
       proof_dir: proof.dir,
       proof_suffix: proof.suffix,
+      // Empty on purpose — see the MISSING entry above. A plausible wrong
+      // value would run; an empty one is reported.
+      executed_tests: [],
       not_a_capability: ['README.md', 'glossary.md'],
       // Written out at its default rather than omitted, so the choice is
       // visible in the file instead of being a behaviour of the engine the

@@ -88,6 +88,20 @@ const DEFAULTS = {
     specs_dir: 'specs',
     proof_dir: '',
     proof_suffix: '',
+    // The port that replaced source-parsing. Argv whose stdout names the
+    // tests that ACTUALLY RAN, one per line; a requirement is proven when a
+    // reported line contains its id.
+    //
+    // The engine deliberately knows no format here — not JUnit XML, not TAP,
+    // not any runner's native output. It knows "lines naming a test". A repo
+    // whose runner speaks something else owns the translation, which is the
+    // point: when that runner changes its output, the repo's translator
+    // changes and this engine does not.
+    //
+    // Required, and it has to be: proof detection is engine core, and there
+    // is no test runner it would be safe to assume for a repo this engine has
+    // never seen. `init` reports it MISSING rather than guessing.
+    executed_tests: [],
     not_a_capability: ['README.md', 'glossary.md'],
     // Off by default, and that default is the honest one rather than the
     // lenient one. Skills reach a session from three places — the project's
@@ -175,14 +189,23 @@ function validate(config, source) {
       'verify.base_ref, when present, must be a non-empty string naming the ref this branch is judged against, e.g. "origin/trunk". Omit it entirely to let the engine resolve the base branch automatically.',
     );
   }
+  // proof_dir and proof_suffix no longer FIND anything — the runner's report
+  // does that. They kept their other job, which was always the separable one:
+  // telling an implementer where a new test goes and what it is called. Still
+  // required, because an agent with no answer to that invents a layout.
   if (!nonEmptyString(config.trace.proof_dir)) {
     problems.push(
-      'trace.proof_dir must name the directory segment that marks a proof file (e.g. "application"). ' +
-        'Without it spec-trace silently matches no test files, which reads as "nothing is proven" instead of "this is unconfigured".',
+      'trace.proof_dir must name the directory a new test goes in (e.g. "tests"). It is what an implementer is told when a requirement needs proof; it no longer decides what counts as proof, which is trace.executed_tests\' job.',
     );
   }
   if (!nonEmptyString(config.trace.proof_suffix)) {
-    problems.push('trace.proof_suffix must name the test-file suffix spec-trace looks for, e.g. ".spec.ts" or ".test.ts".');
+    problems.push('trace.proof_suffix must name what a test file is called in this repo, e.g. ".spec.ts", ".test.ts" or "_test.py" — it tells an implementer what to name a new one.');
+  }
+  if (!nonEmptyArray(config.trace.executed_tests)) {
+    problems.push(
+      'trace.executed_tests must be a non-empty array of argv parts whose output names the tests that RAN, one per line, e.g. ["node", "tools/tests-that-ran.mjs"]. ' +
+        'A requirement is proven when a reported line contains its id. Without it spec-trace has no way to tell a test that executed from one that was skipped, and "skipped" is the cheapest way to silence a red suite.',
+    );
   }
   // A string here — `"true"`, `"yes"` — is the shape that would otherwise
   // arm the check by truthiness while the author believed they had written a

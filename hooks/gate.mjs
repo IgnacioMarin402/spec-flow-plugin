@@ -276,9 +276,6 @@ await run(
       return;
     }
 
-    // ---- the unscoped checks — run even when no file in scope changed ---------
-    const result = runUnscopedChecks(root, config);
-
     // LINT is scoped, so it has nothing to do when nothing in scope changed.
     let lintOut = '(no files in scope changed)';
     let lintRc = 0;
@@ -313,6 +310,22 @@ await run(
     });
     const testOut = `${testRes.stdout ?? ''}${testRes.stderr ?? ''}`;
     const testRc = testRes.status ?? 1;
+
+    // ---- the unscoped checks — run even when no file in scope changed ---------
+    //
+    // AFTER the suite, and that ordering is now load-bearing rather than
+    // arbitrary. `spec-trace` establishes which requirements are proven by
+    // asking the contract's `trace.executed_tests` what actually RAN, so it
+    // has to run against this invocation's test run, not the previous one's.
+    // Ahead of the suite it would judge a stale report — or none at all on a
+    // fresh clone — and a report that says nothing is a refusal, so the gate
+    // would block on the ordering rather than on the code.
+    //
+    // Costs nothing to move: this gate has never short-circuited. Lint, the
+    // suite and the unscoped checks all run on every armed invocation
+    // regardless of what the others found, because the block message has to
+    // name everything that is wrong at once rather than the first thing.
+    const result = runUnscopedChecks(root, config);
 
     // `lint=-` in the history when lint had nothing to run: reporting `lint=0`
     // for a linter that was never invoked is the same lie in miniature.
