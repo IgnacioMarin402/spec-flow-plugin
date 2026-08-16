@@ -57,24 +57,22 @@ Two that are worth extra care because a wrong value is quiet rather than loud:
 
 ## 3. Make the suite report what ran
 
-This is the one field no file in the engine can propose, and the reason this
-skill exists.
-
 The engine binds a requirement to a test by reading a report that says which
 tests **executed** — a test that was skipped must not appear in it, because
 otherwise skipping becomes the cheapest way to silence a red suite. It reads
 two formats, JUnit XML and TAP, and it does not know or care which tool wrote
 the file.
 
-So: **find the flag this repo's test runner uses to write a machine-readable
-report, and add it to the test command** so the file lands at
-`trace.report.path`. Use what you know about the runner in front of you. Two
-things to get right:
+**`init` appends the flag itself for the runners it knows**, and says so in a
+`REVIEW` line naming what it added to `verify.test`. When you see that line
+your job is to confirm it, not to redo it — and step 4 is what confirms it.
 
-- the report must be written by the **same run** the gate performs — one
-  command, not a second pass. The engine does not run the suite twice.
-- if the runner writes to a directory that must already exist, make sure the
-  repo creates it or the path points somewhere that survives a fresh clone.
+You only supply the flag yourself when `init` said it could not: its
+`trace.report` line names the runner it did not recognise. Then find the flag
+that runner uses to write a machine-readable report and append it to
+`verify.test`, so the file lands at `trace.report.path`. One thing to get
+right: the report must be written by the **same run** the gate performs — one
+command, not a second pass. The engine does not run the suite twice.
 
 If the runner has no standard report at all, the contract's escape hatch is
 `trace.executed_tests` — argv printing one executed test per line. Prefer the
@@ -119,8 +117,10 @@ to close, arriving through the door meant to prevent it.
 
 ## What this skill must never contain
 
-**No runner names, no flags, no per-ecosystem tables.** That knowledge is
-yours at runtime; the moment it is written down here it becomes a list inside
-the package that looks maintained and quietly is not — refused in ADR-002,
-re-refused in ADR-006, and enforced by `scripts/no-repo-refs.mjs`, which scans
-this file. Adding one turns CI red.
+**No runner names, no flags, no per-ecosystem tables.** There is exactly one
+list of runners in this package and it lives in `scripts/init.mjs`, where it is
+executed rather than described (ADR-007). A second copy here would be prose
+nothing runs, free to drift from the table that actually configures a repo, and
+you would have no way to tell which one was stale. Your own knowledge covers
+the runners that table does not — that is the case step 3 hands you, and it
+needs no list.

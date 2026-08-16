@@ -156,10 +156,10 @@ say('');
 // BASENAME rather than on the whole path:
 //
 //   - `file.replace(/\.ts$/, '.spec.ts')` is a no-op on a file that does not
-//     end in `.ts`, so on any other stack every source file was looked up as
-//     ITSELF, found itself, and produced a verdict. That is not blindness, it
-//     is fabricated data: a Python trace reported `no-red-run` MISSes for
-//     files that had never been paired with anything.
+//     end in `.ts`, so in a repo using any other extension — `.js`, `.mjs`,
+//     `.tsx` — every source file was looked up as ITSELF, found itself, and
+//     produced a verdict. That is not blindness, it is fabricated data:
+//     `no-red-run` MISSes for files that had never been paired with anything.
 //   - it assumed a test sits beside its source. That holds for a colocated
 //     layout and not for a repo that keeps proofs in a directory of their own,
 //     which the contract explicitly supports via `proof_dir`. Matching the

@@ -163,6 +163,14 @@ try {
   contract.verify.test_name = 'fixture-runner';
   contract.verify.lint_name = 'fixture-linter';
   contract.verify.lint_config_hint = 'fixture.config';
+  // The flag is stripped back out, deliberately. `init` now appends one for
+  // every runner in scope (ADR-007), so "no report lands" is no longer a state
+  // it leaves behind — which means the case has to build the state that
+  // remains: a test command that runs clean and writes nothing, because the
+  // reporter was configured wrongly or the runner was one init does not know.
+  // That is exactly the outcome a model can produce at step 3 of the skill, and
+  // the whole safety argument is that it cannot produce it QUIETLY.
+  contract.verify.test = ['node', '--test'];
   writeFileSync(configPath, `${JSON.stringify(contract, null, 2)}\n`);
 
   mkdirSync(join(repo, 'specs'), { recursive: true });

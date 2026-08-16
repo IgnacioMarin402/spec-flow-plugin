@@ -119,11 +119,16 @@ jobs:
         run: npm run hooks:check
 
       # The only check that fails when ADOPTION breaks. Every step above tests
-      # a piece of the engine in the stack the engine is written in; this takes
-      # a repo with no package.json, in a language this engine has no code for,
-      # from nothing to a green `spec-flow check` through the route the README
-      # documents — by path, out of a clone, with no environment variables.
-      # python3 is preinstalled on the runner and stands in for a linter and a
-      # runner; nothing is installed.
-      - name: Cold start (a repo that is not an npm package)
+      # a piece of the engine; this takes a Node repo from nothing to a green
+      # `spec-flow check` through the route the README documents, and asserts
+      # the front page's strongest claim — that `init` appends the reporter
+      # flag rather than describing it.
+      #
+      # It installs NOTHING: the suite is `node --test`, which ships with the
+      # Node this workflow already sets up and emits JUnit XML behind a flag.
+      # The report is therefore written by a real runner, which is the property
+      # this check lost once before — a hand-written one spelled an id no
+      # runner could produce, and a passing test reading as absent went
+      # unnoticed here.
+      - name: Cold start (a Node repo, from nothing to green)
         run: npm run cold:check

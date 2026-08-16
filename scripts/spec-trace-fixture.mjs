@@ -222,64 +222,44 @@ await Promise.all([
     ),
   ),
 
-  // The engine reads lines, not a language. pytest's node ids and Go's
-  // subtest paths are just two shapes of line, and neither is known to the
-  // engine — the repo's translator emitted them.
-  //
-  // The id is spelled with UNDERSCORES here because that is the only spelling
-  // this line can have: a pytest node id ends in a function name, and a Python
-  // identifier cannot hold a hyphen. The hyphenated version this case used to
-  // assert was a shape no runner on that side can emit.
-  check('a pytest-shaped report proves a requirement', () =>
+  // The engine reads lines, and the supported runners disagree about what a
+  // line looks like. A reporter that concatenates the suite title onto the test
+  // title puts the id in the middle of a longer string — this is the shape
+  // observed from a real run, not one invented to match the parser.
+  check('a name built from a suite path proves a requirement', () =>
     withRepo(
       {
         '.spec-flow/config.json': JSON.stringify(
-          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/auth_test.py::test_REQ_USER_001_rejects') } },
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('auth > rejects > REQ-USER-001 the user can do the thing') } },
           null,
           2,
         ),
         'specs/user.md': spec(),
       },
-      (r) => (r.status === 0 ? null : `a real, executed pytest proof was reported as absent: ${r.out}`),
+      (r) => (r.status === 0 ? null : `an executed test whose reported name nests the id was read as absent: ${r.out}`),
     ),
   ),
 
-  // The rule the case above is one instance of, stated on its own because it
-  // governs every language whose test name is an identifier — Python, Java,
-  // Rust — and because the engine spent a long time believing the id survived
-  // into the report intact. Go is the counter-example that hid it: a subtest
-  // name comes from a string literal, so it CAN hold hyphens, and the two
-  // shapes were assumed to be the same shape.
-  check('a requirement id no identifier can spell still binds', () =>
+  // `_` is read as `-`, so a repo that titles its tests the way it names its
+  // identifiers still binds. This was found the hard way — a report naming
+  // `test_REQ_USER_001_...` read as "has no test that RAN" while the test had
+  // run and passed — and the guard is kept under ADR-007 because the spelling
+  // is legal here too: a title is a string, and plenty of suites write them
+  // this way.
+  check('an id written with underscores still binds', () =>
     withRepo(
       {
         '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
         'specs/user.md': spec(),
-        // Byte-for-byte the element `python3 -m pytest --junitxml` writes for
-        // `def test_REQ_USER_001_the_user_can_do_the_thing()`.
         'reports/junit.xml':
-          '<?xml version="1.0" encoding="utf-8"?>\n<testsuites><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="0.01">' +
-          '<testcase classname="tests.user_test" name="test_REQ_USER_001_the_user_can_do_the_thing" time="0.001"/>' +
+          '<?xml version="1.0" encoding="utf-8"?>\n<testsuites><testsuite name="suite" tests="1" failures="0">' +
+          '<testcase classname="test/user.test.ts" name="test_REQ_USER_001_the_user_can_do_the_thing" time="0.001"/>' +
           '</testsuite></testsuites>\n',
       },
       (r) =>
         r.status === 0
           ? null
-          : `a test that ran and passed, named as closely as its language allows, was reported as absent — the defect ADR-001 exists to remove, arriving through the spelling: ${r.out}`,
-    ),
-  ),
-
-  check('a Go-shaped subtest report proves a requirement', () =>
-    withRepo(
-      {
-        '.spec-flow/config.json': JSON.stringify(
-          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('--- PASS: TestAuth/REQ-USER-001_rejects_a_bad_password (0.00s)') } },
-          null,
-          2,
-        ),
-        'specs/user.md': spec(),
-      },
-      (r) => (r.status === 0 ? null : `a real, executed Go proof was reported as absent: ${r.out}`),
+          : `a test that ran and passed was reported as absent over its spelling — the defect ADR-001 exists to remove, arriving through the id: ${r.out}`,
     ),
   ),
 
@@ -916,7 +896,7 @@ await Promise.all([
   // It matters more than it looks, because the gate's attempt-1 route hands a
   // red suite straight back to an implementer, and skipping is the cheapest
   // way to make a failing test stop failing.
-  check('a test that exists in every language\'s skipped form is not proof', () =>
+  check('a test that exists in every skipped form is not proof', () =>
     withRepo(
       {
         '.spec-flow/config.json': JSON.stringify(
@@ -925,9 +905,14 @@ await Promise.all([
           2,
         ),
         'specs/user.md': spec(),
+        // Every way this scope has of not running a test, in files the walk
+        // would once have found. The source is irrelevant now and that is the
+        // point of the case: what decides is the report, which names none of
+        // them.
         'tests/user.test.ts': `it.skip('REQ-USER-001 skipped', () => {});\n`,
-        'tests/user_test.py': `@pytest.mark.skip\ndef test_REQ_USER_001_skipped(): pass\n`,
-        'tests/user_test.go': `func TestUser(t *testing.T) { t.Skip(); t.Run("REQ-USER-001 x", nil) }\n`,
+        'tests/todo.test.ts': `test.todo('REQ-USER-001 not written yet');\n`,
+        'tests/suite.test.ts': `describe.skip('REQ-USER-001', () => { it('x', () => {}); });\n`,
+        'tests/runtime.test.ts': `it('REQ-USER-001', (t) => { t.skip('not today'); });\n`,
       },
       (r) => {
         if (r.status === 0) return 'a skipped test registered as proof — the requirement is unproven but reads as covered';
