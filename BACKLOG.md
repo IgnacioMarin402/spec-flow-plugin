@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B3, B4, B14. None is blocked by code.
+**Open order:** B4, B14, B15. B15 is blocked on `claude plugin eval` early access; the other two are not blocked by code.
 
 ---
 
@@ -127,9 +127,19 @@ Red against `92a7d72` with three failures, including the central one. It also
 counts the fields an adopter is asked to fill, so adoption cost going up turns
 CI red rather than being absorbed.
 
-What it is not: proof that `claude marketplace add` works. Steps 1 and 2 of
-the plugin half still have no automated run, and that gap is smaller than it
-was but real.
+What it is not: proof that the plugin half installs. That gap stayed open and
+was closed by hand instead — see the note below.
+
+**Step 1, run for the first time (2026-08-16).** The README's very first
+command was wrong: `claude marketplace add` does not exist, the subcommand is
+`claude plugin marketplace add`. Nothing had ever executed it, which is exactly
+why it survived. The real sequence works — marketplace added, plugin installed,
+`Version: 10bfbdfbbab2` resolved from the git SHA, which confirms ADR-003 by
+observation rather than by reading the docs.
+
+It stays unautomated: a CI runner has no `claude` CLI, so `cold-start.mjs`
+cannot reach it. What it now has instead is one verified run with its output
+recorded in REFERENCE, and a correct command in the README.
 
 ### B5 — Node is a floor and is enforced; Claude Code is recorded, not invented — `PENDING`
 
@@ -166,6 +176,37 @@ that documented one route. Found by checking the anchors by hand, which is why
 `plugin-paths.mjs` now checks cross-doc anchors on every run — 16 of them
 today, and a broken one names the file and the anchor.
 
+### B3 — the checkable half of the prose contract, and why the other half waits — `PENDING`
+
+Logged as "write `claude plugin eval` cases for the five agents and two
+commands". The tool exists — `claude plugin eval`, with `evals/**/case.yaml`,
+graders, and a `--ablation` baseline arm — and **it is in early access and not
+enabled here**, so nothing could be run. Authoring cases anyway would have
+shipped an artifact that looks like coverage and executes nowhere, which is the
+failure this engine exists to close.
+
+So the half that needs no model shipped instead, and it turns out to be the
+half that matches the recorded defect. `scripts/agent-contracts.mjs` asserts
+that the planner's milestone template and the reviewer's checklist agree about
+which fields matter: every field is either named by the reviewer or exempt with
+a stated reason, and adding a field to the template and nothing else turns CI
+red. That is precisely the `Skills:` failure — added to the template and the
+planner's contract, never told to the reviewer, passed review unseen.
+
+It found one live gap on its first run: `Files to add/change` was in the
+template and nowhere in the reviewer's checklist. Unlike `Steps` no other
+question covered it, so the reviewer now checks it — a milestone that says what
+to change without saying where hands the implementer the planner's own job,
+from a cold context.
+
+Verified in three directions: a new template field goes red, a stale exemption
+goes red, and a template whose anchor moves fails loudly rather than checking
+an empty set.
+
+**Still open, as B15:** the model-graded half. It needs early access, and it
+buys something this check cannot — whether the reviewer's judgement actually
+fires, whether triage classifies the five `/spec-fix` cases correctly.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -174,27 +215,24 @@ of which exists here. Reference removed, and the workflow added to
 
 ---
 
-## B3 — the fixtures cover the deterministic half; the contract also has a prose half
+## B15 — the model-graded half of the prose contract
 
-Roughly 2,350 of this repo's ~8,000 lines are fixtures — the gate, spec-trace,
-init and the other nine hooks — all in CI on every push. That half is in good
-shape, and any plan that starts with "add tests" should say which half it
-means.
+`claude plugin eval` runs `evals/**/case.yaml` against a plugin, with graders
+and an `--ablation with-without` baseline arm that reports the score delta
+against no plugin at all. It is **in early access**; running it here returns
+"`plugin eval` is currently in early access" and exits without doing anything.
 
-The uncovered half is the five agents and two commands: ~700 lines of Markdown
-that are not documentation *about* the contract, they **are** the contract.
-The failure mode is already recorded in `CLAUDE.md`: a `Skills:` field was
-added to the milestone template and the planner's instructions, the reviewer
-was never told, and a missing field passed review unseen. No fixture could
-have caught it, because nothing executes those files.
+Writing cases before that is enablement-blocked, not effort-blocked — and
+shipping unrunnable cases would be worse than none, since a suite nobody
+executes reads as coverage.
 
-`claude plugin eval` is the tool built for this surface. Highest-value cases,
-in order: the reviewer's `CHANGES_REQUESTED` path (never yet observed to fire
-— see B4), the triage classifier's five cases in `/spec-fix`, and the
-orchestrator's refusal to write code itself.
+What it buys that `agent-contracts.mjs` cannot: whether judgement actually
+fires. Highest-value cases, in order — the reviewer's `CHANGES_REQUESTED` path
+(never yet observed), the triage classifier's five cases in `/spec-fix`, and
+the orchestrator's refusal to write code itself.
 
-**Done looks like:** an eval suite in CI covering at minimum the reviewer's
-reject path and all five triage cases.
+Note the cost before starting: each case runs the model, and `--ablation`
+doubles it.
 
 ---
 

@@ -44,7 +44,7 @@ of the rows above, and it says which.
 **1. The plugin**, which brings the commands, the agents and the hooks:
 
 ```bash
-claude marketplace add IgnacioMarin402/spec-flow-plugin
+claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 ```
 
@@ -163,6 +163,7 @@ npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
 npm run hooks:check   # the other nine hooks
+npm run agents:check  # the planner and the reviewer agree about the milestone
 npm run cold:check    # a repo that is not an npm package, from zero to green
 ```
 

@@ -29,6 +29,12 @@ once; it is removing the field that requires it.
 plugin's — is untouched. A different field in the same resolution chain has no
 claim on it.
 
+## Confirmed
+
+2026-08-16, on a real install from the marketplace: `claude plugin list`
+reported `Version: 10bfbdfbbab2` — the merge commit of #16, not a declared
+number. The fall-through to the SHA behaves as this decision expected.
+
 ## Related
 
 ADR-004 records where a compatibility statement lives instead, now that no

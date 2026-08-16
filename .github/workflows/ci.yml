@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · decisions · gate · trace · hooks · cold-start
+    name: lint · typecheck · coupling · init · paths · decisions · agents · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +69,14 @@ jobs:
       # repo's last standalone document did.
       - name: Decisions are reachable from the code
         run: npm run decisions:check
+
+      # The only check over the PROSE half of this plugin. The agents and
+      # commands are Markdown that no fixture executes, and the failure this
+      # closes has already happened: a field was added to the planner's
+      # milestone template and the reviewer was never told, so a milestone
+      # missing it passed review unseen.
+      - name: Agent contracts agree
+        run: npm run agents:check
 
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour

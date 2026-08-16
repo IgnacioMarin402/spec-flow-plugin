@@ -14,6 +14,7 @@ Look-up material. For what spec-flow is and how to install it, see the
 - [Hooks](#hooks)
 - [Phases](#phases)
 - [`.claude/state/`](#claudestate)
+- [What an install costs](#what-an-install-costs)
 - [How a run unfolds](#how-a-run-unfolds) — the three flowcharts
 
 ---
@@ -534,6 +535,42 @@ Gitignored working files. Delete any of them to reset that piece of state.
 The four `*-unmatched.log` files are how each hook reports its own blind
 spots. A hook that fails open silently is indistinguishable from one that had
 nothing to do; these are what make the difference readable.
+
+---
+
+## What an install costs
+
+Measured on `10bfbdf` with `claude plugin details spec-flow`, immediately after
+a real `marketplace add` + `install`. A dated observation rather than a standing
+claim: these move when an agent's instructions do.
+
+```
+Component inventory
+  Skills (2)  spec-fix, spec-flow
+  Agents (5)  architect, planner, spec-writer, reviewer, implementer
+  Hooks (4)   SessionStart, PreToolUse, PostToolUse, Stop
+              (harness-only — no model context cost)
+
+Always-on:   ~580 tok   added to every session
+
+  component    always-on  on-invoke
+  architect          ~80       ~600
+  planner            ~80      ~3.5k
+  spec-writer       ~140      ~5.7k
+  reviewer           ~50      ~1.3k
+  implementer       ~100      ~3.8k
+  spec-fix           ~60      ~5.2k
+  spec-flow          ~60      ~5.6k
+```
+
+Two things worth reading off it. **`Hooks (4)` counts EVENTS, not files** — ten
+hook scripts are registered across those four events, and `npm run paths:check`
+is what keeps those two numbers honest. And **the hooks cost no model context at
+all**: the checks that decide whether a milestone passes run entirely outside the
+model, which is the property the whole design rests on.
+
+The always-on ~580 tokens is what an installed-but-unused plugin costs a
+session. Everything else is paid only when a command or agent actually fires.
 
 ---
 
