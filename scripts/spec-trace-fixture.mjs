@@ -110,6 +110,42 @@ const contract = (...lines) =>
   JSON.stringify({ ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran(...lines) } }, null, 2);
 
 /**
+ * The default contract with its proof source replaced by a report FILE, or by
+ * nothing at all when `report` is null.
+ *
+ * `executed_tests` is deleted rather than left beside it, because the contract
+ * rejects declaring both — which is itself a case below.
+ */
+function reportContract(report) {
+  const trace = { ...CONFIG.trace };
+  delete trace.executed_tests;
+  if (report) trace.report = report;
+  return JSON.stringify({ ...CONFIG, trace }, null, 2);
+}
+
+// A junit report naming the requirement `spec()` declares as EXECUTED, and the
+// same report with that test skipped. Shapes taken from real emitters; the
+// formats themselves are covered by test-report-fixture.mjs.
+const JUNIT_RAN = `<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="fixture" tests="1" failures="0">
+    <testsuite name="tests/user.test.ts" tests="1" failures="0">
+        <testcase classname="tests/user.test.ts" name="REQ-USER-001 the user can do the thing" time="0.001">
+        </testcase>
+    </testsuite>
+</testsuites>
+`;
+
+const JUNIT_SKIPPED = `<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="fixture" tests="1" failures="0">
+    <testsuite name="tests/user.test.ts" tests="1" failures="0" skipped="1">
+        <testcase classname="tests/user.test.ts" name="REQ-USER-001 the user can do the thing" time="0">
+            <skipped/>
+        </testcase>
+    </testsuite>
+</testsuites>
+`;
+
+/**
  * The contract of a project that DOES route skills and has asked for the
  * milestone field to be enforced. Written out by the cases that test the
  * check, so none of them depends on what the default happens to be — the
@@ -209,6 +245,105 @@ await Promise.all([
         'specs/user.md': spec(),
       },
       (r) => (r.status === 0 ? null : `a real, executed Go proof was reported as absent: ${r.out}`),
+    ),
+  ),
+
+  // ---- the other source: a report file the runner already writes -----------
+  //
+  // These assert the SEAM, not the parser — test-report-fixture.mjs owns the
+  // formats, against captures from real emitters. What matters here is that a
+  // contract naming a file reaches the same verdicts as one naming a command,
+  // including the two that must never collapse into each other.
+
+  check('a junit report proves a requirement', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'reports/junit.xml': JUNIT_RAN,
+        'specs/user.md': spec(),
+      },
+      (r) => (r.status === 0 ? null : `an executed test named in a junit report was reported as absent: ${r.out}`),
+    ),
+  ),
+
+  // The whole reason a format reader is allowed to exist: `<skipped/>` is in
+  // the JUnit schema, so "did it run" is answered without knowing the runner.
+  check('a test that is <skipped/> in the report does not prove its requirement', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'reports/junit.xml': JUNIT_SKIPPED,
+        'specs/user.md': spec(),
+      },
+      (r) => {
+        if (r.status === 0) return `a skipped test proved a requirement: ${r.out}`;
+        if (!/has no test/.test(r.out)) return `expected the requirement to read as unproven, got: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // Same distinction as the empty-report case below, one layer out: a report
+  // that was never written means the reporter flag is missing from
+  // `verify.test`, not that the repo has an unproven requirement.
+  check('a report file that was never written is a refusal, not "has no test"', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'specs/user.md': spec(),
+      },
+      (r) => {
+        if (r.status === 0) return `a missing report passed: ${r.out}`;
+        if (/has no test/.test(r.out)) return `a missing report read as an unproven requirement: ${r.out}`;
+        if (!/reporter flag|does not exist/.test(r.out)) return `the refusal did not name the likely cause: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // ---- opting out, and the one thing that makes it honest ------------------
+
+  check('no source and no requirements is a pass that says why it passed', () =>
+    withRepo(
+      { '.spec-flow/config.json': reportContract(null) },
+      (r) => {
+        if (r.status !== 0) return `a repo with nothing to prove was blocked: ${r.out}`;
+        if (!/not configured/i.test(r.out)) {
+          return `it passed without saying it was unarmed, which is how an unarmed check gets mistaken for a passing one: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  check('no source WITH requirements is refused — opting out stops being coherent', () =>
+    withRepo(
+      { '.spec-flow/config.json': reportContract(null), 'specs/user.md': spec() },
+      (r) => {
+        if (r.status === 0) {
+          return 'a repo declared a requirement and no way to prove it, and the check went green — an opt-out that survives its own precondition is a disarmed gate';
+        }
+        if (!/opt-in|opted out|trace\.report/.test(r.out)) return `the refusal did not say how to arm it: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('declaring both sources is refused by the contract, not resolved silently', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, report: { format: 'junit', path: 'reports/junit.xml' } } },
+          null,
+          2,
+        ),
+        'specs/user.md': spec(),
+      },
+      (r) => {
+        if (r.status === 0) return 'two answers to "which tests ran" were accepted, so which one is read is discoverable only from behaviour';
+        if (!/both/i.test(r.out)) return `the refusal did not name the conflict: ${r.out}`;
+        return null;
+      },
     ),
   ),
 

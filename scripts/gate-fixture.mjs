@@ -136,7 +136,13 @@ async function fixture({
   for (const f of ['io.mjs', 'agent-name.mjs']) {
     copyFileSync(join(ROOT, 'hooks/lib', f), join(engineDir, 'hooks/lib', f));
   }
-  for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs']) {
+  // `test-report.mjs` is here because spec-flow-config.mjs imports it at module
+  // scope, and a missing import throws before gate.mjs's own catch-all can run
+  // — which is a Stop hook that renders no decision, i.e. a clean pass over a
+  // milestone nothing judged. Every case below went silent the moment that
+  // import was added, which is the fixture doing its job: this list is the
+  // engine's real dependency graph, and it has to be kept honest by hand.
+  for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs', 'test-report.mjs']) {
     copyFileSync(join(ROOT, 'scripts', f), join(engineDir, 'scripts', f));
   }
 

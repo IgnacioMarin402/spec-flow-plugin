@@ -114,53 +114,53 @@ const COMPLETE = {
 
 await Promise.all([
   // ---- the claim this file exists to hold ----
-  // This case used to assert that a fully discoverable repo got a contract
-  // that validated outright. It cannot any more, and the change is a decision
-  // rather than a regression: `trace.executed_tests` names how this repo
-  // reports the tests it RAN, and nothing in a repo declares that. Every
-  // runner can produce it, no two agree how, so `init` leaves it empty and
-  // says so — the same rule that leaves `lint_config_hint` empty rather than
-  // guessing a linter's config file.
+  // Twice rewritten, and both rewrites were decisions rather than regressions.
   //
-  // What is asserted instead is stronger, because it pins the size of the gap:
-  // exactly ONE field is left, init names it, and filling in only that field
-  // makes the contract validate through the reader every hook uses. If init
-  // ever gets a second undetectable field, or gets this one wrong, this goes
-  // red rather than degrading into "the adopter has some editing to do".
-  check('init leaves exactly one field undetectable, and filling it validates', () =>
+  // It first asserted that a fully discoverable repo got a contract that
+  // validated outright. ADR-001 broke that: `trace.executed_tests` names how a
+  // repo reports the tests it RAN and nothing in a repo declares it, so the
+  // case became "exactly ONE field is left, init names it, and filling only
+  // that field validates" — pinning the size of the gap instead of denying it.
+  //
+  // ADR-005 closes the gap itself. The engine now reads the report FORMAT, so
+  // there is no field left that an adopter must write code for, and init
+  // finishes. What has to be asserted instead is the thing that could quietly
+  // replace the old failure: init must not present an INFERENCE as a reading.
+  // The report path is a convention on a repo whose test command names no XML
+  // file, so it belongs in REVIEW — and a green "the contract is valid" with
+  // no REVIEW line would be exactly the false all-clear this engine exists to
+  // refuse, one layer up from the gate.
+  check('init finishes with no field left to write, and calls the inferred path an inference', () =>
     withRepo(COMPLETE, async (dir) => {
       const res = await run([], dir);
-      if (res.status === 0) return `init reported a complete contract though executed_tests cannot be detected: ${res.stdout}`;
-      if (!/trace\.executed_tests/.test(res.stdout)) {
-        return `init did not name the one field it could not determine, so an adopter is left to diff the reference: ${res.stdout}`;
+      if (res.status !== 0) {
+        return `init refused to finish a repo it could read completely, which is now a setup failure rather than an honest gap: ${res.stdout}`;
       }
 
       const missing = res.stdout.split('\n').filter((l) => l.trim().startsWith('MISSING'));
-      if (missing.length !== 1) {
-        return `expected exactly one MISSING field on a fully discoverable repo, got ${missing.length}:\n${missing.join('\n')}`;
+      if (missing.length !== 0) {
+        return `a fully discoverable repo still has ${missing.length} field(s) the adopter must supply:\n${missing.join('\n')}`;
       }
 
-      // The stub is written and pointed at, so the CONTRACT is already
-      // complete — what is incomplete is the code behind it, which is why
-      // init still exits non-zero. Assert both halves: the file exists, and
-      // running it refuses rather than reporting nothing.
+      const reportReview = res.stdout.split('\n').filter((l) => /^\s*REVIEW\s+trace\.report/.test(l));
+      if (reportReview.length !== 1) {
+        return `the report path was not flagged for review, so a guessed path reads as a detected one: ${res.stdout}`;
+      }
+
+      // The escape hatch must not be written unasked: nothing points at it, and
+      // a file nothing references is what this repo deleted `skills.md` over.
       const translator = join(dir, '.spec-flow', 'tests-that-ran.mjs');
-      if (!existsSync(translator)) return 'no translator stub was written, so the adopter is left to invent the shape';
-
-      const stub = spawnSync(process.execPath, [translator], { cwd: dir, encoding: 'utf8' });
-      if (stub.status === 0) {
-        return 'an unfinished translator exited 0 — a gate would read every requirement as unproven instead of saying setup is incomplete';
-      }
-      if (!/tests-that-ran/.test(`${stub.stdout}${stub.stderr}`)) {
-        return `the stub's refusal does not name itself, so the file to edit is not obvious: ${stub.stderr}`;
+      if (existsSync(translator)) {
+        return 'a translator stub was written though the contract points at a report file — an unreferenced file that can rot with nobody finding out';
       }
 
       const contract = JSON.parse(readFileSync(join(dir, '.spec-flow', 'config.json'), 'utf8'));
-      if (contract.trace.executed_tests.join(' ') !== 'node .spec-flow/tests-that-ran.mjs') {
-        return `the contract does not point at the stub it wrote: ${contract.trace.executed_tests.join(' ')}`;
+      if (contract.trace.report?.format !== 'junit' || !contract.trace.report?.path) {
+        return `the contract does not declare a readable report source: ${JSON.stringify(contract.trace.report)}`;
       }
-      contract.trace.executed_tests = ['node', '-e', 'process.exit(0)'];
-      writeFileSync(join(dir, '.spec-flow', 'config.json'), JSON.stringify(contract, null, 2));
+      if (contract.trace.executed_tests !== undefined) {
+        return 'init declared both proof sources, which the contract rejects — an adopter would find out from a failing gate';
+      }
 
       // Validated through `loadConfig` itself — the single reader every hook
       // goes through — rather than through anything this fixture reimplements.
@@ -192,14 +192,31 @@ await Promise.all([
   //
   // Worth having because the damage is silent: a fresh stub reports nothing,
   // so every requirement turns unproven at the next gate with no edit to blame.
+  check('the translator escape hatch is still there, one flag away, and still refuses until finished', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run(['--translator'], dir);
+      const translator = join(dir, '.spec-flow', 'tests-that-ran.mjs');
+      if (!existsSync(translator)) return 'a repo whose runner has no standard report has no way to declare what ran';
+
+      const stub = spawnSync(process.execPath, [translator], { cwd: dir, encoding: 'utf8' });
+      if (stub.status === 0) {
+        return 'an unfinished translator exited 0 — a gate would read every requirement as unproven instead of saying setup is incomplete';
+      }
+      if (!/tests-that-ran/.test(`${stub.stdout}${stub.stderr}`)) {
+        return `the stub's refusal does not name itself, so the file to edit is not obvious: ${stub.stderr}`;
+      }
+      return null;
+    }),
+  ),
+
   check('re-running init does not overwrite a translator someone finished', () =>
     withRepo(COMPLETE, async (dir) => {
-      await run([], dir);
+      await run(['--translator'], dir);
       const translator = join(dir, '.spec-flow', 'tests-that-ran.mjs');
       const mine = 'console.log("tests/a.test.ts::REQ-USER-001 mine");\n';
       writeFileSync(translator, mine);
 
-      await run(['--force'], dir);
+      await run(['--force', '--translator'], dir);
       if (readFileSync(translator, 'utf8') !== mine) {
         return 'a finished translator was replaced by a fresh stub, silently unproving every requirement';
       }

@@ -31,7 +31,7 @@ finite, and worth seeing before you start.
 | Yours | The engine's |
 |---|---|
 | **The contract** — which commands lint and test, what is in scope, where specs live. `init` reads most of it off your repo and reports what it could not | Running those commands, scoping lint to the changed files, never scoping the suite |
-| **`trace.executed_tests`** — a small script saying which tests RAN. Only you can write it: every runner reports differently | Binding each requirement to a reported test, in both directions, and refusing when it cannot tell |
+| **One reporter flag**, so your suite writes a report saying which tests RAN | Parsing that report — JUnit XML or TAP — binding each requirement to a test that executed, in both directions, and refusing when it cannot tell |
 | **Writing the specs' words** — at sign-off, you approve what the system will claim to do | Refusing to let a requirement stay unproven, or a test prove something no spec declares |
 | **The judgement calls** — the sign-off, a `WRONG-SPEC` confirmation, and any run the gate hands back after five failures | Everything between those: planning, review, implementation, and the checks that run outside the model |
 | **Keeping Node and Claude Code current** | Refusing to start on a Node it does not support, and recording the Claude Code that ran each gate |
@@ -50,13 +50,12 @@ claude plugin install spec-flow@spec-flow-marketplace
 
 git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin /tmp/spec-flow
 node /tmp/spec-flow/scripts/init.mjs             # writes .spec-flow/config.json
-$EDITOR .spec-flow/tests-that-ran.mjs            # the four lines only you can write
 node /tmp/spec-flow/scripts/check-changed.mjs    # green here means green at the gate
 ```
 
-The last two lines are the only ones that need you to think. Everything below
-is what each step is for, and is here to be read when a step does not do what
-you expected.
+**No code is yours to write.** `init` reads your test and lint commands off the
+repo and writes a contract the engine can run; the last line proves it. Below is
+what each step is for, to be read when one does not do what you expected.
 
 **1. The plugin** brings the commands, the agents and the hooks. Nothing else
 in this list is Claude-Code-specific.
@@ -83,13 +82,23 @@ and `lint` scripts, where your tests live, your base branch — writes
 could not determine**, so it sorts every field into `detected`, `REVIEW` or
 `MISSING` and exits non-zero until nothing is missing.
 
-**One field is always yours: `trace.executed_tests`** — argv whose output names
-the tests that actually ran. Nothing in a repo declares it, because every runner
-reports differently. `init` writes `.spec-flow/tests-that-ran.mjs` with the
-contract inside it and points the config there; you fill in the four lines that
-read your runner's report. It refuses loudly until you do, and `init` never
-overwrites it afterwards — not even with `--force`.
-[What that file has to emit](REFERENCE.md#executed_tests--the-only-thing-that-makes-a-requirement-proven).
+**The one thing it cannot do for you is make your suite emit a report.** To
+bind a requirement to a test, the engine has to know which tests *ran* — and a
+test that was skipped must not count, or skipping becomes the cheapest way to
+silence a red suite. It reads that from a report your runner already knows how
+to write, so `init` points the contract at a path and asks you to confirm it:
+
+```json
+"report": { "format": "junit", "path": "reports/junit.xml" }
+```
+
+Add your runner's reporter flag to the test command so the file lands there.
+That is one flag, not a script: the engine parses JUnit XML and TAP itself,
+because `<skipped/>` and `# SKIP` are defined by those formats rather than by
+any runner. **Until it lands, traceability is simply off** — the gate still
+lints and tests — and it turns itself back on the moment you declare a
+requirement, refusing rather than passing quietly.
+[Both proof sources, and the escape hatch for runners with no standard report](REFERENCE.md#what-makes-a-requirement-proven).
 
 **4. Check it.** `check-changed` lints what this branch changed, runs your
 suite, and runs the traceability check — the same commands the gate will run,
@@ -170,6 +179,7 @@ npm run paths:check   # every ${CLAUDE_PLUGIN_ROOT} path resolves
 npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
+npm run report:check  # the report readers, against real emitters' output
 npm run hooks:check   # the other nine hooks
 npm run agents:check  # the planner and the reviewer agree about the milestone
 npm run cold:check    # a repo that is not an npm package, from zero to green
