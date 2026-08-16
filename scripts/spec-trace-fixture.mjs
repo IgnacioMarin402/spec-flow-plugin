@@ -76,6 +76,11 @@ const CONFIG = {
     proof_dir: 'tests',
     proof_suffix: '.test.ts',
     executed_tests: ['node', '-e', 'console.log("tests/user.test.ts::REQ-USER-001 the user can do the thing")'],
+    // Present and null, exactly as the loader defaults it, so `reportContract`
+    // below can assign to it. Omitting it left the inferred type without the
+    // property, which is the one thing `npm run typecheck` had to say about
+    // this engine and it said it on every run.
+    report: null,
     not_a_capability: ['README.md'],
   },
   extra_checks: [],
