@@ -6,7 +6,9 @@
  * This hook enforces NOTHING. It exists because the flow's change policy
  * only accepts a failing run as grounds for changing the flow, and several of
  * its soft spots leave no trace anyone can read after the fact: a gate PASS
- * is silent, so a stalled run looks exactly like a finished one; the
+ * renders no decision, so a stalled run looks exactly like a finished one to
+ * everything downstream — the notice the gate prints for the human is screen
+ * output, not record, and a human who is away still misses it; the
  * implementer's test-first protocol lives in prose and the gate only ever
  * sees the final state; nobody knows whether the reviewer approves plans on
  * the merits or rubber-stamps them. Writing the evidence down is the

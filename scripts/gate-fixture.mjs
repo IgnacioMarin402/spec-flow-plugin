@@ -268,11 +268,19 @@ async function runGate({ engineDir, repoDir }) {
   const failPath = join(repoDir, '.claude/state/gate-failure.log');
   const lintArgvPath = join(repoDir, '.claude/state/lint-argv.log');
 
+  let payload = null;
+  try {
+    payload = res.stdout.trim() ? JSON.parse(res.stdout.trim()) : null;
+  } catch {
+    /* not JSON: `blocked` below still answers the only question most cases ask */
+  }
+
   return {
     status: res.status,
     stdout: res.stdout,
     stderr: res.stderr,
     blocked: res.stdout.includes('"decision":"block"'),
+    payload,
     history: existsSync(histPath) ? readFileSync(histPath, 'utf8').trim() : '',
     failureLog: existsSync(failPath) ? readFileSync(failPath, 'utf8').trim() : '',
     lintArgv: existsSync(lintArgvPath) ? readFileSync(lintArgvPath, 'utf8').trim() : null,
@@ -434,10 +442,42 @@ await Promise.all([
     }),
   ),
 
-  check('a dirty tree is skipped, not judged', () =>
+  // ---- a pass is silent to the MODEL and visible to the HUMAN ---------------
+  //
+  // The two halves are one case on purpose: satisfying either alone
+  // reintroduces the failure the other exists to prevent. A `decision` field
+  // of any kind wakes the orchestrator and turns a green milestone into
+  // another turn; no output at all is the stall the README has to apologise
+  // for in prose.
+  check('a green run tells the human it passed, and still does not wake the model', () =>
+    withFixture({ specTrace: 'green' }, (r) => {
+      if (r.blocked) return 'the gate blocked a tree where every check passed';
+      if (!r.payload) return `a pass printed nothing parseable, so the human sees a stall: stdout=${JSON.stringify(r.stdout)}`;
+      if (r.payload.decision !== undefined) {
+        return `a pass carried decision=${JSON.stringify(r.payload.decision)} — any decision re-invokes the model, which is what "a pass is silent" exists to avoid`;
+      }
+      if (typeof r.payload.systemMessage !== 'string' || !r.payload.systemMessage) {
+        return `a pass emitted no systemMessage, so a green milestone is indistinguishable from a hung run: ${JSON.stringify(r.payload)}`;
+      }
+      // The notice has one job beyond existing: saying what to do next. A
+      // message that announces a pass and leaves the human guessing is the
+      // same stall with better lighting.
+      if (!/continue/i.test(r.payload.systemMessage)) {
+        return `the pass notice does not tell the human how to resume the run: ${r.payload.systemMessage}`;
+      }
+      return null;
+    }),
+  ),
+
+  check('a dirty tree is skipped, not judged, and says nothing', () =>
     withFixture({ specTrace: 'red', dirty: true }, (r) => {
       if (r.blocked) return 'a dirty tree was judged; an implementer mid-write would be reported as a failure';
       if (!/result=skip-dirty/.test(r.history)) return `expected skip-dirty, got: ${r.history}`;
+      // Stop fires every time the orchestrator's turn ends, including many
+      // times per milestone while implementers write in the background. A
+      // notice here would be noise on a run that has decided nothing, and
+      // noise is how a real notice stops being read.
+      if (r.stdout.trim()) return `the gate spoke about a tree it deliberately did not judge: ${r.stdout}`;
       return null;
     }),
   ),
@@ -446,6 +486,10 @@ await Promise.all([
     withFixture({ phase: 'idle', specTrace: 'red' }, (r) => {
       if (r.blocked) return 'the gate blocked while the phase was idle';
       if (r.history) return `the gate acted outside a run and logged: ${r.history}`;
+      // Transparent means SILENT too. Every session in every repository the
+      // user opens fires Stop, and a repo that never adopted this engine must
+      // not learn it exists from a stray notice.
+      if (r.stdout.trim()) return `the gate printed outside a run: ${r.stdout}`;
       return null;
     }),
   ),

@@ -41,42 +41,47 @@ of the rows above, and it says which.
 
 ## Install
 
-**1. The plugin**, which brings the commands, the agents and the hooks:
+All of it, in the route that works on any repo in any language. Run it from
+your repo's root, on a branch off your base branch:
 
 ```bash
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
+
+git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin /tmp/spec-flow
+node /tmp/spec-flow/scripts/init.mjs             # writes .spec-flow/config.json
+$EDITOR .spec-flow/tests-that-ran.mjs            # the four lines only you can write
+node /tmp/spec-flow/scripts/check-changed.mjs    # green here means green at the gate
 ```
 
-**2. The same checks outside a session.** The hooks reach the engine through
-`${CLAUDE_PLUGIN_ROOT}`, which exists only inside Claude Code, and your terminal
-and CI need the same file — not a second copy free to drift from it.
+The last two lines are the only ones that need you to think. Everything below
+is what each step is for, and is here to be read when a step does not do what
+you expected.
+
+**1. The plugin** brings the commands, the agents and the hooks. Nothing else
+in this list is Claude-Code-specific.
+
+**2. The engine on disk**, because the same checks have to run outside a
+session. The hooks reach the engine through `${CLAUDE_PLUGIN_ROOT}`, which
+exists only inside Claude Code, and your terminal and CI need the same file —
+not a second copy free to drift from it. The clone above needs nothing
+installed: the engine has **no runtime dependencies**, so every command runs
+from your repo's root with no arguments and no environment variables. If your
+repo is already an npm package there is a tidier route with the same effect:
 
 ```bash
-# your repo is already an npm package:
 npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
-
-# it is not — a Python, Go, Java or Rust repo has no reason to grow a
-# package.json to hold a checker:
-git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin /tmp/spec-flow
 ```
 
-The clone route needs nothing installed: the engine has **no runtime
-dependencies**, so `node /tmp/spec-flow/scripts/check-changed.mjs`, run from
-your repo's root, works with no arguments and no environment variables.
+which gives you `npx spec-flow init` and `npx spec-flow check` in place of the
+two `node /tmp/spec-flow/...` lines.
 [Both routes, and what each command maps to](REFERENCE.md#cli).
 
-**3. The contract.**
-
-```bash
-npx spec-flow init                       # or: node /tmp/spec-flow/scripts/init.mjs
-```
-
-It reads what your repo already declares — your `test` and `lint` scripts,
-where your tests live, your base branch — writes `.spec-flow/config.json`, and
-scaffolds `specs/`. **It never invents a value it could not determine**, so it
-sorts every field into `detected`, `REVIEW` or `MISSING` and exits non-zero
-until nothing is missing.
+**3. The contract.** `init` reads what your repo already declares — your `test`
+and `lint` scripts, where your tests live, your base branch — writes
+`.spec-flow/config.json`, and scaffolds `specs/`. **It never invents a value it
+could not determine**, so it sorts every field into `detected`, `REVIEW` or
+`MISSING` and exits non-zero until nothing is missing.
 
 **One field is always yours: `trace.executed_tests`** — argv whose output names
 the tests that actually ran. Nothing in a repo declares it, because every runner
@@ -86,15 +91,9 @@ read your runner's report. It refuses loudly until you do, and `init` never
 overwrites it afterwards — not even with `--force`.
 [What that file has to emit](REFERENCE.md#executed_tests--the-only-thing-that-makes-a-requirement-proven).
 
-**4. Check it.**
-
-```bash
-npx spec-flow check                      # or: node /tmp/spec-flow/scripts/check-changed.mjs
-```
-
-Lints what this branch changed, runs your suite, runs the traceability check —
-the same commands the gate will run, through the same file. Green here means
-green at the gate.
+**4. Check it.** `check-changed` lints what this branch changed, runs your
+suite, and runs the traceability check — the same commands the gate will run,
+through the same file.
 
 Staying current is something you do, not something that happens: run
 `/plugin marketplace update`. [Why that command works here and does nothing on
@@ -123,11 +122,19 @@ What happens:
 5. **Fold and done.** The change spec is verified against `specs/`, stamped
    SHIPPED, archived with the run's telemetry.
 
-**A pass is silent.** The gate allows the stop and prints nothing, so nothing
-wakes the orchestrator back up. Both commands schedule a self check-in when
-the session provides a scheduling tool; where it does not, a green milestone
-waits for your next message. **A run that looks stalled after a milestone is
-usually a run that passed** — say "continue".
+**A pass is silent to the model and not to you.** The gate renders no decision,
+so the stop is allowed and nothing wakes the orchestrator back up — and it
+prints one line for you as it goes:
+
+```
+Stop says: spec-flow: gate PASSED — 6fdfb93 (eslint 0, npm test 0, spec=0).
+A pass does not wake the run, so nothing more will happen on its own:
+say "continue" to advance to the next milestone.
+```
+
+Both commands also schedule a self check-in when the session provides a
+scheduling tool; where it does not, a green milestone waits for your next
+message.
 
 If it stops and asks for a human, read `.claude/state/gate-failure.log`.
 
@@ -144,8 +151,9 @@ stop or blocks with the instruction for what to do next.
   artifact is a subagent pinned to the model its job needs.
 - **The gate is not a step in the pipeline** — it is what happens when the
   pipeline stops. Its block message *is* the next instruction.
-- **A pass is silent**, so nothing wakes the orchestrator back up. A run that
-  looks stalled after a milestone is usually a run that passed: say "continue".
+- **A pass renders no decision**, so nothing wakes the orchestrator back up and
+  a green milestone costs no tokens at all. You still see it: the gate prints a
+  notice naming the commit it judged and what to say next.
 
 The three flowcharts — a feature, a defect, and the gate's own routing — are in
 [REFERENCE](REFERENCE.md#how-a-run-unfolds), along with the reasoning behind

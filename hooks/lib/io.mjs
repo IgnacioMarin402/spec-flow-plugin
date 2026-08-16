@@ -113,6 +113,29 @@ export function emitBlock(reason) {
 }
 
 /**
+ * Say something to the HUMAN without saying anything to the model. Claude Code
+ * renders this as an informational notice ("Stop says: ...") and still allows
+ * the stop — the turn ends, the model is not re-invoked, and the text never
+ * becomes input tokens.
+ *
+ * The absence of a `decision` field is the entire mechanism, so do not "improve"
+ * this by routing it through `emitBlock` or adding `decision: 'approve'`: a Stop
+ * hook that renders any decision at all is a Stop hook that gets the model
+ * thinking again, which turns the cheapest outcome in the flow — a green
+ * milestone — into another turn on every pass.
+ *
+ * Fail-open like the rest of this file's writers: a notice that cannot be
+ * printed must never be why a hook stops working.
+ */
+export function emitNotice(message) {
+  try {
+    process.stdout.write(JSON.stringify({ systemMessage: message }));
+  } catch {
+    /* a hook's voice is not a hook's job */
+  }
+}
+
+/**
  * Every hook's entrypoint is wrapped in this. An uncaught exception in a Stop
  * hook is indistinguishable from "everything passed" to whoever is waiting on
  * the process: no JSON on stdout, and a non-zero exit does not block a stop —

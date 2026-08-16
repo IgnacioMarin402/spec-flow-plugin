@@ -49,7 +49,7 @@
  */
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { run, emitBlock, projectDir, stateDir, phasePath, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
+import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
 import { resolveBase, changedFiles } from '../scripts/changed-files.mjs';
@@ -208,11 +208,23 @@ await run(
       return;
     }
 
+    // A pass stays silent TO THE MODEL — no decision is rendered, so the stop
+    // is allowed and nothing re-invokes the orchestrator — and is no longer
+    // silent to the HUMAN, who was the only party the silence ever cost. Both
+    // halves are load-bearing and they pull opposite ways, so neither may be
+    // satisfied alone: a `decision` of any kind here would spend a turn on the
+    // one outcome that needs nothing done, and printing nothing at all is what
+    // makes a green milestone look identical to a hung run. `emitNotice`'s
+    // header holds the protocol; the fixture holds both halves as one case.
     const passAndExit = (lintRc, testRc, unscopedFields, filesField) => {
       hist('pass', lintRc, testRc, unscopedFields, filesField);
       writeFile(attFile, '0');
       writeFile(logFile, '');
       writeFile(fullLogFile, '');
+      emitNotice(
+        `spec-flow: gate PASSED — ${shortSha(root)} (${config.verify.lint_name} ${lintRc}, ${config.verify.test_name} ${testRc}, ${unscopedFields}). ` +
+          `A pass does not wake the run, so nothing more will happen on its own: say "continue" to advance to the next milestone.`,
+      );
     };
 
     // ---- scope: only the files this branch touched, per the contract ----------
