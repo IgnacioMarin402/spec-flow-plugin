@@ -86,11 +86,22 @@ try {
     'init refuses to call an unusable contract finished',
     init.status === 0 ? `init exited 0 on a repo where it could detect almost nothing:\n${init.stdout}` : null,
   );
+  // ADR-005: what init leaves behind is a contract naming a report FORMAT the
+  // engine can read, not a file the adopter must program. The assertion moved
+  // with the decision — a stub written here would now be a file nothing points
+  // at.
+  const initial = JSON.parse(readFileSync(join(repo, '.spec-flow', 'config.json'), 'utf8'));
   check(
-    'init scaffolds the translator even when it can detect nothing else',
-    existsSync(join(repo, '.spec-flow', 'tests-that-ran.mjs'))
+    'init leaves a proof source the engine can read, with no code for the adopter to write',
+    initial.trace?.report?.format && initial.trace?.report?.path
       ? null
-      : 'no translator was written, so the field with the least obvious shape is also the one with no starting point',
+      : `init did not declare a readable report source: ${JSON.stringify(initial.trace)}`,
+  );
+  check(
+    'no translator is scaffolded unasked',
+    existsSync(join(repo, '.spec-flow', 'tests-that-ran.mjs'))
+      ? 'a translator stub was written though nothing points at it — an unreferenced file that can rot unnoticed'
+      : null,
   );
 
   // What an adopter actually has to supply, counted so that growth is visible
@@ -122,14 +133,16 @@ try {
   contract.trace.proof_suffix = '_test.py';
   writeFileSync(join(repo, '.spec-flow', 'config.json'), `${JSON.stringify(contract, null, 2)}\n`);
 
-  // And completes the translator — the one piece the engine deliberately does
-  // not generate, because how a repo reports what it ran is the repo's to
-  // declare. Here it reads what a run left behind, the way a real one would.
-  writeFileSync(join(repo, 'tests-that-ran.txt'), 'tests/auth_test.py::test_REQ-AUTH-001_a_bad_password_is_rejected\n');
-  writeFileSync(
-    join(repo, '.spec-flow', 'tests-that-ran.mjs'),
-    "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync('tests-that-ran.txt', 'utf8'));\n",
-  );
+  // And leaves the report where the contract says it goes — the shape a
+  // `--junitxml`-style flag produces, written here directly because this
+  // fixture must install nothing. The point of the case is that the ENGINE
+  // reads it: nothing in this repo is Node, nothing was programmed for the
+  // engine, and no runner is named anywhere in the parser.
+  const junit = (name, skipped = false) =>
+    `<?xml version="1.0" encoding="utf-8"?>\n<testsuites>\n  <testsuite name="pytest" tests="1">\n    <testcase classname="tests.auth_test" name="${name}" time="0.01">${skipped ? '<skipped/>' : ''}</testcase>\n  </testsuite>\n</testsuites>\n`;
+
+  mkdirSync(join(repo, dirname(contract.trace.report.path)), { recursive: true });
+  writeFileSync(join(repo, contract.trace.report.path), junit('test_REQ-AUTH-001_a_bad_password_is_rejected'));
 
   writeFileSync(
     join(repo, 'specs', 'auth.md'),
@@ -158,11 +171,15 @@ try {
 
   // ---- and the property the whole binding rests on -------------------------
   //
-  // The test still exists and still names the requirement; only the report
-  // stops mentioning it, which is what a skip looks like from here. If this
-  // passes, skipping is a way to silence the check and every requirement in
-  // every language is one `@pytest.mark.skip` from unproven.
-  writeFileSync(join(repo, 'tests-that-ran.txt'), 'tests/other_test.py::test_something_else\n');
+  // The test still exists and still names the requirement — the report now
+  // marks it `<skipped/>`, which is a real skip written the way a real runner
+  // writes one, rather than a line removed from a text file. If this passes,
+  // every requirement in every language is one skip decorator from unproven
+  // while the check stays green.
+  writeFileSync(
+    join(repo, contract.trace.report.path),
+    junit('test_REQ-AUTH-001_a_bad_password_is_rejected', true),
+  );
   const skipped = engine('spec-trace.mjs', repo);
   check(
     'a test the runner did not report is not proof, in a language the engine has no code for',

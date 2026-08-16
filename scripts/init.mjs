@@ -217,6 +217,26 @@ function detectPackageManager(root) {
 
 // ---- build the contract ----------------------------------------------------
 
+/**
+ * The report path a test command already names, or null.
+ *
+ * Deliberately looks for a PATH and not for a flag. `--junitxml=`, `--reporter`
+ * and `--reporters` are each one runner's spelling, and a table of them is the
+ * rotting stack list ADR-002 refused; an argv token ending in `.xml` is a fact
+ * about this repo's own command. It is reported as REVIEW either way, because
+ * a command may name an XML file for some other reason entirely.
+ *
+ * `=`-joined forms are split first, so `--junitxml=reports/x.xml` yields the
+ * path without this function knowing what the left-hand side means.
+ */
+function detectReportPath(testArgv) {
+  for (const token of testArgv ?? []) {
+    const value = token.includes('=') ? token.slice(token.indexOf('=') + 1) : token;
+    if (/\.xml$/i.test(value) && !value.startsWith('-')) return value.replace(/\\/g, '/');
+  }
+  return null;
+}
+
 export function buildContract(root) {
   const detected = [];
   const review = [];
@@ -333,14 +353,25 @@ export function buildContract(root) {
 
   // --- how this repo reports what RAN
   //
-  // MISSING rather than REVIEW: `init` exits non-zero until the contract
-  // WORKS, not until it is syntactically complete. Calling this REVIEW would
-  // let an adopter reach a gate believing setup was finished.
-  const translatorPath = join('.spec-flow', 'tests-that-ran.mjs');
-  missing.push(
-    `trace.executed_tests — a translator stub was written to ${translatorPath.replace(/\\/g, '/')} and the contract already points at it. ` +
-      'Complete the one function it marks: return one string per test that RAN, each containing that test\'s name. ' +
-      'It refuses loudly until you do, so nothing can reach a gate believing your requirements are proven.',
+  // REVIEW, not MISSING, and that is the whole of ADR-005 arriving here: what
+  // an adopter owes is no longer a translator they write but a report their
+  // runner already knows how to emit, and a repo with no requirements yet owes
+  // nothing at all. `init` exiting non-zero over it would refuse to finish
+  // setting up a repo whose gate would already run clean.
+  //
+  // The path is a reading when the test command names an XML file and a
+  // convention otherwise — and it is never a FLAG. Which flag emits a report
+  // is per-runner knowledge, refused here for the reasons ADR-002 gave and
+  // ADR-005 keeps: a flag table is the artifact that looks maintained and
+  // quietly is not.
+  const namedReport = detectReportPath(test);
+  const reportPath = namedReport ?? 'reports/junit.xml';
+  review.push(
+    namedReport
+      ? `trace.report — your test command already names "${namedReport}", so the contract points at it and assumes JUnit XML. Confirm that is what lands there; if it is TAP, change the format to "tap".`
+      : `trace.report — set to "${reportPath}", a convention rather than a reading. Make your test command write a JUnit XML (or TAP) report there: most runners emit one behind a flag, and the format is what tells a skipped test from an executed one, so nothing here has to know which runner you use. ` +
+        `Until it lands, traceability is off — the gate still lints and tests, and spec-trace refuses the moment ${'specs'}/ declares a requirement it cannot prove. ` +
+        `A runner with no standard report uses trace.executed_tests instead: see REFERENCE.md.`,
   );
 
   const denyScripts = ['test', 'lint'].filter((s) => scripts[s]);
@@ -361,10 +392,12 @@ export function buildContract(root) {
       specs_dir: 'specs',
       proof_dir: proof.dir,
       proof_suffix: proof.suffix,
-      // Points at the stub `scaffold` writes. The contract is structurally
-      // complete from the first run — what is incomplete is the stub, which
-      // says so itself and exits non-zero until someone finishes it.
-      executed_tests: ['node', '.spec-flow/tests-that-ran.mjs'],
+      // The engine parses this file itself (test-report.mjs), so the contract
+      // is complete from the first run and nothing in the repo has to be
+      // written by hand. `executed_tests` is deliberately absent rather than
+      // present-and-empty: the two are one source too many, and the contract
+      // rejects declaring both.
+      report: { format: 'junit', path: reportPath },
       not_a_capability: ['README.md', 'glossary.md'],
       // Written out at its default rather than omitted, so the choice is
       // visible in the file instead of being a behaviour of the engine the
@@ -555,6 +588,7 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.arg
 if (isMain) {
   const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const force = process.argv.includes('--force');
+  const wantsTranslator = process.argv.includes('--translator');
   const configPath = join(root, '.spec-flow', 'config.json');
 
   if (existsSync(configPath) && !force) {
@@ -569,6 +603,13 @@ if (isMain) {
   writeFileSync(configPath, `${JSON.stringify(contract, null, 2)}\n`);
   console.log(`spec-flow init: wrote .spec-flow/config.json\n`);
 
+  // Opt-in since ADR-005, because the contract no longer points at it. A file
+  // nothing references is the artifact this repo deleted `skills.md` over: it
+  // can rot for months and the only person who finds out is whoever trusted
+  // it. The escape hatch still has to EXIST — a runner with no standard report
+  // is a real repo — so the stub is one flag away and REFERENCE documents the
+  // field it fills.
+  //
   // Never overwritten, and **`--force` does NOT extend to it.** The README
   // tells an adopter to fill fields in and re-run with `--force`, so a
   // `--force` that replaced this file would destroy their translator on the
@@ -576,8 +617,11 @@ if (isMain) {
   // nothing. Regenerating a stub costs a delete; losing working code costs the
   // work. Someone who wants a clean one removes the file.
   const translator = join(root, '.spec-flow', 'tests-that-ran.mjs');
-  if (!existsSync(translator)) {
+  if (wantsTranslator && !existsSync(translator)) {
     writeFileSync(translator, translatorStub(contract.verify.test_name));
+    console.log(
+      `  wrote     .spec-flow/tests-that-ran.mjs — point "trace" at it with "executed_tests": ["node", ".spec-flow/tests-that-ran.mjs"] and delete "report".\n`,
+    );
   }
 
   for (const line of scaffold(root)) console.log(`  ${line}`);

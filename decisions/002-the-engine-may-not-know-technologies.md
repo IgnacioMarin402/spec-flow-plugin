@@ -1,6 +1,12 @@
 # ADR-002 — the engine may not know technologies; `init` may, and still does not generate
 
-**Date:** 2026-08-15 · **Status:** accepted · **Record:** `021b71d`
+**Date:** 2026-08-15 · **Status:** superseded by [ADR-005](005-a-report-format-is-not-a-runner.md) · **Record:** `021b71d`
+
+> Superseded in part, and the part that stands is worth keeping straight. Its
+> refusal of a per-runner flag or template list still holds and ADR-005 keeps
+> it. What it got wrong is the conclusion drawn from that refusal — that an
+> adopter must therefore write code — because a report FORMAT is not a runner.
+> The argument below is left exactly as it was written.
 
 ## The question
 

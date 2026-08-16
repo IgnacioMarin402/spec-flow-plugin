@@ -35,6 +35,12 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The list of readable formats has one home, and it is the file that reads
+// them. Restating it here would let a format be accepted by the contract and
+// then rejected at the gate, which is the drift this import exists to refuse.
+// Safe to import at module scope for the same reason unscoped-checks.mjs is:
+// both ship inside this package, so neither is ever present without the other.
+import { FORMATS as VALID_REPORT_FORMATS } from './test-report.mjs';
 
 /** The contract this reader understands. A file declaring anything else stops the run. */
 export const SUPPORTED_VERSION = 1;
@@ -67,10 +73,22 @@ const DEFAULTS = {
     specs_dir: 'specs',
     proof_dir: '',
     proof_suffix: '',
-    // Argv whose stdout names the tests that RAN, one per line; a requirement
-    // is proven when a reported line contains its id (ADR-001). Required: there
-    // is no runner safe to assume for a repo this engine has never seen, so
-    // `init` scaffolds a translator rather than guessing one.
+    // Two ways to answer "which tests RAN", and a repo declares at most one.
+    //
+    // `report` names a file the runner already writes and the FORMAT it is in;
+    // the engine ships the reader (test-report.mjs). This is the default,
+    // because `<skipped/>` is defined by the format rather than by the runner —
+    // see ADR-005, which supersedes ADR-002's conclusion that an adopter must
+    // therefore write code.
+    //
+    // `executed_tests` is argv whose stdout names those tests, one per line. It
+    // remains the escape hatch for a runner with no standard report, and is
+    // what every contract written before ADR-005 uses.
+    //
+    // Declaring NEITHER opts out of traceability. That is allowed and it is not
+    // silent: spec-trace refuses the moment a requirement exists, because an
+    // undeclared source and a satisfied check are otherwise the same green.
+    report: null,
     executed_tests: [],
     not_a_capability: ['README.md', 'glossary.md'],
     // Off by default, because nothing this engine can read tells it whether a
@@ -160,11 +178,32 @@ function validate(config, source) {
   if (!nonEmptyString(config.trace.proof_suffix)) {
     problems.push('trace.proof_suffix must name what a test file is called in this repo, e.g. ".spec.ts", ".test.ts" or "_test.py" — it tells an implementer what to name a new one.');
   }
-  if (!nonEmptyArray(config.trace.executed_tests)) {
+  // At most one source, and neither is required — see the defaults above for
+  // why opting out is a real contract. What is rejected here is declaring
+  // BOTH: two answers to "which tests ran" means one of them is not being
+  // read, and which one is not something an adopter should have to discover
+  // from behaviour.
+  const hasReport = config.trace.report !== null && config.trace.report !== undefined;
+  const hasTranslator = nonEmptyArray(config.trace.executed_tests);
+
+  if (hasReport && hasTranslator) {
     problems.push(
-      'trace.executed_tests must be a non-empty array of argv parts whose output names the tests that RAN, one per line, e.g. ["node", "tools/tests-that-ran.mjs"]. ' +
-        'A requirement is proven when a reported line contains its id. Without it spec-trace has no way to tell a test that executed from one that was skipped, and "skipped" is the cheapest way to silence a red suite.',
+      'trace.report and trace.executed_tests are both declared, and only one can be read. Keep trace.report (the engine parses the file your runner writes) and delete trace.executed_tests, or the reverse — but say which.',
     );
+  }
+
+  if (hasReport) {
+    if (!VALID_REPORT_FORMATS.includes(config.trace.report.format)) {
+      problems.push(
+        `trace.report.format must be one of ${VALID_REPORT_FORMATS.join(', ')} — got ${JSON.stringify(config.trace.report.format)}. ` +
+          'These are report formats, not runners: most runners can emit one behind a flag, and the format is what defines how a skipped test is marked.',
+      );
+    }
+    if (!nonEmptyString(config.trace.report.path)) {
+      problems.push(
+        'trace.report.path must name the file your test command writes, relative to the repo root, e.g. "reports/junit.xml". The engine does not run your tests a second time — it reads what the gate\'s own run produced.',
+      );
+    }
   }
   // A string here — `"true"`, `"yes"` — is the shape that would otherwise
   // arm the check by truthiness while the author believed they had written a

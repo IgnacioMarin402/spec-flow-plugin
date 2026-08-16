@@ -19,6 +19,7 @@
     "hooks:check": "node scripts/hook-smoke.mjs",
     "cold:check": "node scripts/cold-start.mjs",
     "trace:check": "node scripts/spec-trace-fixture.mjs",
+    "report:check": "node scripts/test-report-fixture.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "init:check": "node scripts/init-fixture.mjs"

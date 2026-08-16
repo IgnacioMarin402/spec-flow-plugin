@@ -52,46 +52,56 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 | key | required | what it is |
 |---|---|---|
 | `specs_dir` | no | Where capability specs live. Default `specs` |
-| `executed_tests` | yes | Argv whose output names the tests that RAN, one per line |
+| `report` | no | `{format, path}` of the test report the engine reads. `format` is `junit` or `tap` |
+| `executed_tests` | no | Argv whose output names the tests that RAN, one per line. The alternative to `report` |
 | `proof_dir` | yes | Directory a new test goes in, e.g. `test` |
 | `proof_suffix` | yes | What a test file is called here, e.g. `.test.ts` |
 | `not_a_capability` | no | Filenames under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
 | `require_skills_field` | no | Fail a live milestone with no `Skills:` field. Default `false` |
 
-#### `executed_tests` — the only thing that makes a requirement proven
+#### What makes a requirement proven
 
-A requirement is proven when a line of this command's output contains its id.
-That is the whole binding. The engine parses no source and knows no report
-format — not JUnit XML, not TAP, not any runner's native output. It knows
-"lines naming a test that executed".
+A requirement is proven when a test **that actually ran** names its id. Declare
+one source for that, and only one — the contract refuses both.
 
-The small script that turns your runner's output into those lines belongs in
-your repo, and that placement is the design rather than an omission: when your
-runner changes how it reports, your script changes and this engine does not.
-Most runners emit something usable behind a reporter flag.
+**`report` — the default.** Your test command already writes a report; the
+engine reads it.
 
-`spec-flow init` scaffolds it at `.spec-flow/tests-that-ran.mjs` and points the
-contract there:
+```json
+"report": { "format": "junit", "path": "reports/junit.xml" }
+```
+
+You add the reporter flag to `verify.test` — `--reporter=junit`,
+`--junitxml=`, whatever yours spells it — and nothing else. The engine parses
+the file itself and no code is yours to write.
+
+This works without the engine knowing your runner because **the format answers
+the question, not the tool**: `<skipped/>` is an element in the JUnit schema and
+`# SKIP` is a directive in the TAP spec, so a test that did not run is
+identifiable in a file whoever wrote it. Which *flag* produces that file is
+per-runner knowledge and stays out of the engine — see
+[ADR-005](decisions/005-a-report-format-is-not-a-runner.md), and ADR-002 before
+it for the half that still holds. `init` proposes the path, marked `REVIEW`,
+because a path it inferred is not a path it read.
+
+**`executed_tests` — the escape hatch.** For a runner with no standard report:
+argv whose stdout names the tests that ran, one per line.
 
 ```json
 "executed_tests": ["node", ".spec-flow/tests-that-ran.mjs"]
 ```
 
-The stub carries the contract and one marked hole, and exits non-zero until you
-fill it — an unfinished translator that reported nothing would turn every
-requirement unproven, which is the failure this check exists to catch arriving
-through the file meant to prevent it. `init` will not overwrite it once written,
-`--force` included.
+`spec-flow init --translator` scaffolds that file with the contract and one
+marked hole, and it exits non-zero until you fill it — an unfinished translator
+reporting nothing would turn every requirement unproven, which is the failure
+this check exists to catch arriving through the file meant to prevent it. `init`
+never overwrites it once written, `--force` included.
 
-It is **not** generated for your runner, and that is a limit rather than an
-oversight: naming runners here would put a stack list inside the engine, which
-`no-repo-refs.mjs` bans by design and which would rot. Holding stack-specific
-values is the contract's job, not the engine's.
+Two properties either source must have, and the second is the one worth
+checking:
 
-Two properties it must have, and the second is the one worth checking:
-
-- **Lines carry test NAMES**, since the id is matched inside them. An id may
-  sit against underscores — `TestAuth/REQ-USER-001_rejects` and
+- **Names carry the id**, since it is matched inside them. An id may sit
+  against underscores — `TestAuth/REQ-USER-001_rejects` and
   `test_REQ-USER-001_rejects` both bind — but a fourth digit does not, so
   `REQ-USER-0011` is never read as `REQ-USER-001`.
 - **A skipped test must not appear.** That absence is what makes skipping
@@ -99,11 +109,18 @@ Two properties it must have, and the second is the one worth checking:
   change of language: `it.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]`
   and a runtime skip all end in the same place.
 
-`spec-trace` runs this command itself, after the suite, and refuses loudly if
-it fails or reports nothing while `specs_dir` declares requirements — "nothing
-is proven" and "I could not find out" must not produce the same outcome. Run
-`spec-flow check` rather than `spec-flow trace` alone: the first runs your
-suite before the checks, the second reads whatever the last run left.
+**Declaring neither turns traceability off**, and the gate still lints and runs
+your suite. That is what a fresh install looks like — there is nothing to prove
+before you have written a requirement. It stops being allowed the moment one
+exists: `spec-trace` refuses rather than passing, because an opt-out that
+outlives its own precondition is a disarmed check.
+
+`spec-trace` reads its source after the suite, and separates the ways proof can
+be absent instead of collapsing them — a report that was never written, a report
+holding nothing, a report whose every case was skipped, and a requirement with
+no test are four different messages. Run `spec-flow check` rather than
+`spec-flow trace` alone: the first runs your suite before the checks, the second
+reads whatever the last run left.
 
 `proof_dir` and `proof_suffix` no longer decide what counts as proof. They kept
 their other job — telling the planner and implementer where a new test goes and

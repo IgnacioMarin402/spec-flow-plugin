@@ -45,6 +45,7 @@ import { readdirSync, readFileSync, statSync, lstatSync, realpathSync, existsSyn
 import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
+import { readReport } from './test-report.mjs';
 
 const LIST = process.argv.includes('--list');
 
@@ -188,19 +189,63 @@ for (const file of specFiles) {
   }
 }
 
-// ---- ask the runner which tests actually ran -------------------------------
+// ---- ask which tests actually ran ------------------------------------------
 //
-// Everything below reads LINES. No format, no schema, no runner: the contract
-// names a command, the command prints one line per executed test, and an id
-// found in a line is a proof. What produced those lines is the repo's
-// business (ADR-001).
-const report = spawnSync(CONFIG.trace.executed_tests[0], CONFIG.trace.executed_tests.slice(1), {
-  cwd: root,
-  encoding: 'utf8',
-  maxBuffer: 64 * 1024 * 1024,
-});
+// Two sources, one shape. Everything downstream reads LINES: an id found in a
+// line is a proof, and what produced the line is not this file's business
+// (ADR-001). `trace.report` names a file the runner already knows how to write
+// and a FORMAT that defines what "skipped" looks like; `trace.executed_tests`
+// names a command the repo wrote. ADR-005 explains why the first is the default
+// and the second stayed.
+//
+// Declaring NEITHER is a legitimate contract — a repo can use this gate for
+// lint and tests without making its specs authoritative — but it is only
+// legitimate while there is nothing to prove. The moment a requirement exists,
+// an undeclared source is the shape this engine refuses everywhere else: a
+// check that reads as satisfied because nobody armed it.
+const useReport = CONFIG.trace.report && CONFIG.trace.report.format;
+const reportCmd = useReport
+  ? `trace.report (${CONFIG.trace.report.format} @ ${CONFIG.trace.report.path})`
+  : CONFIG.trace.executed_tests.join(' ');
 
-const reportCmd = CONFIG.trace.executed_tests.join(' ');
+// Set only on the report path, where the file can say that it HAS test cases
+// and that all of them were skipped. A command-based source cannot express
+// that — it prints lines or it does not — so the guard below stays keyed on
+// emptiness for `executed_tests` and on this for `report`.
+let reportSkipped = 0;
+
+let report;
+if (useReport) {
+  const result = readReport(CONFIG.trace.report, root);
+  if (result.error) {
+    report = { status: 1, stdout: '', stderr: result.error, error: null };
+  } else {
+    reportSkipped = result.skipped;
+    report = { status: 0, stdout: result.names.join('\n'), stderr: '', error: null };
+  }
+} else if (CONFIG.trace.executed_tests.length > 0) {
+  report = spawnSync(CONFIG.trace.executed_tests[0], CONFIG.trace.executed_tests.slice(1), {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+} else if (requirements.size > 0) {
+  report = {
+    status: 1,
+    stdout: '',
+    stderr:
+      `${CONFIG.trace.specs_dir}/ declares ${requirements.size} requirement(s) and the contract declares no way to find out which tests ran. ` +
+      `Traceability is opt-in and this repo has opted out, which is only coherent while it has no requirements. Add "report": {"format": "junit", "path": "..."} under "trace" ` +
+      `(your runner already writes that file — \`spec-flow init\` proposes the flag), or delete the requirements.`,
+    error: null,
+  };
+} else {
+  // Nothing declared and nothing to prove. Explicit rather than silent: a
+  // green line that does not say WHY it is green is how an unarmed check gets
+  // mistaken for a passing one.
+  console.log('spec-trace: traceability is not configured and no requirements are declared — nothing to check.');
+  report = { status: 0, stdout: '', stderr: '', error: null };
+}
 
 /**
  * Three ways to have no proof, and they must never collapse into one outcome.
@@ -221,16 +266,21 @@ const reportedLines = (report.stdout ?? '')
 if (reportFailed) {
   const why = report.error ? report.error.message : `exit ${report.status}`;
   problems.push(
-    `trace.executed_tests (\`${reportCmd}\`) failed: ${why}. Nothing was learned about which tests ran, so no requirement can be called proven OR unproven. ` +
-      `Fix the command — this is a refusal, not a finding about your specs.${report.stderr ? `\n\n${report.stderr.trim()}` : ''}`,
+    `${reportCmd} failed: ${why}. Nothing was learned about which tests ran, so no requirement can be called proven OR unproven. ` +
+      `This is a refusal, not a finding about your specs.${report.stderr ? `\n\n${report.stderr.trim()}` : ''}`,
   );
-} else if (reportedLines.length === 0 && requirements.size > 0) {
+} else if (reportedLines.length === 0 && reportSkipped === 0 && requirements.size > 0) {
   problems.push(
-    `trace.executed_tests (\`${reportCmd}\`) reported no tests at all, while ${CONFIG.trace.specs_dir}/ declares ${requirements.size} requirement(s). ` +
-      `That is not ${requirements.size} unproven requirement(s) — it is a report that says nothing, which usually means the suite has not run yet in this working tree, or the command names the wrong output. ` +
+    `${reportCmd} reported no tests at all, while ${CONFIG.trace.specs_dir}/ declares ${requirements.size} requirement(s). ` +
+      `That is not ${requirements.size} unproven requirement(s) — it is a report that says nothing, which usually means the suite has not run yet in this working tree, or the source names the wrong output. ` +
       `Run the suite (\`spec-flow check\` does it in the right order) and try again.`,
   );
 }
+// The case above deliberately does NOT cover a report holding cases that were
+// every one of them skipped. That report says something: the suite ran and
+// proved nothing. Falling through to the per-requirement findings below is the
+// correct answer there, and each one names skipping as the reason it counts as
+// absent.
 
 /** id -> [reported lines that name it] */
 const proofs = new Map();
@@ -248,7 +298,7 @@ if (!reportFailed) {
 // Suppressed entirely when the report could not be read: naming individual
 // requirements there would be inventing findings out of an unanswered
 // question, and the refusal above already says what to fix.
-if (!reportFailed && reportedLines.length > 0) {
+if (!reportFailed && (reportedLines.length > 0 || reportSkipped > 0)) {
   for (const [id, req] of requirements) {
     if (!proofs.has(id)) {
       problems.push(

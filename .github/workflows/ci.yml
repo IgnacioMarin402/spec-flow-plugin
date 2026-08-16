@@ -93,6 +93,14 @@ jobs:
       - name: spec-trace behaviour
         run: npm run trace:check
 
+      # The report readers, against captures from real emitters rather than
+      # XML written to match the parser. What it defends is one property:
+      # a test the report marks as skipped must reach spec-trace as absent,
+      # in every format, or skipping silences the check that exists to stop
+      # exactly that.
+      - name: test-report readers
+        run: npm run report:check
+
       # The other nine hooks. Shallower than the gate fixture, and that is
       # the right trade: they are nine small adapters over one protocol, and
       # what a port breaks in them is coarse — a hook that crashes, or fires

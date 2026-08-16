@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B4, B14, B17, B15. B15 is blocked on `claude plugin eval` early access; the others are not blocked by code.
+**Open order:** B4, B14, B17, B19, B15. B15 is blocked on `claude plugin eval` early access; the others are not blocked by code.
 
 ---
 
@@ -206,6 +206,59 @@ an empty set.
 **Still open, as B15:** the model-graded half. It needs early access, and it
 buys something this check cannot — whether the reviewer's judgement actually
 fires, whether triage classifies the five `/spec-fix` cases correctly.
+
+### B18 — the adopter was writing code because nobody had asked what a report format is
+
+B11 and ADR-002 settled that an adopter must write `trace.executed_tests`, and
+the reasoning held for a year: a checker may not know technologies, no runner is
+safe to assume, and a per-runner template list is the artifact that looks
+maintained and quietly is not. All still true. **What nobody asked is whether a
+report FORMAT is a runner.**
+
+Three measurements, all against real binaries, decided it:
+
+- **Reading raw test output cannot work, in either direction.**
+  `go test ./...` prints `ok example.com/auth 0.002s` — no test names at all, so
+  every requirement reads unproven. `node --test` names them and reports a
+  skipped test as `ok 2 - … # SKIP`, so a naive scan proves a requirement with a
+  test that never ran.
+- **Narrowing to one ecosystem buys nothing.** With default reporters, two of
+  four runners in the *same* language print no test names at all, and the two
+  that do mark a skip differently from each other — the same spread as Node
+  versus Go. A Node-only engine would owe its adopters the identical field.
+  (ADR-005 names which four; this file is scanned for stack vocabulary and a
+  decision record is where the evidence belongs anyway.)
+- **The format does collapse it.** `<skipped/>` is in the JUnit schema and
+  `# SKIP` is in the TAP spec. vitest, mocha, `node --test` and pytest all emit
+  JUnit behind a built-in flag, and reading it requires knowing none of them.
+
+So the engine ships readers (`test-report.mjs`), the contract gains
+`trace.report` — a format and a path, no code — and traceability became opt-in
+so a fresh install is green in one command. ADR-005 records it and supersedes
+ADR-002 in part; the refusal of a per-runner FLAG table is the part that
+survives, and `init` still infers only a path, still marked `REVIEW`.
+
+**What the work turned up that the design did not predict:**
+
+- A report holding cases that were *all* skipped is not "the suite never ran",
+  and the first draft reported it as such — sending someone to fix a reporter
+  flag that was already correct. The readers now return `skipped` alongside the
+  names, which a command-based source cannot express at all.
+- Adding one module-scope import to `spec-flow-config.mjs` silenced **every**
+  case in the gate fixture, because the fixture copies the engine file by file
+  and a failed import throws above gate.mjs's own catch-all. It failed loudly,
+  which is the fixture doing its job — but that copy list is the engine's real
+  dependency graph maintained by hand, and it is one edit away from being wrong
+  again.
+
+Fixtures: `report:check` is new and runs captures from vitest 4.1.10, mocha
+11.8.0 and node 22 verbatim — **the parser was mutation-tested against them**,
+three mutations, each caught by the case meant to catch it. `cold-start` now
+proves adoption through the report path and skips a test by writing `<skipped/>`
+the way a runner would.
+
+**These are guards, not proof of a defect.** Nothing here was broken; the cost
+was.
 
 ### B16 — "a pass is silent" was two claims, and only one of them had to be true
 
@@ -403,6 +456,30 @@ passing.
 **Done looks like:** the history sections moved to commit messages, one line of
 trap left behind in each, and B13's parenthetical either extended to the
 fixtures or replaced by a stated reason they are exempt.
+
+## B19 — `decisions/` is prose that no coupling check reads
+
+Found by tripping the check from the other side: writing B18 named a banned
+runner in BACKLOG.md, `no-repo-refs` correctly refused it, and the same
+paragraph in `decisions/005-*.md` passed unexamined — because `decisions/` is
+in neither `SCAN_DIRS` nor `SCAN_FILES`. It has never been scanned. CLAUDE.md
+names this exact failure mode: *"add new ones there, or the next doc becomes
+the path of least resistance for exactly what the check keeps out."*
+
+**It is not obviously a bug, which is why it is an item and not a fix.** ADR-005
+names four runners on purpose: a decision record's job is to say what was
+measured, and "two of four runners" is a claim nobody can check. That is
+evidence, not coupling — no code branches on those names. So the question is
+whether the scan needs a notion of *record* prose that may name a technology it
+measured, versus *instruction* prose that may not.
+
+Answering it by simply adding `decisions/` to `SCAN_DIRS` would turn ADR-005 red
+and delete the evidence to make a check pass, which is backwards.
+
+**Done looks like:** either the distinction above encoded — a record may name
+what it measured, an instruction may not — or a stated reason `decisions/` is
+exempt, sitting in `no-repo-refs.mjs` where the argument it settles already
+lives.
 
 ## Deliberately not doing
 
