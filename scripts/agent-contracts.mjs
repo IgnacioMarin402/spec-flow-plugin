@@ -1,0 +1,102 @@
+#!/usr/bin/env node
+/**
+ * The planner writes a milestone; the reviewer is the only pass that reads it
+ * before an implementer is spent. This asserts the two agree about which of
+ * its fields matter.
+ *
+ * **The failure this closes has already happened here.** A `Skills:` field was
+ * added to the milestone template and to the planner's contract, and the
+ * reviewer — the one agent whose job is checking the plan — was not told, so a
+ * milestone missing it passed review unseen. Nothing could have caught that:
+ * the agents are Markdown, and no fixture executes Markdown.
+ *
+ * It is not a general "review every field" rule, because some fields do not
+ * need one — `Definition of done` is boilerplate every milestone repeats, and
+ * checking it would be theatre. What is enforced is that the disagreement is a
+ * DECISION rather than an oversight: a field is either named in the reviewer's
+ * checklist, or listed below with the reason it is not. Adding a field to the
+ * template and nothing else turns this red.
+ *
+ * That direction matters more than its opposite. A field the reviewer checks
+ * and the planner never writes is noise in a prompt; a field the planner
+ * writes and nobody checks is the bug above.
+ *
+ *   node scripts/agent-contracts.mjs
+ */
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const planner = readFileSync(join(ROOT, 'agents', 'planner.md'), 'utf8');
+const reviewer = readFileSync(join(ROOT, 'agents', 'reviewer.md'), 'utf8');
+
+/**
+ * Fields the reviewer deliberately does not check, each with the reason.
+ *
+ * A field belongs here only when checking it would add nothing — not when
+ * nobody has got round to it. Emptying this list is not the goal; deciding
+ * each entry is.
+ */
+const NOT_REVIEWED = {
+  Steps: 'the reviewer judges whether the plan will bite during implementation, which is these in aggregate; per-step review is the second pass this flow deliberately cut',
+  'Lint/type notes': 'advisory to the implementer, and wrong ones cost a lint cycle rather than a wrong plan',
+  'Definition of done': 'boilerplate every milestone repeats verbatim — the gate defines it, not the planner',
+  'Depends on': 'covered by "are milestones correctly ordered and independently testable", which is stronger than the field',
+};
+
+/**
+ * The milestone template: the fenced block introduced by the line naming
+ * `milestones/Mk.md`. Anchored to that introduction rather than to "the second
+ * fence in the file", so moving a block does not silently change what is
+ * checked — if the anchor stops matching, this fails rather than checking an
+ * empty set.
+ */
+function templateFields() {
+  const intro = planner.indexOf('milestones/Mk.md`**');
+  if (intro === -1) return null;
+  const open = planner.indexOf('```', intro);
+  const close = planner.indexOf('```', open + 3);
+  if (open === -1 || close === -1) return null;
+
+  return [...planner.slice(open, close).matchAll(/^- ([A-Z][^:\n]*):/gm)].map((m) => m[1]);
+}
+
+const fields = templateFields();
+const problems = [];
+
+if (!fields || fields.length === 0) {
+  problems.push(
+    "the milestone template could not be found in agents/planner.md. It is anchored to the line naming `milestones/Mk.md` followed by a fenced block; if that moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.",
+  );
+} else {
+  for (const field of fields) {
+    if (reviewer.toLowerCase().includes(field.toLowerCase())) continue;
+    if (field in NOT_REVIEWED) continue;
+    problems.push(
+      `the planner's milestone template declares "${field}" and agents/reviewer.md never names it. The reviewer is the only pass that reads a milestone before an implementer is spent, so a field nobody checks is a field the planner can silently omit. Add it to the reviewer's checklist, or add it to NOT_REVIEWED in this file with the reason it does not need one.`,
+    );
+  }
+
+  // The reverse, as a warning about drift rather than a defect: an exemption
+  // for a field that no longer exists is stale reasoning about nothing.
+  for (const field of Object.keys(NOT_REVIEWED)) {
+    if (!fields.includes(field)) {
+      problems.push(
+        `NOT_REVIEWED exempts "${field}", which the milestone template no longer declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
+      );
+    }
+  }
+}
+
+if (problems.length > 0) {
+  console.error(`agent-contracts: ${problems.length} problem(s).\n`);
+  for (const p of problems) console.error(`  - ${p}`);
+  process.exit(1);
+}
+
+console.log(
+  `agent-contracts: OK — ${fields.length} milestone field(s); ` +
+    `${fields.length - Object.keys(NOT_REVIEWED).length} named in the reviewer's checklist, ` +
+    `${Object.keys(NOT_REVIEWED).length} exempt with a stated reason.`,
+);
