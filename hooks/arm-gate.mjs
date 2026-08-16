@@ -9,19 +9,15 @@
  * Opus budget ALL disarmed — silently, because code written with the gate off
  * looks exactly like code that passed it.
  *
- * So this transition is EXECUTED here, not validated: the event that makes
- * the gate necessary — the implementer being put to work — is the event that
- * arms it. gate.mjs already writes `blocked` itself at the attempt cap for
- * the same reason; this is the mirror image on the way in. The orchestrator
- * still writes `implement` per its own protocol; this hook is the backstop
- * for the time it forgets.
+ * So this transition is EXECUTED here, not validated: the event that makes the
+ * gate necessary — the implementer being put to work — is the event that arms
+ * it. `gate.mjs` writes `blocked` itself at the attempt cap for the same
+ * reason. The orchestrator still writes `implement` per its own protocol; this
+ * is the backstop for the time it forgets.
  *
- * FAILS OPEN on an unrecognized SendMessage recipient: no worse than before
- * this hook existed, and the orchestrator's instructions still cover it.
- *
- * Only acts while a run is in progress — outside one, spawning an
- * implementer-shaped agent is a deliberate human act, not the orchestrator
- * forgetting a step.
+ * FAILS OPEN on an unrecognized recipient, and only acts while a run is in
+ * progress: outside one, spawning an implementer-shaped agent is a deliberate
+ * human act, not a step the orchestrator forgot.
  */
 import { projectDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';

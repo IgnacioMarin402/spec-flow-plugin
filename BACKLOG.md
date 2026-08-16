@@ -12,9 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B13, B12, B3, B4, B14. None is blocked by code. B13 leads
-because it makes every file after it cheaper to read, and B14 depends on it
-landing first.
+**Open order:** B3, B4, B14. None is blocked by code.
 
 ---
 
@@ -148,6 +146,26 @@ an older version would be invented, and an invented floor denies real runs.
 `CLAUDE_CODE_VERSION` is instead written into every gate-history line, so the
 first version-dependent failure arrives with the version already recorded.
 
+### B12 — the README was four documents in one — `PENDING`
+
+365 lines, of which Install was 115 and "How it works" 151 — 73% of the page
+was two sections, and a reader wanting either read past the other.
+
+It was a structure problem, so the fix is structural rather than deletion. The
+three flowcharts and the gate's branch-by-branch reasoning moved to REFERENCE
+under `## How a run unfolds`, leaving an 18-line version on the front page that
+says what coordinates a run and links to the rest. Install went from 115 lines
+to 61 by stating each step once and sending the reasoning to REFERENCE.
+
+**179 lines, from 365.** REFERENCE grew from 518 to 689, which is the right
+place for it to grow: it is where someone goes deliberately.
+
+The restructure created exactly one defect and it was a promise: a link
+offering "both routes, and what each command maps to" pointed at a CLI section
+that documented one route. Found by checking the anchors by hand, which is why
+`plugin-paths.mjs` now checks cross-doc anchors on every run — 16 of them
+today, and a broken one names the file and the anchor.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -209,27 +227,6 @@ is cheap and keeps getting deferred.
 
 ---
 
-## B12 — the README is too long to do the job it has
-
-The author's own reading, and the right one: it is long and not intuitive. It
-is currently four documents in one — a pitch, an install guide, a tutorial and
-a design explanation — and a reader who wants any single one of them reads
-past the other three.
-
-Worth separating from the doc question below, because the fix is different:
-this is a structure problem, not a volume problem. A front page's job is to
-get someone from "what is this" to a first run, with everything else one link
-away. The mermaid diagrams and the gate's reasoning are good material sitting
-in the wrong place.
-
-Not urgent, and it competes with nothing: no check depends on the README's
-shape.
-
-**Done looks like:** a front page someone can read start to finish before
-deciding whether to install, with the run's internals moved behind links.
-
----
-
 ## B13 — the comments are carrying two different things, and only one of them belongs there
 
 The proposal was a `docs/` folder — `spec-trace-doc.md` and friends — to take
@@ -270,15 +267,24 @@ the records, and `scripts/decisions.mjs` fails when a citation does not resolve
 or a record is cited by nothing. Four decisions that had been restated across
 several headers are now written once and cited.
 
-**The application pass is under way and is roughly a third done.** The engine
-(hooks and scripts, fixtures excluded) sits at **38% comment**; `spec-trace`
-went 46% → 40% and 61 → 44 lines before its first import, `spec-flow-config`
-43% → 34%. Several files have barely moved: `preflight` and `session-start`
-are still at 50%, `no-repo-refs` at 47%.
+**The pass is done, and it ended somewhere other than where it aimed.** The
+engine (hooks and scripts, fixtures excluded) went from ~50% comment to **37%**,
+not the ~20% the rule seemed to imply. `spec-trace` 46% → 40% and 61 → 44 lines
+before its first import; `spec-flow-config` 43% → 34%; the small hooks 50-63% →
+46-61%.
 
-The pattern in what remains is consistent — a header opens with what the file
-guarantees, then spends a paragraph on what it used to do. That second
-paragraph is what goes.
+The reason is worth keeping, because it corrects the premise this item was
+opened on. Two kinds of file turned up. Those whose headers had accumulated
+real history moved a lot. Those whose comments were already invariants barely
+moved at all — `argv.mjs`, `io.mjs` and `unscoped-checks.mjs` sit in the
+mid-forties and a search for transition text across all three returns one line.
+The 50% figure was never uniform bloat; it was a handful of files carrying
+history and the rest being densely commented on purpose.
+
+So **37% is where this engine sits when the transitions are gone**, and the
+skill now says so, with the explicit warning that the number is not a target: a
+file at 45% whose comments are all invariants is finished, and trimming it
+further deletes what the rule exists to protect.
 
 **Done looks like:** headers that open with what the file guarantees rather
 than with what it used to do, across `hooks/` and `scripts/`, with the

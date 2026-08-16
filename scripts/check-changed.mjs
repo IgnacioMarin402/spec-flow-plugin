@@ -4,23 +4,17 @@
  * checks that deliberately run unscoped — the everyday command a human (or
  * Claude, when asked to check its work) runs directly.
  *
- * This is engine, not repo. It decides nothing about the repo it runs
- * in — it reads the same contract the gate reads and runs the same commands
- * the gate runs, adding only a human-readable summary. It moved here, out of
- * the consuming repo, because living there recreates the thing this engine
- * exists to prevent: a second implementation of "is this tree green", free to
- * drift from what the gate computes.
+ * This is engine, not repo. It decides nothing about the repo it runs in — it
+ * reads the same contract the gate reads and runs the same commands, adding
+ * only a human-readable summary. **It must never live in a consuming repo:**
+ * that would be a second implementation of "is this tree green", free to drift
+ * from what the gate computes.
  *
- * A consuming repo reaches this through a one-line alias in its own
- * package.json:
+ * A repo reaches it through an alias (`"check": "spec-flow check"`) or by path
+ * out of a clone. Every route runs this SAME file, which is what makes "same
+ * commands, same result" structural rather than a promise.
  *
- *   "check": "spec-flow check"
- *
- * which `bin/spec-flow` in this package resolves to `node
- * <package>/scripts/check-changed.mjs`. Both that alias and the gate hook run
- * this SAME file, so "same files, same commands, same result" is structural.
- *
- *   node scripts/check-changed.mjs          # eslint --fix + test on changed files
+ *   node scripts/check-changed.mjs          # autofix lint + test, scoped
  *   node scripts/check-changed.mjs --no-fix # report only, change nothing
  */
 import { spawnSync } from 'node:child_process';

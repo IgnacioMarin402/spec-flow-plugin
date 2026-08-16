@@ -105,8 +105,19 @@ for.
 
 ## Applying this to an existing header
 
-Read it top to bottom and sort each paragraph into 1, 2 or 3. In practice a
-long header is mostly 2, some 3, and a short spine of 1.
+Read it top to bottom and sort each paragraph into 1, 2 or 3.
+
+**Expect a smaller reduction than the sorting suggests.** Measured across this
+engine: files whose headers had accumulated real history moved a lot
+(`spec-flow-config` 43% → 34% comment), and files whose comments were already
+invariants barely moved at all — `argv.mjs` and `io.mjs` sit in the mid-forties
+with almost no transition text in them. The engine as a whole settled around
+37%, not the 20% a first reading of this rule implies.
+
+That number is not a target. **A file at 45% whose comments are all invariants
+is finished**, and trimming it further deletes exactly what this skill exists
+to protect. The signal to act on is a header that opens with what the file used
+to do, not a percentage.
 
 What is left should answer, in order:
 

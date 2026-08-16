@@ -32,7 +32,7 @@ import { spawnSync } from 'node:child_process';
 // `import.meta.url`: it answers "where is my sibling module", which is a
 // different question from "where is the repo this hook runs against" (that
 // one comes from `CLAUDE_PROJECT_DIR`, never from a script's own location —
-// see spec-flow-config.mjs's header for what conflating the two used to do).
+// see spec-flow-config.mjs's header for why the two must not be conflated).
 // A repo's own `extra_checks`, unlike this one, genuinely DO live in the
 // repo, so `runUnscopedChecks` below resolves THOSE relative to `root`.
 const ENGINE_SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -54,7 +54,7 @@ export function buildChecklist(config) {
 /**
  * Runs every declared check against `root` and returns each result plus the
  * aggregate. Mirrors the bash version's degrade-quietly rule for a REPO'S
- * OWN `extra_checks`: a script the repo declared but has not written yet
+ * own `extra_checks`: a script the repo declared but has not written yet
  * means "this repo does not have that check", not "the run should be
  * blocked" — a repo mid-adoption should not be blocked by its own
  * not-yet-written check.

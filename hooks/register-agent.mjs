@@ -44,12 +44,10 @@ await run(async () => {
   const typeFields = [input.subagent_type, input.subagentType, input.agent_type].filter(
     (v) => typeof v === 'string',
   );
-  // `implementer` joins the two Opus agents here, and not for the budget's
-  // sake — nothing charges an implementer. It is here because this hook is the
-  // one place where a spawn's TYPE and its resulting SESSION ID are both in
-  // hand, and the implementer's session id is half of what a run needs to be
-  // resumable. Recording it costs one more line in a file already being
-  // written; deriving it later is impossible, which is the whole of B7.
+  // `implementer` is here for the resume, not the budget — nothing charges an
+  // implementer. This hook is the one place a spawn's TYPE and its resulting
+  // SESSION ID are both in hand, and deriving that pairing later is
+  // impossible.
   const agent = matchAgent(typeFields, ['planner', 'architect', 'implementer']);
   if (!agent) return; // not an agent this hook records
 
@@ -104,23 +102,18 @@ await run(async () => {
 
     // ---- the run's resumable position, for an implementer spawn -------------
     //
-    // `phase` and `gate_attempts` survive a crash; which MILESTONE they refer
-    // to did not, and neither did which session was working it. Both lived
-    // only in the orchestrator's context — the command's own wording is
-    // "Remember the id/name it returns" — so an orchestrating session that
-    // died mid-milestone left an armed gate, a live attempt count, and no way
-    // for anything to say what was being implemented. The documented recovery
-    // was to start the run again from the top.
+    // `phase` and `gate_attempts` survive a crash; without this, which
+    // MILESTONE they refer to does not, so a dead orchestrator leaves an armed
+    // gate and nothing able to say what was being implemented.
     //
     // Written from the SPAWN rather than asked of the orchestrator, for the
     // reason preflight is a hook: state the model has to remember to write is
     // not state. The milestone comes out of the spawn's own input because that
-    // is where it already is — the orchestrator passes the milestone file's
-    // path — so nothing new has to be declared or agreed.
+    // is where it already is.
     //
-    // A follow-up `SendMessage` into the same session does not pass through
-    // here, and must not: it carries no milestone, and rewriting this from one
-    // would blank the position at the first lint retry.
+    // A follow-up `SendMessage` does not pass through here, and must not: it
+    // carries no milestone, and rewriting this from one would blank the
+    // position at the first lint retry.
     if (agent === 'implementer') {
       const text = JSON.stringify(input ?? '');
       const at = /specflow[\\/]([^"\\/]+)[\\/]milestones[\\/](M\d+)\.md/.exec(text);
