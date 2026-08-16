@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B4, B14, B15. B15 is blocked on `claude plugin eval` early access; the other two are not blocked by code.
+**Open order:** B4, B14, B17, B15. B15 is blocked on `claude plugin eval` early access; the others are not blocked by code.
 
 ---
 
@@ -207,6 +207,42 @@ an empty set.
 buys something this check cannot — whether the reviewer's judgement actually
 fires, whether triage classifies the five `/spec-fix` cases correctly.
 
+### B16 — "a pass is silent" was two claims, and only one of them had to be true
+
+The README apologised for this twice on one page and both commands carried a
+paragraph about it: a green milestone printed nothing, so a run that had passed
+looked exactly like a run that had hung, and the documented recovery was for
+the human to guess and type "continue".
+
+That was treated as inherent — the silence is what keeps a pass from waking the
+orchestrator, and waking it is the thing worth avoiding. **The two are
+separable, and nothing had ever checked whether they were.** A Stop hook that
+prints `{"systemMessage": ...}` with **no `decision` field** is rendered to the
+user as an informational notice and still allows the stop.
+
+Verified against the real binary rather than the docs, because this engine does
+not get to take a protocol claim on trust: a repo with the gate armed, driven
+by `claude -p` (Claude Code 2.1.233), produced
+`Stop says: spec-flow: gate PASSED — 6fdfb93 ...` with `num_turns: 1`,
+`stop_reason: end_turn` and `result=pass` in the history. The human is told; the
+model is never re-invoked; the notice never becomes an input token.
+
+So the silence is now aimed at the party it was always for. `emitNotice` holds
+the protocol, `passAndExit` is its only caller, and the fixture case asserts
+**both halves as one** — a pass must carry a `systemMessage` and must carry no
+`decision` — because satisfying either alone restores the failure the other
+prevents. Red before the fix on exactly that assertion.
+
+Two neighbouring cases were tightened while the contract was open, and they are
+guards rather than proof: `skip-dirty` and a non-`implement` phase must stay
+*completely* silent. Both already passed. They matter because the notice's value
+is that it is rare — a Stop fires many times per milestone while implementers
+write in the background, and in every repository the user opens.
+
+What this does **not** close: B4's question. The notice is screen output, not
+record, and a human who is away still misses it — `run-trace.mjs`'s header now
+says so rather than claiming a pass leaves no trace at all.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -341,6 +377,32 @@ than re-explained.
 adds is applying it to a specific task on demand. Worth doing **after** B13,
 not before: a skill that encoded the current comment habit would make the
 thing B13 exists to fix harder to change.
+
+## B17 — the comment rule was never applied to the files that test the rule's subject
+
+B13 reports the engine at 37% comment "(hooks and scripts, fixtures excluded)".
+The exclusion was never argued, and measuring it now shows what it bought:
+`gate-fixture.mjs` carries 28 lines under a literal `---- the fixture's own
+history ----` heading, and `spec-trace-fixture.mjs` and `init-fixture.mjs` sit
+at 26% and 21% on the same pattern.
+
+That heading is the exact shape `.claude/skills/engine-comments` sends to a
+commit message. The skill grants one narrow exception — a trap someone is
+likely to reintroduce earns *a single line* naming it — and the trap here is
+real and worth naming: every case in that fixture once ran with
+`files.length === 0` and never invoked `verify.lint` or `verify.test` at all.
+Three paragraphs on how that was discovered is what the exception does not
+cover.
+
+**Not done here, deliberately.** It surfaced while the pass-notice contract was
+open, and folding a comment pass into a behaviour change is how a diff stops
+being reviewable. It is also genuinely a judgement call about the exception's
+width, which is the kind of thing this repo decides on purpose rather than in
+passing.
+
+**Done looks like:** the history sections moved to commit messages, one line of
+trap left behind in each, and B13's parenthetical either extended to the
+fixtures or replaced by a stated reason they are exempt.
 
 ## Deliberately not doing
 

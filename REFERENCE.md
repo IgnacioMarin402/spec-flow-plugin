@@ -610,7 +610,7 @@ flowchart TD
     G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
     G -->|"whatever survives that"| RE
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
-    G -->|"green, and silent"| MORE{"another milestone?"}
+    G -->|"green — no decision rendered, <br/> a notice printed for the human"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
     MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
@@ -676,7 +676,7 @@ flowchart TD
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
     BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
-    RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
+    RUN -->|"all green"| PASS["allow the stop — no decision, <br/> so the model is not re-invoked. <br/> print one notice for the human. <br/> attempts reset to 0"]
     RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
     CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
     CLS -->|"a red test, attempt 1"| FIX
