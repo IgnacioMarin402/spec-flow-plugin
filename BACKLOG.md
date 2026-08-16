@@ -127,9 +127,19 @@ Red against `92a7d72` with three failures, including the central one. It also
 counts the fields an adopter is asked to fill, so adoption cost going up turns
 CI red rather than being absorbed.
 
-What it is not: proof that `claude marketplace add` works. Steps 1 and 2 of
-the plugin half still have no automated run, and that gap is smaller than it
-was but real.
+What it is not: proof that the plugin half installs. That gap stayed open and
+was closed by hand instead — see the note below.
+
+**Step 1, run for the first time (2026-08-16).** The README's very first
+command was wrong: `claude marketplace add` does not exist, the subcommand is
+`claude plugin marketplace add`. Nothing had ever executed it, which is exactly
+why it survived. The real sequence works — marketplace added, plugin installed,
+`Version: 10bfbdfbbab2` resolved from the git SHA, which confirms ADR-003 by
+observation rather than by reading the docs.
+
+It stays unautomated: a CI runner has no `claude` CLI, so `cold-start.mjs`
+cannot reach it. What it now has instead is one verified run with its output
+recorded in REFERENCE, and a correct command in the README.
 
 ### B5 — Node is a floor and is enforced; Claude Code is recorded, not invented — `PENDING`
 

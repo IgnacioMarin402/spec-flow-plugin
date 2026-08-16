@@ -44,7 +44,7 @@ of the rows above, and it says which.
 **1. The plugin**, which brings the commands, the agents and the hooks:
 
 ```bash
-claude marketplace add IgnacioMarin402/spec-flow-plugin
+claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 ```
 
