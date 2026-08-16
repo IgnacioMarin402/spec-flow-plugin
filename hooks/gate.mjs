@@ -7,8 +7,8 @@
  *   a milestone is never blocked by pre-existing lint debt in files it never
  *   touched. Which files count is declared in `.spec-flow/config.json`, and
  *   which branch they are compared against is resolved by `resolveBase` —
- *   which refuses to guess, because the guess used to disarm this gate
- *   entirely in any repo whose default branch is not named `main`.
+ *   which refuses to guess: a wrong base disarms this gate entirely, since a
+ *   scope of zero changed files lints nothing.
  * - Does NOT scope tests the same way, on purpose, and does not skip them
  *   when the scope is empty either. `lint(file)` is a total, local predicate
  *   over one file — file-scoping it is exact. A test suite's outcome is not a
@@ -32,18 +32,14 @@
  *   before it judges, replaced by the outcome when it does. A `running` line
  *   that survives is proof its invocation was killed, and the next armed gate
  *   reports it as `fail:killed` — see `replaceRunning` below.
- * - Declares an explicit `timeout` in hooks.json (1800s), which is the one
- *   guarantee in this file that this file cannot make. A `command` hook that
- *   reaches its timeout is CANCELED: its output is discarded and it renders
- *   no decision — and a Stop hook that renders no decision allows the stop.
- *   That happens one layer above the catch-all at the bottom of this file,
- *   where nothing here can block or report at the time; the `running` line is
- *   how it stops being invisible after the fact.
- *   The default budget is 600s, which a full unscoped suite can plausibly
- *   exceed on a large repo now that `verify.test` is never scoped down. The
- *   declared value buys headroom; it does not remove the ceiling, so the
- *   README tells repos with longer suites to declare a smoke subset as
- *   `verify.test` instead of hoping.
+ * - Declares an explicit `timeout` in hooks.json (1800s) — the one guarantee
+ *   in this file that this file cannot make. A `command` hook that reaches its
+ *   timeout is CANCELED: output discarded, no decision rendered, and a Stop
+ *   hook that renders no decision ALLOWS the stop. That is above this file's
+ *   catch-all, so the `running` line is the only thing that makes it visible
+ *   after the fact. The declared value buys headroom over the 600s default; it
+ *   does not remove the ceiling, so a repo with a long suite declares a smoke
+ *   subset as `verify.test` rather than hoping.
  * - On pass: allows the agent to stop. On fail: blocks and routes the failure
  *   back to PLAN or straight to the implementer, depending on its class.
  * - Caps the loop at MAX_ATTEMPTS, then hands control to a human, writing
@@ -83,9 +79,8 @@ function truncate(text, max) {
  * When no runner-specific marker matches (a runner whose summary format
  * differs from the ones below), fall back to the TAIL rather than the
  * head `truncate` uses elsewhere: a runner's own summary prints last, and
- * with tests no longer scoped to a handful of changed files (see this file's
- * header), a full-suite run's head is pass spew with zero signal — spent on
- * the planner, the most expensive model in the flow.
+ * a full-suite run's head is pass spew with zero signal — spent on the
+ * planner, the most expensive model in the flow.
  */
 function summarizeTests(text, max) {
   const picked = text
@@ -136,9 +131,8 @@ await run(
     /**
      * The one failure this file's own catch-all cannot reach: a `command`
      * hook that hits its timeout is CANCELED by Claude Code, and a Stop hook
-     * that renders no decision ALLOWS the stop. No block, no history line —
-     * and "no history line" was indistinguishable from "the gate was never
-     * armed", because this log only ever recorded outcomes.
+     * that renders no decision ALLOWS the stop. No block, no history line, and
+     * "no history line" is otherwise indistinguishable from "never armed".
      *
      * So the log records the ATTEMPT too. A `running` line goes down before
      * any command is spawned, and every outcome replaces it. A `running` line
@@ -181,7 +175,7 @@ await run(
 
     // The one deliberate fail-CLOSED case in this engine. An unrecognized
     // contract_version must block the run loudly — see spec-flow-config.mjs's
-    // header for the bash-era bridge bug where this used to silently degrade
+    // header for why a caller must never swallow this and fall back
     // to stale hardcoded defaults instead.
     let config;
     try {

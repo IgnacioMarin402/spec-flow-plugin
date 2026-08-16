@@ -270,11 +270,15 @@ the records, and `scripts/decisions.mjs` fails when a citation does not resolve
 or a record is cited by nothing. Four decisions that had been restated across
 several headers are now written once and cited.
 
-**What is left is the application pass, and it is most of the work.** The
-first files touched moved 46% to 44% comment, and spec-trace went from 61
-lines before its first import to 44 — real, and nowhere near the ~20 the rule
-implies, because only the DECISION category has been extracted so far. The
-transitions are still in the source, in every file, and they are the bulk.
+**The application pass is under way and is roughly a third done.** The engine
+(hooks and scripts, fixtures excluded) sits at **38% comment**; `spec-trace`
+went 46% → 40% and 61 → 44 lines before its first import, `spec-flow-config`
+43% → 34%. Several files have barely moved: `preflight` and `session-start`
+are still at 50%, `no-repo-refs` at 47%.
+
+The pattern in what remains is consistent — a header opens with what the file
+guarantees, then spends a paragraph on what it used to do. That second
+paragraph is what goes.
 
 **Done looks like:** headers that open with what the file guarantees rather
 than with what it used to do, across `hooks/` and `scripts/`, with the

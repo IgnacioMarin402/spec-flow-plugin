@@ -52,66 +52,37 @@ const LIST = process.argv.includes('--list');
 // dash, a hyphen or a colon: the id is what matters.
 const REQ_HEADING = /^###\s+(REQ-[A-Z0-9-]+-\d{3})\b\s*[—:-]?\s*(.*)$/;
 
-// Deliberately NOT `\b`-delimited, and that is a consequence of reading a
-// runner's report instead of a JS string literal.
-//
-// A title in source is free text, so `it('REQ-USER-001 rejects …')` leaves
-// spaces around the id and `\b` held. A reported test name often is not free
-// text: Go and pytest build names out of identifiers, which cannot contain
-// spaces or hyphens, so the id arrives glued to its neighbours —
-// `TestAuth/REQ-USER-001_rejects_a_bad_password`,
-// `tests/auth_test.py::test_REQ-USER-001_rejects`. `_` is a word character,
-// so `\b` fails on BOTH sides there and a genuine, executed proof read as
+// **Deliberately NOT `\b`-delimited.** Go and pytest build test names out of
+// identifiers, which cannot hold spaces or hyphens, so a reported name glues
+// the id to its neighbours — `TestAuth/REQ-USER-001_rejects`. `_` is a word
+// character, so `\b` fails on both sides and a genuine executed proof reads as
 // absent.
 //
-// So the boundaries say what actually matters instead: the id may not be
-// glued to a preceding letter or digit (which would make it a different
-// token), and may not be followed by a fourth digit (which would make
-// `REQ-USER-0011` match as `REQ-USER-001`). An underscore on either side is
-// ordinary punctuation in a test name, not a different id.
+// The boundaries say what matters instead: not glued to a preceding letter or
+// digit (a different token), and not followed by a fourth digit (so
+// `REQ-USER-0011` never matches as `REQ-USER-001`).
 const REQ_TAG = /(?<![A-Z0-9])REQ-[A-Z0-9-]+-\d{3}(?!\d)/g;
 
-// The anchoring the old title matcher provided — a tag counts only from a
-// test's own name, never from a comment or a helper string — is now provided
-// by the source of the lines rather than by their shape. A runner reports
-// tests; it does not report comments. Nothing here has to defend against an
-// IIFE or a curried call whose argument merely mentions an id, because none
-// of those is a line in a report of what executed.
-//
-// Skipped tests need no rejecting either, for the same reason: a runner that
-// skipped a test did not run it, so the repo's translator has nothing to
-// report for it. That is what makes the rule survive a change of language —
-// `.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]` and a conditional
-// `t.Skip()` all end in the same place, which is absence from the report.
+// Nothing anchors an id to a test declaration, and nothing rejects a skipped
+// one — the source of the lines does both. A runner reports tests, not
+// comments, and a test it skipped is simply not in the report. That is why the
+// rule survives a change of language: `.skip`, `@pytest.mark.skip`,
+// `@Disabled`, `#[ignore]` and a runtime `t.Skip()` all end in the same
+// place.
 const SCOPE_MARKER = /^<!--\s*spec-scope:\s*(.+?)\s*-->$/m;
 
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
 const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
 
 /**
- * There is no longer a list of directories a walk must avoid, and removing it
- * was part of the same change that removed the source reader.
+ * The only walk left is over `specs/` — Markdown this flow itself writes — so
+ * the only thing worth skipping is dot-directories, and only for size: `.git`
+ * alone can hold tens of thousands of objects.
  *
- * It used to hold `node_modules, dist, build, coverage, out, vendor` — an
- * ecosystem opinion the engine had no way to keep current. It was missing
- * `venv`, `site-packages`, `__pycache__` and `target`, and the contract could
- * override it in only one direction: `proof_dir` was never skipped, but a repo
- * could not ADD to the list. Measured: an ordinary Python virtualenv put 202
- * vendored test files inside the walk, down into `site-packages`, and a
- * vendored test naming any `REQ-` id failed this repo's gate over a third
- * party's code.
- *
- * Both of its jobs are now done by something that cannot drift. Cost: nothing
- * walks a dependency tree because nothing walks looking for tests at all — the
- * runner reports them. Correctness: a stale compiled copy under `dist/` can no
- * longer prove a requirement whose source test was deleted, because a report
- * lists what RAN, and the deleted test did not.
- *
- * What remains is the specs walk, over Markdown this flow itself writes. Only
- * dot-directories are skipped there, and only for size — `.git` alone can hold
- * tens of thousands of objects. Skipping build-output names here would be a
- * liability rather than a saving: a repo whose capability is called `build` is
- * entitled to `specs/build/`.
+ * **Do not add build-output names here.** An ecosystem list is exactly what
+ * ADR-001 removed, and in this walk it would be a liability rather than a
+ * saving: a repo whose capability is called `build` is entitled to
+ * `specs/build/`.
  */
 const skipWalk = (name) => name.startsWith('.');
 
@@ -222,7 +193,7 @@ for (const file of specFiles) {
 // Everything below reads LINES. No format, no schema, no runner: the contract
 // names a command, the command prints one line per executed test, and an id
 // found in a line is a proof. What produced those lines is the repo's
-// business, which is the whole reason this engine no longer has a stack.
+// business (ADR-001).
 const report = spawnSync(CONFIG.trace.executed_tests[0], CONFIG.trace.executed_tests.slice(1), {
   cwd: root,
   encoding: 'utf8',
@@ -436,14 +407,12 @@ const shipped = archived.filter((slug) => {
   return /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body) && new RegExp(REQ_TAG.source).test(body);
 });
 
-// The grace covers the REQUIREMENT BINDING and nothing else. It used to
-// `process.exit(0)` here, which discarded every problem this file had already
-// found: a live change with a leaked `## Decision` and no `proposal.md` —
-// both checked a few lines above — passed silently in any repo whose `specs/`
-// was still empty. That is exactly the wrong time to stand those checks down,
-// because an empty `specs/` means the repo is adopting, which is when the
-// habits form. So this reports what it is skipping and falls through to the
-// problem report below.
+// The grace covers the REQUIREMENT BINDING and nothing else, and must NOT
+// exit here: everything already found a few lines above — a leaked
+// `## Decision`, a missing `proposal.md` — would be discarded with it. An
+// empty `specs/` means the repo is adopting, which is when the habits form and
+// the worst time to stand those checks down. So it reports what it is skipping
+// and falls through to the problem report below.
 let graced = false;
 if (specFiles.length === 0) {
   if (shipped.length === 0) {

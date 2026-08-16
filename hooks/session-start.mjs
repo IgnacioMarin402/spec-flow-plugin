@@ -17,13 +17,12 @@
  * disarms every hook) but it claims someone is waiting on a human, and a
  * `blocked` nobody touched for hours is a wait nobody is coming back to.
  *
- * `spec`, `plan` and `review` are reset too, and that is newer than the rest
- * of this file. It used to skip them as "already harmless", which was true
- * while nothing armed on them could deny anything. `preflight` changed that:
- * it arms on every run phase, so an abandoned `plan` from last week makes it
- * validate the contract and the base branch before EVERY subagent spawn in
- * that repo, forever — and deny the spawn if either fails. A stale phase
- * nobody remembers is exactly the case where that denial is inexplicable.
+ * `spec`, `plan` and `review` are reset too. Every phase that arms anything
+ * belongs here, not just the ones that gate: `preflight` arms on all of them,
+ * so an abandoned `plan` would validate the contract and the base branch
+ * before EVERY subagent spawn in that repo, forever, and deny the spawn if
+ * either fails. A stale phase nobody remembers is exactly the case where that
+ * denial is inexplicable.
  */
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';

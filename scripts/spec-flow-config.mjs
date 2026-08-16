@@ -11,46 +11,26 @@
  *   import { loadConfig } from './spec-flow-config.mjs';
  *   const config = loadConfig(root);
  *
- * `root` is the consuming repo's directory, explicit rather than inferred.
- * Before this file lived in a plugin, `root` and "where this script sits"
- * were the same directory, so resolving from `import.meta.url` worked by
- * accident. They are never the same directory again: every caller passes the
- * repo root down from `CLAUDE_PROJECT_DIR` (hooks) or `process.cwd()` (the
- * CLI form, run from an npm script in the consuming repo). Inferring it from
- * this file's own location instead would read the PLUGIN's contract, or none
- * at all — both of which fail without saying so.
+ * `root` is the consuming repo's directory, explicit rather than inferred,
+ * and it is never where this script sits. Every caller passes it down from
+ * `CLAUDE_PROJECT_DIR` (hooks) or `process.cwd()` (the CLI). Resolving it from
+ * `import.meta.url` would read the PLUGIN's contract, or none at all — both of
+ * which fail without saying so.
  *
- * **Missing file is not automatically silent, and that is a deliberate change
- * from how this file behaved while it lived inside the one repo it served.**
- * There, "no contract yet" had a concrete, safe meaning: this exact repo's
- * own prior hardcoded values, so falling back to them was a non-event by
- * construction. Once this file serves an arbitrary consuming repo, that
- * anchor is gone — there is no particular test runner, linter or layer name
- * that is safe to assume for a repo this engine has never seen. So the
- * defaults below carry only what genuinely has no stack-specific content
- * (`specs_dir: 'specs'`, the not-a-capability filenames); everything that
- * actually names a tool or a layer is required, and `validate()` — run on
- * EVERY load, missing file included — says exactly what is missing and that
- * `.spec-flow/config.json` is where it goes. A repo adopting this engine for
- * the first time hits that message twice at most, and both times before
- * anything runs with a guess: `spec-flow init` reports it at setup, and
- * `preflight.mjs` refuses the first subagent of a run if it is still true.
+ * **A missing file is not silent, and neither is an unreadable version.**
+ * There is no test runner, linter or layer name safe to assume for a repo this
+ * engine has never seen, so the defaults below carry only what has no
+ * stack-specific content (`specs_dir`, the not-a-capability filenames);
+ * everything naming a tool or a layer is required. `validate()` runs on EVERY
+ * load, missing file included, and says what is absent and where it goes. An
+ * adopter meets that message before anything runs with a guess: `spec-flow
+ * init` at setup, `preflight.mjs` at the first subagent of a run.
  *
- * **A version it does not recognise is an error too, and fails the same way.**
- * It used to be documented as "the one deliberate exception to the fail-open
- * rule", back when every other gap in this file had a safe generic fallback.
- * Now most of them don't, so refusing to run on missing configuration is the
- * norm here, not the exception — loud is recoverable, guessing is not.
- *
- * Every caller MUST let a thrown error propagate as a loud failure of its own
- * — never catch it and fall back to defaults. A caller that did would revive
- * the exact bug this file's own bash-era bridge had: `unscoped-checks.sh`
- * called `spec-flow-config.mjs --sh` inside `if ... ; then eval ...; else
- * <hardcoded defaults> fi`, and a *version-mismatch* exit was indistinguishable
- * from a *missing-file* exit to that `if` — so a repo that declared a version
- * this engine could not read silently got this engine's old hardcoded values
- * instead of a refusal to run. Every hook below calls `loadConfig` unguarded
- * for exactly this reason.
+ * **Every caller MUST let a thrown error propagate — never catch it and fall
+ * back to defaults.** A caller that did would make a version mismatch
+ * indistinguishable from a missing file, and a repo declaring a version this
+ * engine cannot read would silently get someone else's values instead of a
+ * refusal to run. Every hook calls `loadConfig` unguarded for this reason.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -60,11 +40,10 @@ import { fileURLToPath } from 'node:url';
 export const SUPPORTED_VERSION = 1;
 
 /**
- * Kept as data rather than scattered through the file so "the defaults" is
- * something you can read in one place. Only fields with no stack-specific
- * content get a real value; everything that would have to guess a tool or a
- * layer name is left empty and `validate()` requires it — see this file's
- * header for why that is the correct default now, not a stricter one.
+ * Kept as data rather than scattered through the file, so "the defaults" is
+ * one thing you can read. Only fields with no stack-specific content get a
+ * real value; anything that would have to guess a tool or a layer is left
+ * empty and `validate()` requires it.
  */
 const DEFAULTS = {
   contract_version: SUPPORTED_VERSION,
@@ -88,42 +67,23 @@ const DEFAULTS = {
     specs_dir: 'specs',
     proof_dir: '',
     proof_suffix: '',
-    // The port that replaced source-parsing. Argv whose stdout names the
-    // tests that ACTUALLY RAN, one per line; a requirement is proven when a
-    // reported line contains its id.
-    //
-    // The engine deliberately knows no format here — not JUnit XML, not TAP,
-    // not any runner's native output. It knows "lines naming a test". A repo
-    // whose runner speaks something else owns the translation, which is the
-    // point: when that runner changes its output, the repo's translator
-    // changes and this engine does not.
-    //
-    // Required, and it has to be: proof detection is engine core, and there
-    // is no test runner it would be safe to assume for a repo this engine has
-    // never seen. `init` reports it MISSING rather than guessing.
+    // Argv whose stdout names the tests that RAN, one per line; a requirement
+    // is proven when a reported line contains its id (ADR-001). Required: there
+    // is no runner safe to assume for a repo this engine has never seen, so
+    // `init` scaffolds a translator rather than guessing one.
     executed_tests: [],
     not_a_capability: ['README.md', 'glossary.md'],
-    // Off by default, and that default is the honest one rather than the
-    // lenient one. Skills reach a session from three places — the project's
-    // `.claude/skills/`, an installed plugin, and the user's own
-    // `~/.claude/skills/` — so nothing this engine can read tells it whether
-    // a repo routes skills at all. A default that guesses WRONG here does not
-    // degrade, it fails a gate over a field the project was never going to
-    // use, and it does so on a repo that has just adopted the engine.
-    //
-    // What the check is worth turning on for: a project that does route
-    // skills gets "every live milestone states its routing" as a machine
-    // fact instead of a review habit. That is a real guarantee, and it is the
-    // project's to ask for. Until it asks, the field stays exactly where its
-    // siblings live — `Spec deltas`, `Tests`, `Objective` are all in the
-    // planner's template and checked by the reviewer, none of them by
-    // spec-trace, and `Skills:` was the lone exception.
+    // Off by default, because nothing this engine can read tells it whether a
+    // repo routes skills at all — they arrive from the project, from installed
+    // plugins, and from the user's own directory. Guessing wrong here does not
+    // degrade, it fails a gate over a field the project was never going to use.
+    // A project that DOES route them turns this on and gets "every live
+    // milestone states its routing" as a machine fact.
     //
     // Deliberately NOT inferred from whether some milestone already names a
     // skill: that arms the check from an absence, so the first milestone that
-    // should have routed one and did not is precisely the milestone that
-    // arms nothing. Inferring a state from an absence is the reasoning this
-    // engine removed from both commands.
+    // should have routed one and did not is precisely the one that arms
+    // nothing.
     require_skills_field: false,
   },
   extra_checks: [],
@@ -157,8 +117,8 @@ function merge(base, override) {
  * have — and would reject the vitest/deno/bazel cases this contract exists to
  * allow.
  *
- * Runs on EVERY load, including a missing file — see this file's header for
- * why "no contract yet" no longer has a safe generic answer for these fields.
+ * Runs on EVERY load, including a missing file: "no contract yet" has no safe
+ * generic answer for fields that name a tool or a layer.
  */
 function validate(config, source) {
   const problems = [];
@@ -189,10 +149,9 @@ function validate(config, source) {
       'verify.base_ref, when present, must be a non-empty string naming the ref this branch is judged against, e.g. "origin/trunk". Omit it entirely to let the engine resolve the base branch automatically.',
     );
   }
-  // proof_dir and proof_suffix no longer FIND anything — the runner's report
-  // does that. They kept their other job, which was always the separable one:
-  // telling an implementer where a new test goes and what it is called. Still
-  // required, because an agent with no answer to that invents a layout.
+  // These two say where a new test goes and what it is called — they do not
+  // decide what counts as proof (ADR-001). Required anyway: an agent with no
+  // answer to that invents a layout.
   if (!nonEmptyString(config.trace.proof_dir)) {
     problems.push(
       'trace.proof_dir must name the directory a new test goes in (e.g. "tests"). It is what an implementer is told when a requirement needs proof; it no longer decides what counts as proof, which is trace.executed_tests\' job.',
