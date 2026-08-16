@@ -15,6 +15,7 @@
     "paths:check": "node scripts/plugin-paths.mjs",
     "decisions:check": "node scripts/decisions.mjs",
     "agents:check": "node scripts/agent-contracts.mjs",
+    "skill:check": "node scripts/skill-contract.mjs",
     "gate:check": "node scripts/gate-fixture.mjs",
     "hooks:check": "node scripts/hook-smoke.mjs",
     "cold:check": "node scripts/cold-start.mjs",

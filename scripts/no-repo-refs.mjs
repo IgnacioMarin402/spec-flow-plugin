@@ -50,7 +50,13 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // stack vocabulary to reappear — and it would reappear in the file that tells
 // the next author how to write. Directories are scanned whole, so a skill
 // added later is covered without anyone remembering this line.
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills'];
+// Both skill directories, and they are not the same surface: `.claude/skills`
+// is this repo's own development skills, `skills` is what ships to adopters
+// inside the package. The second is the one this check has to hold, because a
+// skill is where runner knowledge would land if anyone put it in a file — and
+// a shipped skill that is not scanned is the "path of least resistance" this
+// file's header names, one directory over. See ADR-006.
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills', 'skills'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 // The prose docs are scanned too, and that is not an afterthought: they are

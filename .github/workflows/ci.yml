@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · decisions · agents · gate · trace · hooks · cold-start
+    name: lint · typecheck · coupling · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +77,16 @@ jobs:
       # missing it passed review unseen.
       - name: Agent contracts agree
         run: npm run agents:check
+
+      # The setup skill is prose a model acts on, with no compiler behind it:
+      # it names entrypoints, the buckets it tells the model to read in init's
+      # output, and the contract fields to fill. Rename any of those and the
+      # skill still reads correctly while sending the model after a word
+      # nothing prints. The last case holds the engine to failing LOUDLY on a
+      # wrong reporter flag, which is what makes the model's judgement here
+      # survivable — see ADR-006.
+      - name: Setup skill agrees with the engine
+        run: npm run skill:check
 
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour

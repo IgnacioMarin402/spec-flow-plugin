@@ -100,6 +100,16 @@ lints and tests — and it turns itself back on the moment you declare a
 requirement, refusing rather than passing quietly.
 [Both proof sources, and the escape hatch for runners with no standard report](REFERENCE.md#what-makes-a-requirement-proven).
 
+**If you are in a Claude Code session, you do not have to do this part by
+hand.** Ask it to set up spec-flow in this repo — the plugin ships a setup
+skill that runs `init`, fills what `init` could not read, adds your runner's
+reporter flag, and then *proves* the result by running your suite and the check
+below. It is the only place the engine knows anything about your runner, and
+that knowledge is the model's rather than a table in this package, which is why
+it covers a stack this repo has never seen. It cannot be wrong quietly: the
+last thing it does is run step 4, and step 4 goes red when the report does not
+land.
+
 **4. Check it.** `check-changed` lints what this branch changed, runs your
 suite, and runs the traceability check — the same commands the gate will run,
 through the same file.
@@ -182,6 +192,7 @@ npm run trace:check   # the requirement/proof binding holds
 npm run report:check  # the report readers, against real emitters' output
 npm run hooks:check   # the other nine hooks
 npm run agents:check  # the planner and the reviewer agree about the milestone
+npm run skill:check   # the setup skill and the engine agree about the contract
 npm run cold:check    # a repo that is not an npm package, from zero to green
 ```
 

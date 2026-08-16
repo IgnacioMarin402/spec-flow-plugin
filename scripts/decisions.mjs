@@ -42,7 +42,10 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // plus the prose docs — a decision is as worth citing from REFERENCE as from a
 // hook, and `decisions/` itself is excluded so cross-references between records
 // do not count as being reached from the code.
-const CITE_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills'];
+// `skills` (plugin root) alongside `.claude/skills` (this repo's own): a
+// shipped skill is instruction a model acts on, so it both carries citations
+// and is a place someone will look for one.
+const CITE_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills', 'skills'];
 const CITE_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md'];
 const CITE_EXTENSIONS = ['.mjs', '.md', '.json'];
 
