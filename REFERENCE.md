@@ -1,6 +1,6 @@
 # Reference
 
-Look-up material. For what spec-flow is and how a run unfolds, see the
+Look-up material. For what spec-flow is and how to install it, see the
 [README](README.md).
 
 - [The contract](#the-contract) — every field of `.spec-flow/config.json`
@@ -14,6 +14,7 @@ Look-up material. For what spec-flow is and how a run unfolds, see the
 - [Hooks](#hooks)
 - [Phases](#phases)
 - [`.claude/state/`](#claudestate)
+- [How a run unfolds](#how-a-run-unfolds) — the three flowcharts
 
 ---
 
@@ -420,6 +421,23 @@ form disambiguates.
 The orchestrator runs `telemetry` itself at intake and at DONE. Without it the
 logs stay in gitignored state and `stats` has nothing to read.
 
+**Two routes, one file.** `spec-flow <command>` exists when the engine was
+installed as an npm dependency. A repo that is not an npm package runs the same
+scripts by path out of a clone — nothing is installed, because the engine has no
+runtime dependencies:
+
+| `spec-flow …` | by path, from your repo's root |
+|---|---|
+| `init` | `node <clone>/scripts/init.mjs` |
+| `check` | `node <clone>/scripts/check-changed.mjs` |
+| `trace` | `node <clone>/scripts/spec-trace.mjs` |
+| `stats` | `node <clone>/scripts/specflow-stats.mjs` |
+| `telemetry` | `node <clone>/scripts/telemetry-snapshot.mjs` |
+
+No arguments, no environment variables: every script resolves the repo from
+`CLAUDE_PROJECT_DIR` or the working directory. A clone follows `main`, so pin it
+to a commit if you would rather CI not pick up whatever has landed.
+
 ---
 
 ## Hooks
@@ -516,3 +534,156 @@ Gitignored working files. Delete any of them to reset that piece of state.
 The four `*-unmatched.log` files are how each hook reports its own blind
 spots. A hook that fails open silently is indistinguishable from one that had
 nothing to do; these are what make the difference readable.
+
+---
+
+## How a run unfolds
+
+Nothing coordinates a run but `.claude/state/phase` — no queue, no daemon, no
+shared memory between agents. A subagent finishes, the orchestrator's turn
+ends, and a `Stop` hook runs the checks outside the model and either allows
+the stop or blocks with the instruction for what to do next.
+
+- **The orchestrator never writes code.** It routes. Everything that produces
+  an artifact is a subagent pinned to the model its job needs.
+- **The gate is not a step in the pipeline** — it is what happens when the
+  pipeline stops. Its block message *is* the next instruction.
+
+### `/spec-flow` — a feature
+
+```mermaid
+flowchart TD
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet 5 <br/> writes spec.md and proposal.md"]
+    B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
+    Q -->|"answers"| B
+    B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
+    S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
+    S -->|"yes"| P["PLAN — planner, Opus 5 <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer, Haiku 4.5 <br/> reads the spec and every milestone file"]
+    R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
+    CON --> R
+    R -->|"CHANGES_REQUESTED"| P
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet 5 <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus 5"]
+    ARCH --> I
+    I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
+    RE --> I
+    I -->|"IMPLEMENTED"| CM["orchestrator commits and pushes, <br/> then ends its turn"]
+    CM --> G{{"THE GATE — Stop hook, outside the model"}}
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
+    G -->|"whatever survives that"| RE
+    G -->|"5 failures"| BLK["phase blocked — a human decides"]
+    G -->|"green, and silent"| MORE{"another milestone?"}
+    MORE -->|"yes, Mk+1"| I
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
+    F --> G2{{"the gate again, on the fold commit"}}
+    G2 -->|"gap in the specs' wording"| F
+    G2 -->|"gap in code or tests"| RE
+    G2 -->|"green"| D["DONE — phase done, <br/> archive the telemetry, print the stats"]
+```
+
+Each milestone gets a **fresh** implementer session, but every follow-up
+within that milestone goes back to the *same* session — a new session re-reads
+the plan and every touched file from a cold context, and that repeated
+re-reading across retries is where most of a run's token cost goes.
+
+### `/spec-fix` — a defect
+
+A feature is an open question about what the system should do. A defect is a
+closed question: the system already claims a behaviour and something disagrees
+with the claim, so the job is finding **which side is wrong**. That is triage,
+not planning — which is why this flow drops the planner and the reviewer.
+
+```mermaid
+flowchart TD
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet 5 <br/> phase spec, gate disarmed"]
+    T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
+    T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
+    T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
+    T --> C4["case 4 — INFRA <br/> outside the contract's proof surface"]
+    T --> C5["case 5 — NOT-A-FIX <br/> this changes behaviour: it is a feature"]
+    C3 --> H{{"HITL — a human confirms the <br/> old requirement was actually wrong"}}
+    C5 --> REJ["stamp REJECTED, archive, <br/> phase idle — it belongs to /spec-flow"]
+    H -->|"confirmed"| W
+    H -->|"it was right after all"| T
+    C1 --> W
+    C2 --> W
+    C4 --> W
+    W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
+    W --> I["FIX — implementer, Sonnet 5"]
+    I --> CM["commit, push, end the turn"]
+    CM --> G{{"the same GATE"}}
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
+    G -->|"whatever survives that"| T
+    G -->|"5 failures"| BLK["phase blocked — a human decides"]
+    G -->|"green"| F["FOLD — spec-writer <br/> stamp SHIPPED, archive"]
+    F --> D["DONE"]
+```
+
+Only cases 3 and 5 stop for a human. Rewriting a requirement so it agrees with
+the code is indistinguishable, from the diff alone, from rewriting it so it
+agrees with the *bug*. A surviving failure goes back to **triage**, not to a
+planner: a fix whose test will not go green is usually aimed at the wrong case.
+
+### The gate
+
+```mermaid
+flowchart TD
+    S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement?"}
+    P -->|"no"| ALLOW["allow the stop, record nothing"]
+    P -->|"yes"| CFG{"contract readable?"}
+    CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
+    CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
+    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing"]
+    DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
+    BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
+    BASE -->|"resolves to HEAD"| BLK2
+    BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
+    RUN -->|"all green"| PASS["allow the stop, silently. <br/> attempts reset to 0"]
+    RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
+    CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
+    CLS -->|"a red test, attempt 1"| FIX
+    CLS -->|"anything that survives that"| REPLAN["re-plan this milestone — <br/> in /spec-fix, re-triage instead"]
+    CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
+```
+
+- **A dirty tree is not judged.** Implementers run in the background, so a
+  `Stop` can fire mid-write; judging that snapshot manufactures failures.
+- **spec-trace runs after the suite, and that ordering is load-bearing.** It
+  establishes which requirements are proven by asking your contract's
+  `trace.executed_tests` what actually ran, so it has to judge *this*
+  invocation's test run. Ahead of the suite it would read a stale report — or
+  none at all on a fresh clone — and a report that says nothing is a refusal,
+  so the gate would block on the ordering rather than on the code. The same
+  reason `spec-flow check` runs your suite before the checks and
+  `spec-flow trace` alone does not.
+- **Lint is scoped to the changed files, tests never are** — and an empty
+  scope does not skip the suite either. `lint(file)` is a predicate about one
+  file; a suite's outcome is a property of the system.
+- **An unresolvable base is a refusal, not an empty scope.** "Nothing changed"
+  and "I could not tell" must never produce the same outcome, because one of
+  them is a pass. A base that resolves *to HEAD* is refused for the same
+  reason: work committed straight onto the base branch has an empty diff by
+  construction, so the scoped linter never runs for the whole run.
+- **The failure class decides the route, not the severity.** A traceability
+  gap is usually a test that proves the requirement and never named it — an
+  edit, not a re-think.
+- **It fails closed, alone among the hooks.** A `Stop` hook that exits without
+  printing *allows the stop*, so an unhandled throw would report a clean
+  milestone rather than skip the gate.
+
+**A test that does not run is not proof.** Proof comes from `trace.executed_tests`
+— a command your contract declares, whose output names the tests that actually
+ran — so a skipped test is absent from it and its requirement reads as
+unproven. That holds for `it.skip`, `@pytest.mark.skip`, `@Disabled`,
+`#[ignore]` and a runtime skip alike, because none of them ends up in a report
+of what executed. Skipping is the cheapest way to silence a red suite, and this
+is the check that makes it useless.
+
+**The engine reads no source code.** That is why it has no opinion about your
+language: it runs the commands your contract names and reads lines. Requirement
+ids are bound from the test names your runner reports, so what the id has to
+survive is your runner's naming, not a parser's idea of what a test looks
+like.
+
+---

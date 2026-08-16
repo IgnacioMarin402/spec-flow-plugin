@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B12, B3, B4, B14. None is blocked by code.
+**Open order:** B3, B4, B14. None is blocked by code.
 
 ---
 
@@ -146,6 +146,26 @@ an older version would be invented, and an invented floor denies real runs.
 `CLAUDE_CODE_VERSION` is instead written into every gate-history line, so the
 first version-dependent failure arrives with the version already recorded.
 
+### B12 — the README was four documents in one — `PENDING`
+
+365 lines, of which Install was 115 and "How it works" 151 — 73% of the page
+was two sections, and a reader wanting either read past the other.
+
+It was a structure problem, so the fix is structural rather than deletion. The
+three flowcharts and the gate's branch-by-branch reasoning moved to REFERENCE
+under `## How a run unfolds`, leaving an 18-line version on the front page that
+says what coordinates a run and links to the rest. Install went from 115 lines
+to 61 by stating each step once and sending the reasoning to REFERENCE.
+
+**179 lines, from 365.** REFERENCE grew from 518 to 689, which is the right
+place for it to grow: it is where someone goes deliberately.
+
+The restructure created exactly one defect and it was a promise: a link
+offering "both routes, and what each command maps to" pointed at a CLI section
+that documented one route. Found by checking the anchors by hand, which is why
+`plugin-paths.mjs` now checks cross-doc anchors on every run — 16 of them
+today, and a broken one names the file and the anchor.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -204,27 +224,6 @@ stays. This item adds data to it, not authority.
 **Done looks like:** 5–8 archived runs in `specflow/archive/`, and a short
 written read of what the gate caught. No new code required, which is why this
 is cheap and keeps getting deferred.
-
----
-
-## B12 — the README is too long to do the job it has
-
-The author's own reading, and the right one: it is long and not intuitive. It
-is currently four documents in one — a pitch, an install guide, a tutorial and
-a design explanation — and a reader who wants any single one of them reads
-past the other three.
-
-Worth separating from the doc question below, because the fix is different:
-this is a structure problem, not a volume problem. A front page's job is to
-get someone from "what is this" to a first run, with everything else one link
-away. The mermaid diagrams and the gate's reasoning are good material sitting
-in the wrong place.
-
-Not urgent, and it competes with nothing: no check depends on the README's
-shape.
-
-**Done looks like:** a front page someone can read start to finish before
-deciding whether to install, with the run's internals moved behind links.
 
 ---
 

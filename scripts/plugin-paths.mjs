@@ -21,6 +21,12 @@
  * Scans the files that can carry such a path: the commands and agents (where
  * the placeholder is substituted into markdown the model then acts on) and
  * hooks.json (where it resolves in `args`).
+ *
+ * It also checks CROSS-DOC ANCHORS, which are the same defect in prose. The
+ * README's job is now to be short and send readers elsewhere, so a link to a
+ * REFERENCE section that does not exist is a promise it cannot keep — and one
+ * such link shipped the moment that restructuring happened, pointing at a
+ * section that documented one install route while the text claimed both.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
@@ -95,6 +101,53 @@ for (const file of registered) {
   }
 }
 
+// ---- cross-doc anchors ---------------------------------------------------
+//
+// GitHub's own rule: lowercase, drop everything that is not a letter, digit,
+// space, underscore or hyphen, then spaces to hyphens. Kept in one place so a
+// heading with a backtick or an em dash — most of them here — resolves the same
+// way the renderer will.
+const anchorOf = (heading) =>
+  heading
+    .replace(/^#+\s*/, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9 _-]/g, '')
+    .replace(/ /g, '-');
+
+const DOCS = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md'];
+const anchors = new Map(); // doc -> Set of anchors it defines
+
+for (const doc of DOCS) {
+  const path = join(ROOT, doc);
+  if (!existsSync(path)) continue;
+  anchors.set(
+    doc,
+    new Set(
+      readFileSync(path, 'utf8')
+        .split('\n')
+        .filter((l) => l.startsWith('#'))
+        .map(anchorOf),
+    ),
+  );
+}
+
+let anchorsChecked = 0;
+for (const [doc, own] of anchors) {
+  const text = readFileSync(join(ROOT, doc), 'utf8');
+  for (const [, target, anchor] of text.matchAll(/\]\(([A-Za-z.]*\.md)?#([^)]+)\)/g)) {
+    const where = target ?? doc;
+    const defined = anchors.get(where);
+    if (!defined) continue; // a doc this check does not scan — not its business
+    anchorsChecked++;
+    if (!defined.has(anchor)) {
+      findings.push(
+        `${doc} links to ${where}#${anchor}, which names no heading there. A reader following it lands at the top of the page and has to hunt.`,
+      );
+    }
+  }
+}
+
 if (findings.length > 0) {
   console.error(`plugin-paths: ${findings.length} problem(s).\n`);
   for (const f of findings) console.error(`  - ${f}`);
@@ -108,5 +161,6 @@ if (findings.length > 0) {
 
 console.log(
   `plugin-paths: OK — ${checked} plugin-root path(s) referenced, all present; ` +
-    `${hookFiles.length} hook(s), each registered in hooks.json.`,
+    `${hookFiles.length} hook(s), each registered in hooks.json; ` +
+    `${anchorsChecked} cross-doc anchor(s), every one resolving.`,
 );
