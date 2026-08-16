@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · gate · trace · hooks
+    name: lint · typecheck · coupling · init · paths · decisions · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +62,14 @@ jobs:
       - name: Plugin paths resolve
         run: npm run paths:check
 
+      # A decision record and the code it governs must reach each other. This
+      # is what separates decisions/ from a docs tree nobody reads: a citation
+      # that resolves to nothing, and a record nothing cites, both fail. See
+      # decisions/README.md for why a dated record does not rot the way this
+      # repo's last standalone document did.
+      - name: Decisions are reachable from the code
+        run: npm run decisions:check
+
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour
       # holds — including the split this whole extraction exists to make
@@ -83,3 +91,13 @@ jobs:
       # when it should be transparent.
       - name: Hook behaviour
         run: npm run hooks:check
+
+      # The only check that fails when ADOPTION breaks. Every step above tests
+      # a piece of the engine in the stack the engine is written in; this takes
+      # a repo with no package.json, in a language this engine has no code for,
+      # from nothing to a green `spec-flow check` through the route the README
+      # documents — by path, out of a clone, with no environment variables.
+      # python3 is preinstalled on the runner and stands in for a linter and a
+      # runner; nothing is installed.
+      - name: Cold start (a repo that is not an npm package)
+        run: npm run cold:check

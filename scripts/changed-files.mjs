@@ -15,8 +15,8 @@
  * missing or malformed contract means to IT — this file itself takes a
  * loaded config rather than loading one, so it never has an opinion on that.
  *
- * Which BASE they are compared against is the repo's call too, and used to be
- * this file's silent guess. See `resolveBase` below for what that cost.
+ * Which BASE they are compared against is the repo's call too. See
+ * `resolveBase` below, which throws rather than guessing.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';

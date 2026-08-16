@@ -15,7 +15,7 @@
  *
  *   node scripts/hook-smoke.mjs [engine-root]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,13 +78,31 @@ function makeRepo({ phase = 'implement', withContract = true, git = true } = {})
   return repo;
 }
 
-function runHook(hook, payload, repo) {
-  return spawnSync('node', [join(ENGINE, 'hooks', hook)], {
+function runHook(hook, payload, repo, engineRoot = ENGINE) {
+  return spawnSync('node', [join(engineRoot, 'hooks', hook)], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
     env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
     cwd: tmpdir(),
   });
+}
+
+/**
+ * A throwaway copy of the engine declaring a different Node floor.
+ *
+ * The floor is read from `package.json`'s `engines.node`, so testing the
+ * comparison means changing that file — not adding an env-var override to a
+ * hook whose job is DENYING. A knob that can make preflight refuse a run is
+ * not something to ship for a fixture's convenience, and the version actually
+ * running cannot be lowered here, so the floor is raised past it instead.
+ * Same branch, same comparison, no second Node.
+ */
+function engineDeclaring(nodeFloor) {
+  const dir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
+  cpSync(join(ENGINE, 'hooks'), join(dir, 'hooks'), { recursive: true });
+  cpSync(join(ENGINE, 'scripts'), join(dir, 'scripts'), { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module', engines: { node: `>=${nodeFloor}` } }, null, 2));
+  return dir;
 }
 
 function t(name, fn, repoOpts) {
@@ -374,6 +392,37 @@ t('session-start resets a stale phase', (repo) => {
   const phase = readFileSync(pf, 'utf8');
   if (phase !== 'idle') return `phase is "${phase}", expected idle`;
   return null;
+});
+
+// ---- B5: the engine refuses a Node it does not support, and only in a run --
+//
+// The second case is the one worth having. A version check is easy to write in
+// the wrong place, and ahead of the phase guard this hook would deny subagents
+// in repositories that never adopted this engine, over a floor only this
+// engine declares. It was written in the wrong place first.
+t('preflight stands down on an unsupported Node when no run is in progress', (repo) => {
+  const engine = engineDeclaring(9999);
+  try {
+    writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer' } }, repo, engine);
+    if (r.status !== 0) return `an agent unrelated to any run was denied over this engine's Node floor: ${r.stderr}`;
+    return null;
+  } finally {
+    rmSync(engine, { recursive: true, force: true });
+  }
+});
+
+t('preflight denies a run on a Node below the declared floor', (repo) => {
+  const engine = engineDeclaring(9999);
+  try {
+    writeFileSync(join(repo, '.claude/state/phase'), 'plan');
+    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo, engine);
+    if (r.status !== 2) return `expected the PreToolUse denial (exit 2), got ${r.status}: ${r.stderr}`;
+    if (!/Node 9999/.test(r.stderr)) return `the denial did not name the floor it wants: ${r.stderr}`;
+    return null;
+  } finally {
+    rmSync(engine, { recursive: true, force: true });
+  }
 });
 
 // ---- B7: the position a resume needs survives, and a reset reports it ------

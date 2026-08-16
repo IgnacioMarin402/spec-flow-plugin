@@ -97,6 +97,41 @@ So: after changing a hook, re-read the other nine. After changing what an
 artifact contains, re-read every agent and command that writes or reads it.
 Testing the thing you changed is not the check that matters here.
 
+## Three kinds of reasoning, three places — and only one of them is a comment
+
+The comments here are dense on purpose: the failure this engine exists to
+close is a check that looks armed and is not, and what stands between a future
+edit and that failure is an explanation sitting where the edit happens.
+
+It still went too far. These files ran about **50% comment**, and
+`spec-trace.mjs` had **61 lines before its first import**. The cause was not
+volume. It was that three different kinds of reasoning all defaulted to the
+same place.
+
+- **An invariant** — why this line *must* be this way — stays in the code.
+  Whoever changes the line has the file open; nothing else reaches them there.
+- **A transition** — what the code used to be and why it changed — goes in the
+  **commit message**. Git holds it better, with the diff attached.
+- **A decision** — why the system has this shape, with the alternatives it
+  refused — goes in **`decisions/`**, dated, and is *cited* from the code
+  rather than restated in five headers that then drift apart.
+
+`.claude/skills/engine-comments` has the full rule and the test for telling
+them apart. Read it before writing a header.
+
+**Recovering a transition, since it is no longer in the source.** All three
+verified against this repo:
+
+```bash
+git log -S '<a fragment of the code>' --oneline -- <file>   # what introduced or removed it
+git log -L <start>,<end>:<file>                             # the history of specific lines
+git blame -L <line>,<line> <file>                           # the commit behind a live line
+```
+
+The commit message is the deliverable there, not the diff — a `fix:` subject
+with no body leaves the *why* nowhere at all, which is what pushes it back
+into the comments.
+
 ## Docs are checked, not trusted
 
 `scripts/no-repo-refs.mjs` scans every prose file in `SCAN_FILES` — add new

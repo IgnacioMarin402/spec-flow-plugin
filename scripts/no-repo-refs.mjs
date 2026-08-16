@@ -45,7 +45,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents'];
+// `.claude/skills` is in this list for the reason the list exists: a skill is
+// prose that instructs, so an unscanned one is the cheapest possible place for
+// stack vocabulary to reappear — and it would reappear in the file that tells
+// the next author how to write. Directories are scanned whole, so a skill
+// added later is covered without anyone remembering this line.
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 // The prose docs are scanned too, and that is not an afterthought: they are
@@ -66,6 +71,13 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // hold the values the engine refuses to know. `scripts/init.mjs` generates
 // that file from the adopting repo instead, which needs no exemption: it
 // names nothing, it reads what the repo already declares.
+//
+// This was tested once and held: generating a translator per runner would have
+// meant a branch per runner name here. It was refused, with a `templates/`
+// directory and a per-file exemption both weighed — see ADR-002. Someone
+// proposing either is reopening a settled question and should say what
+// changed.
+
 // The workflow is in this list for a reason worth stating, because it is not
 // prose and looks out of place next to four Markdown files. It is the file that
 // demonstrated the gap: `ci.yml` spent several commits pointing readers at a

@@ -68,9 +68,23 @@ your repo, and that placement is the design rather than an omission: when your
 runner changes how it reports, your script changes and this engine does not.
 Most runners emit something usable behind a reporter flag.
 
+`spec-flow init` scaffolds it at `.spec-flow/tests-that-ran.mjs` and points the
+contract there:
+
 ```json
-"executed_tests": ["node", "tools/tests-that-ran.mjs"]
+"executed_tests": ["node", ".spec-flow/tests-that-ran.mjs"]
 ```
+
+The stub carries the contract and one marked hole, and exits non-zero until you
+fill it — an unfinished translator that reported nothing would turn every
+requirement unproven, which is the failure this check exists to catch arriving
+through the file meant to prevent it. `init` will not overwrite it once written,
+`--force` included.
+
+It is **not** generated for your runner, and that is a limit rather than an
+oversight: naming runners here would put a stack list inside the engine, which
+`no-repo-refs.mjs` bans by design and which would rot. Holding stack-specific
+values is the contract's job, not the engine's.
 
 Two properties it must have, and the second is the one worth checking:
 
@@ -133,8 +147,9 @@ The system sends a single-use link, valid for one hour.
 
 Requirements are `###` headings with the id first; the separator after it may
 be an em dash, a hyphen or a colon. Ids are permanent — never renumbered,
-never reused. Every requirement needs a test whose **title** contains its id,
-on the proof surface above.
+never reused. Every requirement needs a test that **runs** and whose reported
+**name** contains its id — where that test's file lives is a convention your
+repo sets, not something this check decides.
 
 ### `extra_checks`
 
@@ -255,6 +270,35 @@ which is what the budget is for. The counter is `.claude/state/opus_calls`.
 
 ---
 
+## Versions
+
+Two versions matter, and the engine treats them differently on purpose.
+
+**Node — a floor, and it is enforced.** `package.json`'s `engines.node` is the
+single declaration; `preflight` reads it and refuses to start a run on
+anything below it, before any agent has been spent. Only the major version is
+compared, and only when both parse — a floor the engine cannot compare against
+confidently is not one worth denying a run over.
+
+The refusal happens *inside* a run only. A subagent spawned in a repository
+that never adopted this engine is never denied over a floor only this engine
+declares.
+
+**Claude Code — recorded, not checked.** Every gate invocation writes
+`cc=<version>` into `.claude/state/gate-history.log`, from
+`CLAUDE_CODE_VERSION`, or `cc=?` where the harness does not expose it.
+
+Nothing gates on it, and that is the honest position rather than a gap.
+Declaring a supported range means having evidence about versions outside it,
+and this project has none: it has been run by someone who always uses the
+latest, so every claim about an older Claude Code would be invented — and an
+invented floor denies real runs. What the engine can do instead is start
+collecting the fact, so the first time something breaks, the version that
+broke it is already in the record rather than reconstructed from memory.
+
+If you hit a version-dependent failure, `gate-history.log` is where the
+evidence to fix this section will come from.
+
 ## Staying current
 
 Neither `plugin.json` nor the marketplace's entry for `spec-flow` declares a
@@ -265,13 +309,10 @@ SHA of the source. Leaving both fields out lets it fall to the SHA, so every
 push to `main` is a real version change — `/plugin marketplace update` (or
 `claude plugin update spec-flow`) picks it up.
 
-The alternative was a hand-maintained `version` field, bumped on every
-release. It shipped that way for the plugin's first nine PRs and nobody bumped
-it once: every install stayed pinned to `0.1.0` regardless of what landed on
-`main`, and `/plugin marketplace update` would have compared `0.1.0` against
-`0.1.0` and reported nothing to do — silently, the same way a hook that fails
-open reports nothing to do. A manual step nobody has a reason to remember is
-not a versioning strategy here; the SHA needs nobody to remember anything.
+The alternative — a hand-maintained `version` field, bumped on every release —
+shipped that way for the plugin's first nine PRs and nobody bumped it once, so
+every install stayed pinned to `0.1.0` regardless of what landed. See ADR-003
+for why that field is not coming back.
 
 No install is ever updated FOR you, either way — `/plugin marketplace update`
 is something you run, on whatever cadence you want the changes on this page
