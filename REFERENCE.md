@@ -109,11 +109,15 @@ checking:
   change of language: `it.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]`
   and a runtime skip all end in the same place.
 
-**Declaring neither turns traceability off**, and the gate still lints and runs
-your suite. That is what a fresh install looks like — there is nothing to prove
-before you have written a requirement. It stops being allowed the moment one
-exists: `spec-trace` refuses rather than passing, because an opt-out that
-outlives its own precondition is a disarmed check.
+**Traceability is off while there is nothing to prove**, and the gate still
+lints and runs your suite. Two things put you there, and a fresh install is
+normally the second: declaring neither source, or declaring one that has not
+produced anything yet — the report your test command does not write until you
+add the reporter flag. `spec-trace` says which, and passes. It stops being
+allowed the moment a requirement exists: from then on an unreadable source is
+refused rather than passed, because an opt-out that outlives its own
+precondition is a disarmed check, and a requirement it *could* not prove is
+never reported as one it *did* not prove.
 
 `spec-trace` reads its source after the suite, and separates the ways proof can
 be absent instead of collapsing them — a report that was never written, a report

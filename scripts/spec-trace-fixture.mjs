@@ -343,6 +343,83 @@ await Promise.all([
     ),
   ),
 
+  // The state every adopter is in on their first run, and the one no case
+  // here covered: `init` always writes `trace.report`, so "declared but not
+  // producing anything yet" — not "no source" — is what the install route
+  // ends on. Its pair is the refusal case above: the SAME missing report with
+  // a requirement declared must still be refused, which is what keeps this
+  // grace from being an opt-out that outlives its precondition.
+  check('a declared report that has not landed yet, with nothing to prove, is not a refusal', () =>
+    withRepo(
+      { '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }) },
+      (r) => {
+        if (r.status !== 0) {
+          return `the contract init writes failed the command the install route ends with, on a repo with no requirements: ${r.out}`;
+        }
+        if (!/nothing to bind|no requirement/i.test(r.out)) {
+          return `it passed without saying it was unarmed, which is how an unarmed check gets mistaken for a passing one: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // A capability file with no `###` heading yet is a real state — a fold that
+  // wrote the file before the first requirement landed in it — and it is the
+  // one where `specs/` is non-empty while `requirements` is. The green must
+  // not claim proof it never looked for.
+  check('an unarmed source never reports requirements as proven', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'specs/user.md': '<!-- spec-scope: modules/user -->\n\n# User\n\nNo requirement declared yet.\n',
+      },
+      (r) => {
+        if (r.status !== 0) return `a spec file with no requirement in it blocked the check: ${r.out}`;
+        if (/every one proven by a test/.test(r.out)) {
+          return `it claimed every requirement was proven while nothing was read about which tests ran: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // The same grace on the other proof source. `executed_tests` is where an
+  // unfinished translator lands, which is the same fact as a report that has
+  // not been written — nothing has been produced to read — and the two must
+  // not answer differently for a repo with nothing to prove.
+  check('the same grace covers the other proof source, so neither is the odd one out', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ['node', '-e', 'process.exit(3)'] } },
+          null,
+          2,
+        ),
+      },
+      (r) => {
+        if (r.status !== 0) {
+          return `a report source producing nothing blocked a repo with no requirements, while a missing report file does not: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  check('the unarmed grace does not swallow the other checks', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'specflow/archive/old-change/spec.md': '# Old change\n\nNo status line anywhere.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `an archived change with no status passed under the unarmed grace: ${r.out}`;
+        if (!/no status/i.test(r.out)) return `the failure was not the archive problem: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
   check('declaring both sources is refused by the contract, not resolved silently', () =>
     withRepo(
       {

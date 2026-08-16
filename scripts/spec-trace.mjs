@@ -263,7 +263,32 @@ const reportedLines = (report.stdout ?? '')
   .map((l) => l.trim())
   .filter(Boolean);
 
-if (reportFailed) {
+// A source that answers nothing is only a refusal while something depends on
+// the answer. With no requirement declared, nothing does — and this is the
+// state EVERY adopter is in on their first run, because `init` always writes
+// `trace.report` while the reporter flag it asks for is theirs to add
+// afterwards. Refusing here made the contract `init` wrote fail the very
+// command the install route ends with, on a repo with nothing to prove.
+//
+// It is the same rule the no-source branch above applies, reaching the same
+// place from the other side: an opt-out is honest exactly until a requirement
+// exists. Both proof sources get it, deliberately — a missing report file and
+// a translator that is not finished yet are one fact, "nothing has been
+// produced to read", and giving one the grace and not the other would be an
+// asymmetry nobody decided.
+//
+// Loud, not silent: the reason is printed. A green line that does not say why
+// it is green is how an unarmed check gets mistaken for a passing one, which
+// is the failure this whole file exists to close.
+let unarmed = false;
+if (reportFailed && requirements.size === 0) {
+  const why = report.error ? report.error.message : (report.stderr || '').trim() || `exit ${report.status}`;
+  unarmed = true;
+  console.log(
+    `spec-trace: traceability is declared but not producing anything yet, and ${CONFIG.trace.specs_dir}/ declares no requirement — so there is nothing to bind and this is not a failure. ` +
+      `It becomes one the moment a requirement exists.\n  source: ${reportCmd}\n  reason: ${why}`,
+  );
+} else if (reportFailed) {
   const why = report.error ? report.error.message : `exit ${report.status}`;
   problems.push(
     `${reportCmd} failed: ${why}. Nothing was learned about which tests ran, so no requirement can be called proven OR unproven. ` +
@@ -502,8 +527,12 @@ if (problems.length > 0) {
 
 // Nothing to add when the grace already said what it skipped — claiming
 // "every one proven by a test" over zero requirements is the vacuous green
-// this file spent a commit learning not to print.
-if (!graced) {
+// this file spent a commit learning not to print. `unarmed` is the same
+// sentence about the other half of the binding: with nothing read about which
+// tests ran, "every one proven" would be a claim over an unanswered question,
+// and it is reachable with a non-empty specs/ (a capability file holding no
+// `###` heading yet), which is where `graced` alone does not cover it.
+if (!graced && !unarmed) {
   console.log(
     `spec-trace: OK — ${requirements.size} requirement(s) across ${specFiles.length} capability spec(s), every one proven by a test; ` +
       `${archived.length} archived change(s), every one with a status.`,
