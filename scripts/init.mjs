@@ -6,31 +6,24 @@
  *   spec-flow init            # write it
  *   spec-flow init --force    # overwrite an existing contract
  *
- * This exists instead of a worked example file. An example has to be found,
- * copied, and then translated into the reader's repo — three steps where the
- * reader supplies the values, which are exactly the values they do not know
- * yet. Worse, a static example is unverifiable: nothing executes it, so a
- * contract change leaves it silently wrong while it still reads as
- * authoritative. This is code, so `init-fixture.mjs` can assert that what it
- * writes actually validates, and a contract change that breaks it turns CI
- * red instead of misleading the next adopter.
+ * A generator rather than a worked example, because an example is
+ * unverifiable: nothing executes it, so a contract change leaves it silently
+ * wrong while it still reads as authoritative. `init-fixture.mjs` asserts that
+ * what this writes actually validates, so the same change turns CI red.
  *
- * **Nothing here guesses a value it cannot support.** That rule comes from
- * spec-flow-config.mjs's own header: a plausible-but-wrong default is worse
- * than a missing one, because the missing one is reported and the wrong one
- * runs. So every field is placed in one of three buckets and the summary says
- * which is which:
+ * **Nothing here guesses a value it cannot support** — a plausible-but-wrong
+ * default runs, a missing one is reported. Every field lands in one of three
+ * buckets and the summary says which:
  *
  *   detected   — read from what this repo already declares
  *   review     — inferred from a heuristic that is usually right; confirm it
  *   MISSING    — nothing could determine it. Left empty, so the contract does
  *                not validate until a human fills it in
  *
- * Detection reads what the REPO says rather than what this engine believes.
- * The test runner comes from the repo's own `test` script, not from a list of
- * runners this file knows about — a list would be this engine having an
- * opinion about stacks, which is the coupling the whole extraction removed,
- * and it would silently fail to detect anything not on it.
+ * Detection reads what the REPO says rather than what this engine believes:
+ * the test runner comes from the repo's own `test` script, never from a list
+ * of runners this file knows about. See ADR-002 for why that limit holds even
+ * where a list would be convenient.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, appendFileSync } from 'node:fs';
 import { join, extname, sep } from 'node:path';
@@ -340,13 +333,9 @@ export function buildContract(root) {
 
   // --- how this repo reports what RAN
   //
-  // Still MISSING rather than REVIEW, even though a file now gets written for
-  // it, and the distinction is the honest one: `init` exits non-zero until the
-  // contract actually WORKS, not until it is syntactically complete. A stub
-  // that reports nothing is not a working contract, and calling it REVIEW
-  // would let an adopter reach a gate believing setup was finished.
-  //
-  // See `translatorStub` for why this is a hole rather than generated code.
+  // MISSING rather than REVIEW: `init` exits non-zero until the contract
+  // WORKS, not until it is syntactically complete. Calling this REVIEW would
+  // let an adopter reach a gate believing setup was finished.
   const translatorPath = join('.spec-flow', 'tests-that-ran.mjs');
   missing.push(
     `trace.executed_tests — a translator stub was written to ${translatorPath.replace(/\\/g, '/')} and the contract already points at it. ` +
@@ -409,10 +398,10 @@ export function buildContract(root) {
  * the shape, and a failure loud enough that nobody ships without noticing —
  * and leaves the four lines that differ.
  *
- * Deliberately NOT silent when incomplete. A stub that exited 0 and printed
- * nothing would report every requirement as unproven at the first gate, which
- * is the failure this engine exists to close, arriving through the file meant
- * to prevent it.
+ * Deliberately NOT silent when incomplete: a stub that exited 0 reporting
+ * nothing would turn every requirement unproven at the first gate — the
+ * failure this engine exists to close, arriving through the file meant to
+ * prevent it.
  */
 function translatorStub(testName) {
   const runner = testName ? `\`${testName}\`` : 'your test runner';
@@ -580,16 +569,12 @@ if (isMain) {
   writeFileSync(configPath, `${JSON.stringify(contract, null, 2)}\n`);
   console.log(`spec-flow init: wrote .spec-flow/config.json\n`);
 
-  // Never overwritten, and `--force` does NOT extend to it. That is not
-  // caution, it is the documented workflow: the README says to fill in what
-  // init asks for and re-run with `--force`, so a `--force` that replaced this
-  // file would destroy the translator on the exact command an adopter is told
-  // to run after writing it — and the damage is silent, since a fresh stub
-  // reports nothing and every requirement turns unproven at the next gate.
-  //
-  // The asymmetry decides it: regenerating a stub costs a delete and a re-run,
-  // and losing working code costs the work. Someone who wants a clean one
-  // removes the file.
+  // Never overwritten, and **`--force` does NOT extend to it.** The README
+  // tells an adopter to fill fields in and re-run with `--force`, so a
+  // `--force` that replaced this file would destroy their translator on the
+  // exact command they were told to run — silently, since a fresh stub reports
+  // nothing. Regenerating a stub costs a delete; losing working code costs the
+  // work. Someone who wants a clean one removes the file.
   const translator = join(root, '.spec-flow', 'tests-that-ran.mjs');
   if (!existsSync(translator)) {
     writeFileSync(translator, translatorStub(contract.verify.test_name));

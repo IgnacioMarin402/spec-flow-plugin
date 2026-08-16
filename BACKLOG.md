@@ -12,9 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B13, B12, B3, B4, B14. None is blocked by code. B13 leads
-because it makes every file after it cheaper to read, and B14 depends on it
-landing first.
+**Open order:** B12, B3, B4, B14. None is blocked by code.
 
 ---
 
@@ -270,15 +268,24 @@ the records, and `scripts/decisions.mjs` fails when a citation does not resolve
 or a record is cited by nothing. Four decisions that had been restated across
 several headers are now written once and cited.
 
-**The application pass is under way and is roughly a third done.** The engine
-(hooks and scripts, fixtures excluded) sits at **38% comment**; `spec-trace`
-went 46% → 40% and 61 → 44 lines before its first import, `spec-flow-config`
-43% → 34%. Several files have barely moved: `preflight` and `session-start`
-are still at 50%, `no-repo-refs` at 47%.
+**The pass is done, and it ended somewhere other than where it aimed.** The
+engine (hooks and scripts, fixtures excluded) went from ~50% comment to **37%**,
+not the ~20% the rule seemed to imply. `spec-trace` 46% → 40% and 61 → 44 lines
+before its first import; `spec-flow-config` 43% → 34%; the small hooks 50-63% →
+46-61%.
 
-The pattern in what remains is consistent — a header opens with what the file
-guarantees, then spends a paragraph on what it used to do. That second
-paragraph is what goes.
+The reason is worth keeping, because it corrects the premise this item was
+opened on. Two kinds of file turned up. Those whose headers had accumulated
+real history moved a lot. Those whose comments were already invariants barely
+moved at all — `argv.mjs`, `io.mjs` and `unscoped-checks.mjs` sit in the
+mid-forties and a search for transition text across all three returns one line.
+The 50% figure was never uniform bloat; it was a handful of files carrying
+history and the rest being densely commented on purpose.
+
+So **37% is where this engine sits when the transitions are gone**, and the
+skill now says so, with the explicit warning that the number is not a target: a
+file at 45% whose comments are all invariants is finished, and trimming it
+further deletes what the rule exists to protect.
 
 **Done looks like:** headers that open with what the file guarantees rather
 than with what it used to do, across `hooks/` and `scripts/`, with the

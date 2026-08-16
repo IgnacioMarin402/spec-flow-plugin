@@ -51,15 +51,10 @@ await run(async () => {
   writeFile(phaseFile, 'idle');
   writeFile(attFile, '0');
 
-  // `current-milestone` is deliberately NOT cleared, and it is the reason this
-  // message can say more than it used to.
-  //
-  // Disarming a stale run is right — an abandoned phase must not gate work it
-  // has nothing to do with. Forgetting WHERE it was is a separate act, and
-  // there was never a reason for the two to happen together: the phase is what
-  // arms hooks, the position arms nothing. Keeping it turns "re-run
-  // /spec-flow" — start over — into "this run was at Mk, and the plan for it is
-  // still on disk".
+  // `current-milestone` is deliberately NOT cleared. Disarming a stale run and
+  // forgetting where it was are separate acts: the phase arms hooks, the
+  // position arms nothing. Keeping it turns "start over" into "this run was at
+  // Mk, and its plan is still on disk".
   const at = readFileOrDefault(join(stateDir(root), 'current-milestone'), '');
   const [slug, milestone] = at.split(' ');
 
