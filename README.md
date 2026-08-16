@@ -55,10 +55,15 @@ Run it from your repo's root, on a branch off your base branch:
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 
-npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
+npm install --save-dev spec-flow-plugin
 npx spec-flow init      # writes .spec-flow/config.json
 npx spec-flow check     # green here means green at the gate
 ```
+
+**The package is `spec-flow-plugin` and the command is `spec-flow`** — the
+shorter name belongs to an unrelated package on npm. Install first: `npx
+spec-flow` in a repo that has not installed it reaches the registry and runs
+that one instead.
 
 **No code is yours to write, and on a conventional project no configuration
 either.** `init` reads your test and lint commands off `package.json`, adds
@@ -191,6 +196,7 @@ npm run report:check  # the report readers, against real emitters' output
 npm run hooks:check   # the other nine hooks
 npm run agents:check  # the planner and the reviewer agree about the milestone
 npm run skill:check   # the setup skill and the engine agree about the contract
+npm run pack:check    # the published tarball installs and works from node_modules
 npm run cold:check    # a repo that is not an npm package, from zero to green
 ```
 

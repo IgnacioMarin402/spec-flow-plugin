@@ -445,10 +445,13 @@ form disambiguates.
 The orchestrator runs `telemetry` itself at intake and at DONE. Without it the
 logs stay in gitignored state and `stats` has nothing to read.
 
-**Two routes, one file.** `spec-flow <command>` exists when the engine was
-installed as an npm dependency. A repo that is not an npm package runs the same
-scripts by path out of a clone — nothing is installed, because the engine has no
-runtime dependencies:
+**Two routes, one file.** `spec-flow <command>` exists once the engine is
+installed — `npm install --save-dev spec-flow-plugin`, where the package is
+`spec-flow-plugin` and the binary it links is `spec-flow`; the shorter name on
+npm is an unrelated project, so a repo that has not installed this one and runs
+`npx spec-flow` gets that instead. A repo that cannot take the dependency runs
+the same scripts by path out of a clone — nothing is installed either way,
+because the engine has no runtime dependencies:
 
 | `spec-flow …` | by path, from your repo's root |
 |---|---|

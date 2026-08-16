@@ -48,6 +48,7 @@
  *   stopping to wait would re-trigger this gate.
  */
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
 import { loadConfig, ensureReportDir } from '../scripts/spec-flow-config.mjs';
@@ -65,6 +66,23 @@ const MAX_TEST_LINES = 60;
 function shortSha(root) {
   const res = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
   return res.status === 0 ? res.stdout.trim() : '-';
+}
+
+/**
+ * This engine copy's own version, for the history line.
+ *
+ * Read from the package.json two directories up — the one that ships with these
+ * hooks — so what it reports is the copy that RAN, never whatever the consuming
+ * repo happens to have installed. Reporting the other would invert the whole
+ * point of recording it.
+ */
+function engineVersion() {
+  try {
+    const own = new URL('../package.json', import.meta.url);
+    return JSON.parse(readFileSync(own, 'utf8')).version || '?';
+  } catch {
+    return '?';
+  }
 }
 
 function truncate(text, max) {
@@ -126,7 +144,19 @@ await run(
       // `cc=` records the Claude Code that ran this gate — recorded, never
       // checked (ADR-004). `?` when the harness does not expose it: an absent
       // value must read as "not known here", never as a version.
-      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${process.env.CLAUDE_CODE_VERSION ?? '?'} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
+      //
+      // `engine=` records WHICH COPY of this engine judged the milestone, and
+      // it stopped being a curiosity when the engine became an npm package.
+      // There are two copies in a configured repo by construction: the plugin's
+      // own, which these hooks import from, and the devDependency, which the
+      // terminal and CI reach through `spec-flow check`. The README's central
+      // promise — green in your terminal means green at the gate — is only true
+      // while those agree, and nothing makes them: the plugin follows a commit
+      // and the dependency follows a version range. Recorded, not enforced, for
+      // the same reason `cc=` is: a mismatch is a fact worth having in the log
+      // when a gate and a local run disagree, and blocking on it would refuse
+      // milestones over a patch bump nobody noticed.
+      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${process.env.CLAUDE_CODE_VERSION ?? '?'} engine=${engineVersion()} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
     /**
      * The one failure this file's own catch-all cannot reach: a `command`
