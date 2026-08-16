@@ -12,7 +12,10 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B4, B14, B15. B15 is blocked on `claude plugin eval` early access; the other two are not blocked by code.
+**Open order:** B4, B16, B14, B15. B4 leads because two other items now depend
+on it for data: B16 cannot be designed without it, and B15's ablation arm
+answers a cheaper version of the same question. B15 is blocked on `claude plugin
+eval` early access; nothing else is blocked by code.
 
 ---
 
@@ -233,6 +236,70 @@ the orchestrator's refusal to write code itself.
 
 Note the cost before starting: each case runs the model, and `--ablation`
 doubles it.
+
+---
+
+## B16 — the adopting repo's `CLAUDE.md` is paid once per milestone
+
+**No run behind this yet, and that is the entry's first requirement rather than
+a caveat.** It is an observation about the design plus a cost nobody has
+measured, and the two designs below differ enough that guessing would waste the
+work.
+
+Each milestone gets a fresh implementer session — deliberately, so nothing
+carries contamination from the last one. The plan and `Mk.md` differ per
+milestone, so re-reading those is information. **`CLAUDE.md` does not differ**,
+so re-reading it is repetition, and it recurs on every gate retry as well as
+every milestone. The README already says this is where most of a run's token
+cost goes; what it does not say is that one component of it varies with a file
+the adopter controls and may not realise they are paying for.
+
+**What is known.** No agent frontmatter carries a context or memory field, so
+the engine does not control this declaratively. The agents' own prose instructs
+reading it — the planner is told "you should read them: `CLAUDE.md`", the
+spec-writer to ground the spec "per `CLAUDE.md`".
+
+**What is not known, and decides the design.** Whether the harness INJECTS the
+project's `CLAUDE.md` into every subagent, or whether the agents read it only
+because the prose says so. If it is injected, the engine cannot opt out and the
+only lever is the file's length. If it is read by instruction, the instruction
+is this engine's to change. The planner being told to read it is weak evidence
+against injection — the instruction would be redundant — and weak evidence is
+not a basis for either design.
+
+**It is exactly measurable with what already exists.** `run-trace` logs every
+read with its phase, and `specflow-stats` already reports them grouped ("N file
+read(s): X in plan, Y in implement"). One real run answers it: once, or once
+per milestone, and at what size. That is B4, again.
+
+### The option to refuse
+
+**A flag that suppresses it.** Trades a few thousand tokens for an implementer
+writing code that violates the repo's conventions. Lint catches some of that;
+layer and architecture rules are not lint-catchable, and a misdirected milestone
+costs an implementer pass, a gate cycle and possibly an Opus re-plan. That is
+the expensive-first mistake inverted — the same one the gate's own retry ladder
+is built to avoid. A flag does not filter, it cuts.
+
+### The option that fits
+
+**The planner distils what each milestone needs into `Mk.md`.** It already reads
+`CLAUDE.md` once and writes the milestones, so the conventions relevant to a
+milestone can travel with it — and `CLAUDE.md` is then read once per RUN rather
+than once per milestone.
+
+Not a new mechanism: it is exactly how `Skills:` works, with the same argument
+behind it — the implementer starts cold, so anything the planner leaves out it
+can only discover after framing the problem its own way. A large `CLAUDE.md`
+gets filtered rather than truncated.
+
+**Do not build it before the measurement.** If the harness injects regardless,
+this reduces what the implementer must go and read, not what it is given, and
+the win is much smaller than it looks.
+
+**Done looks like:** a run-trace showing how many times `CLAUDE.md` is read in a
+multi-milestone run, and then either a milestone field carrying the conventions
+or a documented note that the only lever is the file's own length.
 
 ---
 
