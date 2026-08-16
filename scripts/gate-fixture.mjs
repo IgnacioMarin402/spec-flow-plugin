@@ -61,6 +61,13 @@ const NOOP = ['node', '-e', 'process.exit(0)'];
 // Exits 1 unconditionally — a red check.
 const RED = ['node', '-e', 'process.exit(1)'];
 
+// A JUnit report proving REQ-FIX-001, and the same report with its one test
+// case marked <skipped/> — for the cases that run the real spec-trace.mjs
+// against a real report through the real gate.
+const JUNIT_PROVES = '<testsuites><testcase name="REQ-FIX-001 the fix"/></testsuites>\n';
+const JUNIT_SKIPS = '<testsuites><testcase name="REQ-FIX-001 the fix"><skipped/></testcase></testsuites>\n';
+const FIX_SPEC = '<!-- spec-scope: modules/fix -->\n\n# Fix\n\n### REQ-FIX-001 — the fix\n\nThe system is fixed.\n';
+
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, opts);
@@ -126,6 +133,17 @@ async function fixture({
   baseBranch = 'main',
   baseRef = undefined,
   stayOnBase = false,
+  // The real spec-trace.mjs, exercised end to end instead of stubbed — for
+  // the cases that test the SEAM between the two changes that touched this
+  // hook together: B16's notice protocol and B18's report readers. `report`
+  // is `{format, path}` written into `trace.report`; `reportBody` is the file
+  // spec-trace will read, so cases control what a real emitter would have
+  // written without needing one installed. `specs` are the capability specs
+  // that make the requirement real rather than vacuous — an empty specs_dir
+  // passes trivially and would prove nothing about either change.
+  report = null,
+  reportBody = '',
+  specs = {},
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
@@ -147,11 +165,16 @@ async function fixture({
   }
 
   // A deterministic stand-in for spec-trace, green or red on demand — the
-  // real one depends on this plugin repo's own specs/, which is not what
-  // this fixture is testing. `omitSpecTrace` skips writing it entirely, to
-  // exercise the "plugin install is broken/partial" path in
-  // unscoped-checks.mjs instead.
-  if (!omitSpecTrace) {
+  // real one depends on this plugin repo's own specs/, which is not what most
+  // of this fixture is testing: it exists to verify the GATE's routing, not
+  // spec-trace's own logic (spec-trace-fixture.mjs owns that). `omitSpecTrace`
+  // skips writing it entirely, to exercise the "plugin install is
+  // broken/partial" path in unscoped-checks.mjs instead. `report` switches to
+  // the REAL spec-trace.mjs, for the cases that test where it and the gate's
+  // notice protocol meet — neither fixture alone ever ran that combination.
+  if (report) {
+    copyFileSync(join(ROOT, 'scripts/spec-trace.mjs'), join(engineDir, 'scripts/spec-trace.mjs'));
+  } else if (!omitSpecTrace) {
     writeFileSync(
       join(engineDir, 'scripts/spec-trace.mjs'),
       specTrace === 'green'
@@ -205,11 +228,12 @@ async function fixture({
           specs_dir: 'specs',
           proof_dir: 'tests',
           proof_suffix: '.spec.ts',
-          // Unused by these cases — this fixture stubs spec-trace out entirely,
-          // deliberately, so the gate's own behaviour is what is under test.
-          // Present because the contract requires it, which is itself the point:
-          // a repo cannot reach the gate without declaring how proof is found.
-          executed_tests: ['node', '-e', 'process.exit(0)'],
+          // Unused when `report` is set — the contract rejects declaring both
+          // sources, so this is omitted rather than left empty in that case.
+          // Present otherwise because the contract requires ONE source: a repo
+          // cannot reach the gate without declaring how proof is found, even
+          // when (as in most cases here) spec-trace itself is stubbed out.
+          ...(report ? { report } : { executed_tests: ['node', '-e', 'process.exit(0)'] }),
           not_a_capability: [],
         },
         extra_checks: extraChecks,
@@ -222,6 +246,18 @@ async function fixture({
 
   writeFileSync(join(repoDir, '.gitignore'), '.claude/state/\n');
   writeFileSync(join(repoDir, 'a.ts'), 'export const a = 1;\n');
+  for (const [rel, content] of Object.entries(specs)) {
+    mkdirSync(dirname(join(repoDir, rel)), { recursive: true });
+    writeFileSync(join(repoDir, rel), content);
+  }
+  // Written at baseline, not staged separately: the report is what the
+  // SUITE would have left behind before the gate ever runs, not an artifact
+  // of this branch's diff — a real `verify.test` overwrites it on every gate
+  // invocation, same as here.
+  if (report) {
+    mkdirSync(dirname(join(repoDir, report.path)), { recursive: true });
+    writeFileSync(join(repoDir, report.path), reportBody);
+  }
   await git('add', '-A');
   await git('commit', '-qm', `baseline on ${baseBranch}`);
 
@@ -473,6 +509,72 @@ await Promise.all([
       }
       return null;
     }),
+  ),
+
+  // ---- the seam between the two changes: real spec-trace, real report,
+  // real gate -------------------------------------------------------------
+  //
+  // Everything above proves the gate's OWN routing using a stubbed
+  // spec-trace, and spec-trace-fixture.mjs proves the report readers using
+  // spec-trace.mjs directly, never through gate.mjs's Stop-hook protocol.
+  // Neither exercises what happens when a real JUnit file, read by the real
+  // spec-trace, decides what the real gate tells a human. These two do.
+  check('a real JUnit report proving the requirement passes silently and tells the human', () =>
+    withFixture(
+      {
+        report: { format: 'junit', path: 'reports/junit.xml' },
+        reportBody: JUNIT_PROVES,
+        specs: { 'specs/fix.md': FIX_SPEC },
+      },
+      (r) => {
+        if (r.blocked) return `the gate blocked a requirement a real JUnit report proves executed: ${r.failureLog}`;
+        if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
+        if (r.payload?.decision !== undefined) return `a pass through the real report path still carried a decision: ${JSON.stringify(r.payload)}`;
+        if (!/spec-flow: gate PASSED/.test(r.payload?.systemMessage ?? '')) {
+          return `the real report path passed without telling the human: ${JSON.stringify(r.payload)}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // The one finding from building this pairing that neither fixture alone
+  // could have produced: a report is not "no tests happened", it is "this
+  // one test happened and did not run" — see test-report.mjs's `skipped`
+  // count and spec-trace.mjs's guard against collapsing the two. Wired
+  // through the real hook, a skip must still read as a normal gate FAILURE,
+  // not as the "report never appeared" refusal, which sends a human to
+  // check a reporter flag that was never broken.
+  check('a real JUnit report marking the requirement <skipped/> blocks as an unproven requirement, not a broken contract', () =>
+    withFixture(
+      {
+        report: { format: 'junit', path: 'reports/junit.xml' },
+        reportBody: JUNIT_SKIPS,
+        specs: { 'specs/fix.md': FIX_SPEC },
+      },
+      (r) => {
+        if (!r.blocked) return 'a requirement whose only test was <skipped/> passed the gate';
+        if (!/result=fail/.test(r.history)) return `history did not record the failure: ${r.history}`;
+        if (!/spec=/.test(r.history) || /spec=0/.test(r.history)) {
+          return `spec-trace did not report itself as the failing check: ${r.history}`;
+        }
+        if (!r.failureLog.includes('REQ-FIX-001') || !r.failureLog.includes('has no test')) {
+          return `the failure does not name the unproven requirement, or reads as a broken report instead: ${r.failureLog}`;
+        }
+        // Two DIFFERENT wrong diagnoses this must not carry, from the two
+        // refusals a report can trigger when it is misread as empty rather
+        // than as "ran, and skipped": the file-never-written message, and the
+        // reported-nothing-at-all message. Both send a human to fix a flag
+        // that was never broken; the suite ran and reported a real skip.
+        if (/reporter flag|does not exist/.test(r.failureLog)) {
+          return `a skip was reported as a missing/broken report file, which sends a human to fix a flag that was never wrong: ${r.failureLog}`;
+        }
+        if (/reported no tests at all/.test(r.failureLog)) {
+          return `a report holding one real, skipped test case was reported as though it said nothing at all: ${r.failureLog}`;
+        }
+        return null;
+      },
+    ),
   ),
 
   check('a dirty tree is skipped, not judged, and says nothing', () =>

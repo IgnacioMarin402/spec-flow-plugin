@@ -278,6 +278,15 @@ await Promise.all([
       (r) => {
         if (r.status === 0) return `a skipped test proved a requirement: ${r.out}`;
         if (!/has no test/.test(r.out)) return `expected the requirement to read as unproven, got: ${r.out}`;
+        // A report holding one real, skipped test case is not a report that
+        // said nothing — that message exists for a different failure (the
+        // reporter flag missing, or a stale path) and would send someone to
+        // fix a flag that was never broken. This is the assertion the
+        // reportSkipped guard exists for; it was untested until it was
+        // mutation-tested and this exact wording leaked through.
+        if (/reported no tests at all/.test(r.out)) {
+          return `a report with one skipped case was also reported as though it said nothing at all: ${r.out}`;
+        }
         return null;
       },
     ),

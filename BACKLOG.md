@@ -459,12 +459,12 @@ fixtures or replaced by a stated reason they are exempt.
 
 ## B19 — `decisions/` is prose that no coupling check reads
 
-Found by tripping the check from the other side: writing B18 put `jest` in
-BACKLOG.md, `no-repo-refs` refused it, and the same paragraph in
-`decisions/005-*.md` passed — because `decisions/` is in neither `SCAN_DIRS`
-nor `SCAN_FILES`. It has never been scanned. CLAUDE.md names this exact failure
-mode: *"add new ones there, or the next doc becomes the path of least
-resistance for exactly what the check keeps out."*
+Found by tripping the check from the other side: writing B18 named a banned
+runner in BACKLOG.md, `no-repo-refs` correctly refused it, and the same
+paragraph in `decisions/005-*.md` passed unexamined — because `decisions/` is
+in neither `SCAN_DIRS` nor `SCAN_FILES`. It has never been scanned. CLAUDE.md
+names this exact failure mode: *"add new ones there, or the next doc becomes
+the path of least resistance for exactly what the check keeps out."*
 
 **It is not obviously a bug, which is why it is an item and not a fix.** ADR-005
 names four runners on purpose: a decision record's job is to say what was
