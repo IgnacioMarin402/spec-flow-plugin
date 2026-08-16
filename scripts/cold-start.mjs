@@ -138,11 +138,18 @@ try {
   // fixture must install nothing. The point of the case is that the ENGINE
   // reads it: nothing in this repo is Node, nothing was programmed for the
   // engine, and no runner is named anywhere in the parser.
+  //
+  // **The `name` must match the function declared above it, character for
+  // character.** A report is written FROM the test's identifier, so a hand-
+  // written one that spells the id differently than the source it claims to
+  // report is testing a file no runner could produce — which is how this
+  // check, whose whole job is failing when adoption breaks, went green over a
+  // real repo where a passing test read as absent.
   const junit = (name, skipped = false) =>
     `<?xml version="1.0" encoding="utf-8"?>\n<testsuites>\n  <testsuite name="pytest" tests="1">\n    <testcase classname="tests.auth_test" name="${name}" time="0.01">${skipped ? '<skipped/>' : ''}</testcase>\n  </testsuite>\n</testsuites>\n`;
 
   mkdirSync(join(repo, dirname(contract.trace.report.path)), { recursive: true });
-  writeFileSync(join(repo, contract.trace.report.path), junit('test_REQ-AUTH-001_a_bad_password_is_rejected'));
+  writeFileSync(join(repo, contract.trace.report.path), junit('test_REQ_AUTH_001_a_bad_password_is_rejected'));
 
   writeFileSync(
     join(repo, 'specs', 'auth.md'),
@@ -178,7 +185,7 @@ try {
   // while the check stays green.
   writeFileSync(
     join(repo, contract.trace.report.path),
-    junit('test_REQ-AUTH-001_a_bad_password_is_rejected', true),
+    junit('test_REQ_AUTH_001_a_bad_password_is_rejected', true),
   );
   const skipped = engine('spec-trace.mjs', repo);
   check(

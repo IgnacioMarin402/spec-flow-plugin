@@ -64,6 +64,29 @@ const REQ_HEADING = /^###\s+(REQ-[A-Z0-9-]+-\d{3})\b\s*[—:-]?\s*(.*)$/;
 // `REQ-USER-0011` never matches as `REQ-USER-001`).
 const REQ_TAG = /(?<![A-Z0-9])REQ-[A-Z0-9-]+-\d{3}(?!\d)/g;
 
+/**
+ * The ids a reported line proves, in canonical (hyphenated) spelling.
+ *
+ * The line is read TWICE: as reported, and with `_` read as `-`. The second
+ * pass is the other half of the premise stated just above, and it is the half
+ * that was missed. A language whose test name is an IDENTIFIER cannot spell the
+ * id at all — `def test_REQ_CORE_001_...` is the closest a Python function name
+ * can come, and Java methods and Rust `fn`s are in the same position. Matching
+ * only the hyphenated form made a real, executed, passing test read as "has no
+ * test that RAN", which is the exact defect ADR-001 was written to remove,
+ * arriving through the spelling instead of through source parsing.
+ *
+ * Both passes, not the normalized one alone: normalizing first would let
+ * `REQ-USER-001_002` read as the single id `REQ-USER-001-002`, since that also
+ * ends in three digits. The raw pass keeps answering `REQ-USER-001` there, and
+ * the union takes whichever a line genuinely names.
+ */
+function idsIn(line) {
+  const found = new Set(line.match(REQ_TAG) ?? []);
+  for (const id of line.replace(/_/g, '-').match(REQ_TAG) ?? []) found.add(id);
+  return found;
+}
+
 // Nothing anchors an id to a test declaration, and nothing rejects a skipped
 // one — the source of the lines does both. A runner reports tests, not
 // comments, and a test it skipped is simply not in the report. That is why the
@@ -312,7 +335,7 @@ const proofs = new Map();
 
 if (!reportFailed) {
   for (const line of reportedLines) {
-    for (const id of line.match(REQ_TAG) ?? []) {
+    for (const id of idsIn(line)) {
       if (!proofs.has(id)) proofs.set(id, []);
       if (!proofs.get(id).includes(line)) proofs.get(id).push(line);
     }

@@ -225,17 +225,47 @@ await Promise.all([
   // The engine reads lines, not a language. pytest's node ids and Go's
   // subtest paths are just two shapes of line, and neither is known to the
   // engine — the repo's translator emitted them.
+  //
+  // The id is spelled with UNDERSCORES here because that is the only spelling
+  // this line can have: a pytest node id ends in a function name, and a Python
+  // identifier cannot hold a hyphen. The hyphenated version this case used to
+  // assert was a shape no runner on that side can emit.
   check('a pytest-shaped report proves a requirement', () =>
     withRepo(
       {
         '.spec-flow/config.json': JSON.stringify(
-          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/auth_test.py::test_REQ-USER-001_rejects') } },
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/auth_test.py::test_REQ_USER_001_rejects') } },
           null,
           2,
         ),
         'specs/user.md': spec(),
       },
       (r) => (r.status === 0 ? null : `a real, executed pytest proof was reported as absent: ${r.out}`),
+    ),
+  ),
+
+  // The rule the case above is one instance of, stated on its own because it
+  // governs every language whose test name is an identifier — Python, Java,
+  // Rust — and because the engine spent a long time believing the id survived
+  // into the report intact. Go is the counter-example that hid it: a subtest
+  // name comes from a string literal, so it CAN hold hyphens, and the two
+  // shapes were assumed to be the same shape.
+  check('a requirement id no identifier can spell still binds', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'specs/user.md': spec(),
+        // Byte-for-byte the element `python3 -m pytest --junitxml` writes for
+        // `def test_REQ_USER_001_the_user_can_do_the_thing()`.
+        'reports/junit.xml':
+          '<?xml version="1.0" encoding="utf-8"?>\n<testsuites><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="0.01">' +
+          '<testcase classname="tests.user_test" name="test_REQ_USER_001_the_user_can_do_the_thing" time="0.001"/>' +
+          '</testsuite></testsuites>\n',
+      },
+      (r) =>
+        r.status === 0
+          ? null
+          : `a test that ran and passed, named as closely as its language allows, was reported as absent — the defect ADR-001 exists to remove, arriving through the spelling: ${r.out}`,
     ),
   ),
 
