@@ -101,19 +101,25 @@ Two properties either source must have, and the second is the one worth
 checking:
 
 - **Names carry the id**, since it is matched inside them. An id may sit
-  against underscores — `TestAuth/REQ-USER-001_rejects` and
-  `test_REQ-USER-001_rejects` both bind — but a fourth digit does not, so
-  `REQ-USER-0011` is never read as `REQ-USER-001`.
+  against underscores — `describe > REQ-USER-001_rejects` and
+  `test_REQ_USER_001_rejects` both bind, the second because `_` is also read as
+  `-` — but a fourth digit does not, so `REQ-USER-0011` is never read as
+  `REQ-USER-001`.
 - **A skipped test must not appear.** That absence is what makes skipping
-  useless as a way to silence this check, and it is why the rule survives a
-  change of language: `it.skip`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]`
-  and a runtime skip all end in the same place.
+  useless as a way to silence this check, and it holds however the skip was
+  written: `it.skip`, `test.todo`, `describe.skip`, a runner's `--grep` leaving
+  the test unselected, and a runtime `t.skip()` all end in the same place —
+  reported by nothing.
 
-**Declaring neither turns traceability off**, and the gate still lints and runs
-your suite. That is what a fresh install looks like — there is nothing to prove
-before you have written a requirement. It stops being allowed the moment one
-exists: `spec-trace` refuses rather than passing, because an opt-out that
-outlives its own precondition is a disarmed check.
+**Traceability is off while there is nothing to prove**, and the gate still
+lints and runs your suite. Two things put you there, and a fresh install is
+normally the second: declaring neither source, or declaring one that has not
+produced anything yet — the report your test command does not write until you
+add the reporter flag. `spec-trace` says which, and passes. It stops being
+allowed the moment a requirement exists: from then on an unreadable source is
+refused rather than passed, because an opt-out that outlives its own
+precondition is a disarmed check, and a requirement it *could* not prove is
+never reported as one it *did* not prove.
 
 `spec-trace` reads its source after the suite, and separates the ways proof can
 be absent instead of collapsing them — a report that was never written, a report
@@ -439,10 +445,13 @@ form disambiguates.
 The orchestrator runs `telemetry` itself at intake and at DONE. Without it the
 logs stay in gitignored state and `stats` has nothing to read.
 
-**Two routes, one file.** `spec-flow <command>` exists when the engine was
-installed as an npm dependency. A repo that is not an npm package runs the same
-scripts by path out of a clone — nothing is installed, because the engine has no
-runtime dependencies:
+**Two routes, one file.** `spec-flow <command>` exists once the engine is
+installed — `npm install --save-dev spec-flow-plugin`, where the package is
+`spec-flow-plugin` and the binary it links is `spec-flow`; the shorter name on
+npm is an unrelated project, so a repo that has not installed this one and runs
+`npx spec-flow` gets that instead. A repo that cannot take the dependency runs
+the same scripts by path out of a clone — nothing is installed either way,
+because the engine has no runtime dependencies:
 
 | `spec-flow …` | by path, from your repo's root |
 |---|---|
@@ -726,16 +735,17 @@ flowchart TD
   printing *allows the stop*, so an unhandled throw would report a clean
   milestone rather than skip the gate.
 
-**A test that does not run is not proof.** Proof comes from `trace.executed_tests`
-— a command your contract declares, whose output names the tests that actually
-ran — so a skipped test is absent from it and its requirement reads as
-unproven. That holds for `it.skip`, `@pytest.mark.skip`, `@Disabled`,
-`#[ignore]` and a runtime skip alike, because none of them ends up in a report
-of what executed. Skipping is the cheapest way to silence a red suite, and this
-is the check that makes it useless.
+**A test that does not run is not proof.** Proof comes from the report your
+runner writes — the tests that actually ran — so a skipped test is absent from
+it and its requirement reads as unproven. That holds for `it.skip`,
+`test.todo`, `describe.skip` and a runtime skip alike, because none of them
+ends up in a report of what executed. Skipping is the cheapest way to silence a
+red suite, and this is the check that makes it useless.
 
-**The engine reads no source code.** That is why it has no opinion about your
-language: it runs the commands your contract names and reads lines. Requirement
+**The engine reads no source code.** The supported scope is Node
+([ADR-007](decisions/007-the-supported-scope-is-node.md)), but within it the
+engine has no opinion about your framework, your layout or your architecture:
+it runs the commands your contract names and reads lines. Requirement
 ids are bound from the test names your runner reports, so what the id has to
 survive is your runner's naming, not a parser's idea of what a test looks
 like.

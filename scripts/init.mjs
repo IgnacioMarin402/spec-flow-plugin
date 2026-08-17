@@ -229,6 +229,55 @@ function detectPackageManager(root) {
  * `=`-joined forms are split first, so `--junitxml=reports/x.xml` yields the
  * path without this function knowing what the left-hand side means.
  */
+/**
+ * How each supported runner is told to write a report, keyed by the name `init`
+ * already read off the `test` script.
+ *
+ * **This table is the thing ADR-002 refused, and ADR-007 is why it is here.**
+ * The refusal was that a per-runner list rots and is "precisely the artifact
+ * that looks maintained and quietly is not" — an argument about maintenance
+ * cost, which was decisive while the list had to span every ecosystem and is
+ * proportionate now that the supported scope is Node.
+ *
+ * So it is small on purpose, and it stays small: a runner nobody here has RUN
+ * does not belong in it. Every entry below was verified by installing the
+ * runner and reading the file that appeared. An unknown runner is not a
+ * failure — it falls through to the same REVIEW line this table replaced.
+ *
+ * `argv` returns tokens appended to the test command. `note` says what a flag
+ * alone cannot express, and exists for exactly one reason: not every runner can
+ * be configured from argv, and pretending otherwise would write a command that
+ * runs clean and produces no file — a check that looks armed and is not.
+ */
+const REPORTER_FLAGS = {
+  vitest: { argv: (path) => ['--reporter=junit', `--outputFile=${path}`] },
+  mocha: { argv: (path) => ['--reporter', 'xunit', '--reporter-option', `output=${path}`] },
+  node: { argv: (path) => ['--test-reporter=junit', `--test-reporter-destination=${path}`] },
+  jest: {
+    argv: () => ['--reporters=default', '--reporters=jest-junit'],
+    note: (path) =>
+      `jest reports through a separate package: install jest-junit, and point its output at "${path}" (a "jest-junit" key in package.json, or JEST_JUNIT_OUTPUT_FILE). ` +
+      `The flag alone will not write the file, which is why this is the one entry that cannot be finished from argv.`,
+  },
+};
+
+/**
+ * Which entry of `REPORTER_FLAGS` this test command is, or null.
+ *
+ * Not simply `test_name`, and the gap is the most common zero-dependency Node
+ * setup there is. `"test": "node --test"` leaves `test_name` MISSING on purpose
+ * — the bin is an interpreter, and `test_name` is substring-matched against
+ * Bash commands to spot a test run, so "node" there would match nearly
+ * everything. The RUNNER is still knowable from the same argv: `--test` is what
+ * makes that invocation a test run rather than a script.
+ */
+function reporterKey(testArgv, testName) {
+  if (testName && REPORTER_FLAGS[testName]) return testName;
+  const bin = (testArgv?.[0] ?? '').replace(/\\/g, '/').split('/').pop();
+  if (bin === 'node' && testArgv.includes('--test')) return 'node';
+  return null;
+}
+
 function detectReportPath(testArgv) {
   for (const token of testArgv ?? []) {
     const value = token.includes('=') ? token.slice(token.indexOf('=') + 1) : token;
@@ -358,21 +407,33 @@ export function buildContract(root) {
   // runner already knows how to emit, and a repo with no requirements yet owes
   // nothing at all. `init` exiting non-zero over it would refuse to finish
   // setting up a repo whose gate would already run clean.
-  //
-  // The path is a reading when the test command names an XML file and a
-  // convention otherwise — and it is never a FLAG. Which flag emits a report
-  // is per-runner knowledge, refused here for the reasons ADR-002 gave and
-  // ADR-005 keeps: a flag table is the artifact that looks maintained and
-  // quietly is not.
   const namedReport = detectReportPath(test);
   const reportPath = namedReport ?? 'reports/junit.xml';
-  review.push(
-    namedReport
-      ? `trace.report — your test command already names "${namedReport}", so the contract points at it and assumes JUnit XML. Confirm that is what lands there; if it is TAP, change the format to "tap".`
-      : `trace.report — set to "${reportPath}", a convention rather than a reading. Make your test command write a JUnit XML (or TAP) report there: most runners emit one behind a flag, and the format is what tells a skipped test from an executed one, so nothing here has to know which runner you use. ` +
+  const runner = namedReport ? null : reporterKey(test, testName);
+  const flag = runner ? REPORTER_FLAGS[runner] : null;
+
+  if (namedReport) {
+    review.push(
+      `trace.report — your test command already names "${namedReport}", so the contract points at it and assumes JUnit XML. Confirm that is what lands there; if it is TAP, change the format to "tap".`,
+    );
+  } else if (flag) {
+    // The flag is APPENDED to the command rather than proposed in prose,
+    // because a flag a human still has to type is the step this whole table
+    // exists to remove. It is still REVIEW: appending to someone's test command
+    // is an edit to how their suite runs, and a reader has to see it.
+    test = [...test, ...flag.argv(reportPath)];
+    review.push(
+      `verify.test — appended \`${flag.argv(reportPath).join(' ')}\` so ${runner} writes the report the traceability check reads. ` +
+        `Run your suite once and confirm "${reportPath}" appears.${flag.note ? ` ${flag.note(reportPath)}` : ''}`,
+    );
+  } else {
+    review.push(
+      `trace.report — set to "${reportPath}", a convention rather than a reading${testName ? `, because "${testName}" is not a runner this version knows the reporter flag for` : ''}. ` +
+        `Add your runner's flag to verify.test so a JUnit XML (or TAP) report lands there — the format is what tells a skipped test from an executed one. ` +
         `Until it lands, traceability is off — the gate still lints and tests, and spec-trace refuses the moment ${'specs'}/ declares a requirement it cannot prove. ` +
         `A runner with no standard report uses trace.executed_tests instead: see REFERENCE.md.`,
-  );
+    );
+  }
 
   const denyScripts = ['test', 'lint'].filter((s) => scripts[s]);
   const denyTools = [testName, lintName].filter(Boolean);

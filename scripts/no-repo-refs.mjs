@@ -50,7 +50,13 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // stack vocabulary to reappear — and it would reappear in the file that tells
 // the next author how to write. Directories are scanned whole, so a skill
 // added later is covered without anyone remembering this line.
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills'];
+// Both skill directories, and they are not the same surface: `.claude/skills`
+// is this repo's own development skills, `skills` is what ships to adopters
+// inside the package. The second is the one this check has to hold, because a
+// skill is where runner knowledge would land if anyone put it in a file — and
+// a shipped skill that is not scanned is the "path of least resistance" this
+// file's header names, one directory over. See ADR-006.
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills', 'skills'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 // The prose docs are scanned too, and that is not an afterthought: they are
@@ -66,17 +72,23 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 // having scanned at all, because now it looks covered.
 //
 // There is no exception list, and there is no `examples/` directory to
-// exempt. A worked contract naming a real runner and a real layout would have
-// to live outside this scan by construction — a contract's whole job is to
-// hold the values the engine refuses to know. `scripts/init.mjs` generates
-// that file from the adopting repo instead, which needs no exemption: it
-// names nothing, it reads what the repo already declares.
+// exempt. A worked contract naming a real layout would have to live outside
+// this scan by construction — a contract's whole job is to hold the values the
+// engine refuses to know. `scripts/init.mjs` generates that file from the
+// adopting repo instead, which needs no exemption.
 //
-// This was tested once and held: generating a translator per runner would have
-// meant a branch per runner name here. It was refused, with a `templates/`
-// directory and a per-file exemption both weighed — see ADR-002. Someone
-// proposing either is reopening a settled question and should say what
-// changed.
+// **What this check is about is ONE repo, not one stack**, and the difference
+// became load-bearing under ADR-007. A test runner's name is no longer
+// coupling: the supported scope is Node, and `init` ships a small table saying
+// how each supported runner writes a report — a table that cannot exist if
+// naming a runner fails CI. What stays banned is the vocabulary of the
+// particular repo this engine was extracted from: its package manager, its
+// framework, its layer names. Those identify a codebase. A runner identifies
+// an ecosystem this engine now declares as its scope.
+//
+// The ban that was lifted is worth naming so nobody re-adds it by reflex: a
+// test runner. Anyone proposing to widen this list back to stack vocabulary is
+// reopening ADR-007 and should say what changed.
 
 // The workflow is in this list for a reason worth stating, because it is not
 // prose and looks out of place next to four Markdown files. It is the file that
@@ -104,7 +116,10 @@ const BANNED = [
   { pattern: /\binfrastructure\/|\binfrastructure layer\b/, label: 'infrastructure (the hexagonal layer)' },
   { pattern: /\bdomain\/(services|interfaces|value-objects|models)?\b/, label: 'domain/ (the hexagonal layer)' },
   { pattern: /\bpnpm run\b/, label: 'pnpm run' },
-  { pattern: /\bjest\b/i, label: 'jest' },
+  // A runner name used to sit here. It was removed with ADR-007, which made
+  // Node the supported scope and put a reporter-flag table in `init` — see
+  // this file's header for the line between one repo's vocabulary and one
+  // ecosystem's.
   { pattern: /\beslint\.config\.mjs\b/, label: 'eslint.config.mjs' },
   { pattern: /\bNestJS\b/i, label: 'NestJS' },
   { pattern: /\bdomain-service-trace\b/, label: 'domain-service-trace' },

@@ -1,35 +1,33 @@
 #!/usr/bin/env node
 /**
- * Cold start: a repo that is not an npm package, from nothing to a green
- * `spec-flow check`, through the route the README documents.
+ * Cold start: a Node repo, from nothing to a green `spec-flow check`, through
+ * the route the README documents.
  *
  * Every other fixture here tests a piece. This tests the claim a reader forms
  * from the front page — that they can adopt this engine — and it is the only
  * check that fails when adoption breaks for a reason no single piece owns.
  *
- * The repo it builds is deliberately hostile to the engine's own habits: no
- * `package.json`, no `node_modules`, sources and tests in a language this
- * engine has no code for. Until recently that repo could not finish one
- * milestone — `spec-trace` read a real, executed test as absent — and nothing
- * in CI would have said so, because every fixture was written in the stack
- * the engine happened to be written in.
+ * **Nothing is installed and nothing is hand-written.** The repo's suite is
+ * `node --test`, which ships with the Node this engine already requires and
+ * emits JUnit XML behind a flag. That matters more than convenience: the last
+ * time this fixture wrote a report by hand it wrote one no runner could
+ * produce, and a real, executed, passing test reading as absent went unnoticed
+ * in exactly the check that exists to notice it. The report here is written by
+ * a runner, so a spelling this engine cannot bind fails loudly.
  *
- * **It runs the engine the way a non-npm repo has to**: by path, out of a
- * clone, from the consuming repo's root, with no arguments and no environment
- * variables. That is the second install route in the README, and this is what
- * holds it to being true.
- *
- * `python3` is the only thing it needs beyond git and Node, and it is used as
- * a stand-in rather than a dependency — no test framework is installed. The
- * claim under test is not that pytest works; it is that a repo whose commands
- * this engine cannot guess anything about can still satisfy the contract.
+ * The claim under test moved with ADR-007. It used to be that a repo the
+ * engine could guess nothing about could still satisfy the contract by hand;
+ * the supported scope is Node now, and the front page promises more than
+ * satisfiability — that `init` reads the commands, appends the reporter flag,
+ * and leaves a bounded, named set of gaps. Each of those is a case below.
  *
  *   node scripts/cold-start.mjs
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,14 +53,41 @@ function check(name, problem) {
 const repo = mkdtempSync(join(tmpdir(), 'spec-flow-cold-'));
 
 try {
-  // ---- a repo with nothing this engine can read ----------------------------
-  mkdirSync(join(repo, 'modules', 'auth'), { recursive: true });
-  mkdirSync(join(repo, 'tests'), { recursive: true });
-  writeFileSync(join(repo, 'pyproject.toml'), '[project]\nname = "demo"\n');
-  writeFileSync(join(repo, 'modules', 'auth', 'login.py'), 'def login(user, password):\n    return password == "right"\n');
+  // ---- an ordinary Node repo, and nothing else -----------------------------
+  mkdirSync(join(repo, 'lib'), { recursive: true });
+  mkdirSync(join(repo, 'test'), { recursive: true });
   writeFileSync(
-    join(repo, 'tests', 'auth_test.py'),
-    'def test_REQ_AUTH_001_a_bad_password_is_rejected():\n    assert True\n',
+    join(repo, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'cold-start',
+        version: '1.0.0',
+        type: 'module',
+        // Through an interpreter on purpose. It is the zero-dependency Node
+        // setup, it is the case where `init` CANNOT name the runner from the
+        // bin, and it is therefore the one that proves the reporter flag is
+        // found from the argv rather than from `test_name`.
+        scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(join(repo, 'lib', 'login.js'), 'export const login = (user, password) => password === "right";\n');
+  // Enough files for the scope globs to be a reading rather than a guess. A
+  // one-file repo makes `init` report a field it would have detected in any
+  // real project, which would inflate the count below into a false regression.
+  for (const name of ['session', 'token', 'user', 'audit']) {
+    writeFileSync(join(repo, 'lib', `${name}.js`), `export const ${name} = () => '${name}';\n`);
+  }
+  writeFileSync(
+    join(repo, 'test', 'auth.test.js'),
+    "import { test } from 'node:test';\n" +
+      "import assert from 'node:assert';\n" +
+      "import { login } from '../lib/login.js';\n\n" +
+      "test('REQ-AUTH-001 a bad password is rejected', () => {\n" +
+      "  assert.equal(login('u', 'wrong'), false);\n" +
+      '});\n',
   );
 
   git(repo, 'init', '-q', '.');
@@ -73,30 +98,36 @@ try {
   git(repo, 'commit', '-qm', 'baseline');
 
   check(
-    'the repo under test is genuinely not an npm package',
-    existsSync(join(repo, 'package.json')) || existsSync(join(repo, 'node_modules'))
-      ? 'the fixture built an npm package, so it proves nothing about a repo that is not one'
+    'nothing was installed for this fixture',
+    existsSync(join(repo, 'node_modules'))
+      ? 'the fixture installed a runner, so it no longer proves the documented route works on a fresh clone'
       : null,
   );
 
   // ---- step 3: init ---------------------------------------------------------
   const init = engine('init.mjs', repo);
+  const initOut = `${init.stdout}${init.stderr}`;
 
-  check(
-    'init refuses to call an unusable contract finished',
-    init.status === 0 ? `init exited 0 on a repo where it could detect almost nothing:\n${init.stdout}` : null,
-  );
-  // ADR-005: what init leaves behind is a contract naming a report FORMAT the
-  // engine can read, not a file the adopter must program. The assertion moved
-  // with the decision — a stub written here would now be a file nothing points
-  // at.
-  const initial = JSON.parse(readFileSync(join(repo, '.spec-flow', 'config.json'), 'utf8'));
+  const contractPath = join(repo, '.spec-flow', 'config.json');
+  check('init wrote a contract', existsSync(contractPath) ? null : `no contract was written:\n${initOut}`);
+
+  const initial = JSON.parse(readFileSync(contractPath, 'utf8'));
   check(
     'init leaves a proof source the engine can read, with no code for the adopter to write',
     initial.trace?.report?.format && initial.trace?.report?.path
       ? null
       : `init did not declare a readable report source: ${JSON.stringify(initial.trace)}`,
   );
+
+  // The front page's strongest claim, and the one ADR-007 bought by narrowing
+  // the scope: the flag is appended, not described.
+  check(
+    'init appends the reporter flag for a runner in scope',
+    initial.verify.test.some((token) => token.includes(initial.trace.report.path))
+      ? null
+      : `verify.test does not write the report the contract points at: ${JSON.stringify(initial.verify.test)}`,
+  );
+
   check(
     'no translator is scaffolded unasked',
     existsSync(join(repo, '.spec-flow', 'tests-that-ran.mjs'))
@@ -107,52 +138,33 @@ try {
   // What an adopter actually has to supply, counted so that growth is visible
   // rather than absorbed. This number going UP is a real regression in
   // adoption cost even when every other check here still passes.
-  const missing = init.stdout.split('\n').filter((l) => l.trim().startsWith('MISSING'));
+  const missing = initOut.split('\n').filter((l) => l.trim().startsWith('MISSING'));
   check(
     'the adopter is asked for a known, bounded set of fields',
-    missing.length > 6
-      ? `a non-Node repo is now asked for ${missing.length} fields:\n${missing.join('\n')}`
-      : null,
+    missing.length > 3 ? `a Node repo is now asked for ${missing.length} fields:\n${missing.join('\n')}` : null,
   );
 
   // ---- the adopter fills in what init asked for -----------------------------
   //
-  // Written the way a human would: the contract's own values, not the
-  // engine's. `python3 -c` stands in for a linter and a runner so this needs
-  // nothing installed — what is under test is the CONTRACT being satisfiable,
-  // not any particular tool.
-  const contract = JSON.parse(readFileSync(join(repo, '.spec-flow', 'config.json'), 'utf8'));
-  contract.verify.scope_globs = ['*.py'];
-  contract.verify.lint = ['python3', '-c', 'pass'];
-  contract.verify.lint_no_fix = ['python3', '-c', 'pass'];
-  contract.verify.lint_name = 'ruff';
-  contract.verify.lint_config_hint = 'pyproject.toml';
-  contract.verify.test = ['python3', '-c', 'pass'];
-  contract.verify.test_name = 'pytest';
-  contract.trace.proof_dir = 'tests';
-  contract.trace.proof_suffix = '_test.py';
-  writeFileSync(join(repo, '.spec-flow', 'config.json'), `${JSON.stringify(contract, null, 2)}\n`);
-
-  // And leaves the report where the contract says it goes — the shape a
-  // `--junitxml`-style flag produces, written here directly because this
-  // fixture must install nothing. The point of the case is that the ENGINE
-  // reads it: nothing in this repo is Node, nothing was programmed for the
-  // engine, and no runner is named anywhere in the parser.
-  const junit = (name, skipped = false) =>
-    `<?xml version="1.0" encoding="utf-8"?>\n<testsuites>\n  <testsuite name="pytest" tests="1">\n    <testcase classname="tests.auth_test" name="${name}" time="0.01">${skipped ? '<skipped/>' : ''}</testcase>\n  </testsuite>\n</testsuites>\n`;
-
-  mkdirSync(join(repo, dirname(contract.trace.report.path)), { recursive: true });
-  writeFileSync(join(repo, contract.trace.report.path), junit('test_REQ-AUTH-001_a_bad_password_is_rejected'));
+  // Only what init NAMED: the runner and the linter cannot be read off a script
+  // that runs through `node`. Everything else, including the reporter flag,
+  // came from init.
+  const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+  contract.verify.scope_globs = ['*.js'];
+  contract.verify.test_name = 'node-test';
+  contract.verify.lint_name = 'fixture-lint';
+  contract.verify.lint_config_hint = 'package.json';
+  writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
 
   writeFileSync(
     join(repo, 'specs', 'auth.md'),
-    '<!-- spec-scope: modules/auth -->\n\n# Auth\n\n### REQ-AUTH-001 — a bad password is rejected\n\nThe system rejects a login whose password does not match.\n',
+    '<!-- spec-scope: lib -->\n\n# Auth\n\n### REQ-AUTH-001 — a bad password is rejected\n\nThe system rejects a login whose password does not match.\n',
   );
 
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'adopt spec-flow');
   git(repo, 'checkout', '-qb', 'feature');
-  writeFileSync(join(repo, 'modules', 'auth', 'login.py'), 'def login(user, password):\n    return password == "right"  # changed\n');
+  writeFileSync(join(repo, 'lib', 'login.js'), 'export const login = (user, password) => password === "right"; // changed\n');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'work');
 
@@ -161,31 +173,44 @@ try {
   const out = `${green.stdout}${green.stderr}`;
 
   check(
-    'a repo the engine can detect nothing about reaches a green check',
-    green.status !== 0 ? `spec-flow check failed on a fully configured non-Node repo:\n${out}` : null,
+    'a Node repo reaches a green check through the documented route',
+    green.status !== 0 ? `spec-flow check failed on a repo init configured:\n${out}` : null,
   );
   check(
     'the requirement binds to the test the runner reported',
     /every one proven by a test/.test(out) ? null : `spec-trace did not report the requirement as proven:\n${out}`,
   );
+  check(
+    'the report was written by the run the gate performed',
+    existsSync(join(repo, contract.trace.report.path))
+      ? null
+      : `no report at ${contract.trace.report.path} after the suite ran — the appended flag does not produce one`,
+  );
 
   // ---- and the property the whole binding rests on -------------------------
   //
-  // The test still exists and still names the requirement — the report now
-  // marks it `<skipped/>`, which is a real skip written the way a real runner
-  // writes one, rather than a line removed from a text file. If this passes,
-  // every requirement in every language is one skip decorator from unproven
-  // while the check stays green.
+  // The test still exists and still names the requirement; it is skipped, and
+  // the runner writes that skip itself. If this passes, every requirement is
+  // one skip away from unproven while the check stays green.
   writeFileSync(
-    join(repo, contract.trace.report.path),
-    junit('test_REQ-AUTH-001_a_bad_password_is_rejected', true),
+    join(repo, 'test', 'auth.test.js'),
+    "import { test } from 'node:test';\n\n" +
+      "test('REQ-AUTH-001 a bad password is rejected', { skip: 'wip' }, () => {});\n",
   );
-  const skipped = engine('spec-trace.mjs', repo);
+  const rerun = engine('check-changed.mjs', repo);
+  const skippedOut = `${rerun.stdout}${rerun.stderr}`;
+
   check(
-    'a test the runner did not report is not proof, in a language the engine has no code for',
-    skipped.status === 0
-      ? `a requirement stayed proven after its test stopped being reported:\n${skipped.stdout}${skipped.stderr}`
+    'a test the runner reported as skipped is not proof',
+    rerun.status === 0
+      ? `a requirement stayed proven after its test stopped running:\n${skippedOut}`
       : null,
+  );
+  check(
+    'the skip is read from the report, not guessed',
+    /REQ-AUTH-001/.test(skippedOut)
+      ? null
+      : `the failure did not name the requirement whose proof disappeared:\n${skippedOut}`,
   );
 } finally {
   rmSync(repo, { recursive: true, force: true });
@@ -198,5 +223,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  'cold-start: OK — a repo with no package.json, in a language this engine has no code for, goes from nothing to a green check.',
+  'cold-start: OK — a Node repo goes from nothing to a green check through the documented route, with the reporter flag init appended and a report its own runner wrote.',
 );

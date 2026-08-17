@@ -6,11 +6,13 @@ and an implementation loop gated by lint, tests and requirement traceability
 running **outside the model**.
 
 Two commands — `/spec-flow` for a feature, `/spec-fix` for a defect — drive
-five subagents, each pinned to the model its job needs. The engine has no
-opinion about your language, framework or architecture, and that is structural
-rather than aspirational: **it reads no source code.** It runs the commands
-your repo declares in one file it writes, `.spec-flow/config.json`, and reads
-their output.
+five subagents, each pinned to the model its job needs. **It is built for
+Node projects** — that is the scope, and it is what the fixtures, CI and `init`
+are written against. Within it the engine still has no opinion about your
+framework or your architecture, and that part is structural rather than
+aspirational: **it reads no source code.** It runs the commands your repo
+declares in one file it writes, `.spec-flow/config.json`, and reads their
+output.
 
 Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 
@@ -19,6 +21,12 @@ Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 ## Requirements
 
 - Claude Code, and a git repo with a base branch you branch off of
+- **A Node project** — a `package.json` declaring how you test and lint. That
+  is the supported scope: what is documented, what CI exercises, and what
+  `init` reads. Nothing here refuses to run elsewhere, and the engine parses no
+  source, so a contract filled in by hand on another stack may well work — it
+  is simply not tested or supported. [Why the scope was narrowed, and what was
+  refused](decisions/007-the-supported-scope-is-node.md)
 - Node 20+ — enforced: a run refuses to start below it
 - A linter and a test runner you can invoke from the command line
 
@@ -31,7 +39,7 @@ finite, and worth seeing before you start.
 | Yours | The engine's |
 |---|---|
 | **The contract** — which commands lint and test, what is in scope, where specs live. `init` reads most of it off your repo and reports what it could not | Running those commands, scoping lint to the changed files, never scoping the suite |
-| **One reporter flag**, so your suite writes a report saying which tests RAN | Parsing that report — JUnit XML or TAP — binding each requirement to a test that executed, in both directions, and refusing when it cannot tell |
+| **Confirming the reporter flag** `init` added, so your suite writes a report saying which tests RAN — and supplying it yourself if your runner is not one it knows | Proposing that flag, parsing the report — JUnit XML or TAP — binding each requirement to a test that executed, in both directions, and refusing when it cannot tell |
 | **Writing the specs' words** — at sign-off, you approve what the system will claim to do | Refusing to let a requirement stay unproven, or a test prove something no spec declares |
 | **The judgement calls** — the sign-off, a `WRONG-SPEC` confirmation, and any run the gate hands back after five failures | Everything between those: planning, review, implementation, and the checks that run outside the model |
 | **Keeping Node and Claude Code current** | Refusing to start on a Node it does not support, and recording the Claude Code that ran each gate |
@@ -41,40 +49,38 @@ of the rows above, and it says which.
 
 ## Install
 
-All of it, in the route that works on any repo in any language. Run it from
-your repo's root, on a branch off your base branch:
+Run it from your repo's root, on a branch off your base branch:
 
 ```bash
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 
-git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin /tmp/spec-flow
-node /tmp/spec-flow/scripts/init.mjs             # writes .spec-flow/config.json
-node /tmp/spec-flow/scripts/check-changed.mjs    # green here means green at the gate
+npm install --save-dev spec-flow-plugin
+npx spec-flow init      # writes .spec-flow/config.json
+npx spec-flow check     # green here means green at the gate
 ```
 
-**No code is yours to write.** `init` reads your test and lint commands off the
-repo and writes a contract the engine can run; the last line proves it. Below is
-what each step is for, to be read when one does not do what you expected.
+**The package is `spec-flow-plugin` and the command is `spec-flow`** — the
+shorter name belongs to an unrelated package on npm. Install first: `npx
+spec-flow` in a repo that has not installed it reaches the registry and runs
+that one instead.
+
+**No code is yours to write, and on a conventional project no configuration
+either.** `init` reads your test and lint commands off `package.json`, adds
+your runner's reporter flag to the test command, and writes a contract the
+engine can run; the last line proves it. Below is what each step is for, to be
+read when one does not do what you expected.
 
 **1. The plugin** brings the commands, the agents and the hooks. Nothing else
 in this list is Claude-Code-specific.
 
-**2. The engine on disk**, because the same checks have to run outside a
-session. The hooks reach the engine through `${CLAUDE_PLUGIN_ROOT}`, which
-exists only inside Claude Code, and your terminal and CI need the same file —
-not a second copy free to drift from it. The clone above needs nothing
-installed: the engine has **no runtime dependencies**, so every command runs
-from your repo's root with no arguments and no environment variables. If your
-repo is already an npm package there is a tidier route with the same effect:
-
-```bash
-npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
-```
-
-which gives you `npx spec-flow init` and `npx spec-flow check` in place of the
-two `node /tmp/spec-flow/...` lines.
-[Both routes, and what each command maps to](REFERENCE.md#cli).
+**2. The engine as a devDependency**, because the same checks have to run
+outside a session. The hooks reach the engine through `${CLAUDE_PLUGIN_ROOT}`,
+which exists only inside Claude Code, and your terminal and CI need the same
+file — not a second copy free to drift from it. It has **no runtime
+dependencies** of its own, and every command runs from your repo's root with no
+arguments and no environment variables.
+[The commands, and the by-path route for a repo that cannot take the dependency](REFERENCE.md#cli).
 
 **3. The contract.** `init` reads what your repo already declares — your `test`
 and `lint` scripts, where your tests live, your base branch — writes
@@ -82,23 +88,30 @@ and `lint` scripts, where your tests live, your base branch — writes
 could not determine**, so it sorts every field into `detected`, `REVIEW` or
 `MISSING` and exits non-zero until nothing is missing.
 
-**The one thing it cannot do for you is make your suite emit a report.** To
-bind a requirement to a test, the engine has to know which tests *ran* — and a
-test that was skipped must not count, or skipping becomes the cheapest way to
-silence a red suite. It reads that from a report your runner already knows how
-to write, so `init` points the contract at a path and asks you to confirm it:
+**Your suite has to say which tests RAN**, because a test that was skipped must
+not count as proof — otherwise skipping is the cheapest way to silence a red
+suite. That comes from a report your runner already knows how to write:
 
 ```json
 "report": { "format": "junit", "path": "reports/junit.xml" }
 ```
 
-Add your runner's reporter flag to the test command so the file lands there.
-That is one flag, not a script: the engine parses JUnit XML and TAP itself,
-because `<skipped/>` and `# SKIP` are defined by those formats rather than by
-any runner. **Until it lands, traceability is simply off** — the gate still
+`init` appends the flag that produces it to your test command, for the runners
+this engine supports, and marks it `REVIEW` so you see the edit. It is a flag
+and never a script: the engine parses JUnit XML and TAP itself, because
+`<skipped/>` and `# SKIP` are defined by those formats rather than by any
+runner. If your runner is one it does not know, it says so and leaves the flag
+to you. **Until the report lands, traceability is simply off** — the gate still
 lints and tests — and it turns itself back on the moment you declare a
 requirement, refusing rather than passing quietly.
 [Both proof sources, and the escape hatch for runners with no standard report](REFERENCE.md#what-makes-a-requirement-proven).
+
+**If `init` left `MISSING` lines, a Claude Code session can finish the job.**
+Ask it to set up spec-flow in this repo: the plugin ships a setup skill that
+fills what `init` could not read — most often a `test` script that runs through
+an interpreter rather than a named runner — and then *proves* the result by
+running your suite and the check below. It cannot be wrong quietly: the last
+thing it does is run step 4, and step 4 goes red when the report does not land.
 
 **4. Check it.** `check-changed` lints what this branch changed, runs your
 suite, and runs the traceability check — the same commands the gate will run,
@@ -182,6 +195,8 @@ npm run trace:check   # the requirement/proof binding holds
 npm run report:check  # the report readers, against real emitters' output
 npm run hooks:check   # the other nine hooks
 npm run agents:check  # the planner and the reviewer agree about the milestone
+npm run skill:check   # the setup skill and the engine agree about the contract
+npm run pack:check    # the published tarball installs and works from node_modules
 npm run cold:check    # a repo that is not an npm package, from zero to green
 ```
 

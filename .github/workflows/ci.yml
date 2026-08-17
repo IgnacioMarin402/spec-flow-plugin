@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · decisions · agents · gate · trace · hooks · cold-start
+    name: lint · typecheck · coupling · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +78,16 @@ jobs:
       - name: Agent contracts agree
         run: npm run agents:check
 
+      # The setup skill is prose a model acts on, with no compiler behind it:
+      # it names entrypoints, the buckets it tells the model to read in init's
+      # output, and the contract fields to fill. Rename any of those and the
+      # skill still reads correctly while sending the model after a word
+      # nothing prints. The last case holds the engine to failing LOUDLY on a
+      # wrong reporter flag, which is what makes the model's judgement here
+      # survivable — see ADR-006.
+      - name: Setup skill agrees with the engine
+        run: npm run skill:check
+
       # Builds throwaway repos, installs the engine at a SEPARATE path (the
       # way it actually ships), and asserts the gate's documented behaviour
       # holds — including the split this whole extraction exists to make
@@ -109,11 +119,25 @@ jobs:
         run: npm run hooks:check
 
       # The only check that fails when ADOPTION breaks. Every step above tests
-      # a piece of the engine in the stack the engine is written in; this takes
-      # a repo with no package.json, in a language this engine has no code for,
-      # from nothing to a green `spec-flow check` through the route the README
-      # documents — by path, out of a clone, with no environment variables.
-      # python3 is preinstalled on the runner and stands in for a linter and a
-      # runner; nothing is installed.
-      - name: Cold start (a repo that is not an npm package)
+      # a piece of the engine; this takes a Node repo from nothing to a green
+      # `spec-flow check` through the route the README documents, and asserts
+      # the front page's strongest claim — that `init` appends the reporter
+      # flag rather than describing it.
+      #
+      # It installs NOTHING: the suite is `node --test`, which ships with the
+      # Node this workflow already sets up and emits JUnit XML behind a flag.
+      # The report is therefore written by a real runner, which is the property
+      # this check lost once before — a hand-written one spelled an id no
+      # runner could produce, and a passing test reading as absent went
+      # unnoticed here.
+      - name: Cold start (a Node repo, from nothing to green)
         run: npm run cold:check
+
+      # `files` in package.json is evaluated nowhere but `npm pack`, so a module
+      # dropped from it passes every check above and fails on the first
+      # `npx spec-flow init` in somebody's project. This packs the tarball,
+      # installs it into a throwaway repo as a real devDependency, and drives
+      # the documented CLI route through the installed bin. It is the only step
+      # here that needs the network.
+      - name: The published package works
+        run: npm run pack:check

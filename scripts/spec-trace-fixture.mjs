@@ -76,6 +76,11 @@ const CONFIG = {
     proof_dir: 'tests',
     proof_suffix: '.test.ts',
     executed_tests: ['node', '-e', 'console.log("tests/user.test.ts::REQ-USER-001 the user can do the thing")'],
+    // Present and null, exactly as the loader defaults it, so `reportContract`
+    // below can assign to it. Omitting it left the inferred type without the
+    // property, which is the one thing `npm run typecheck` had to say about
+    // this engine and it said it on every run.
+    report: null,
     not_a_capability: ['README.md'],
   },
   extra_checks: [],
@@ -217,34 +222,44 @@ await Promise.all([
     ),
   ),
 
-  // The engine reads lines, not a language. pytest's node ids and Go's
-  // subtest paths are just two shapes of line, and neither is known to the
-  // engine — the repo's translator emitted them.
-  check('a pytest-shaped report proves a requirement', () =>
+  // The engine reads lines, and the supported runners disagree about what a
+  // line looks like. A reporter that concatenates the suite title onto the test
+  // title puts the id in the middle of a longer string — this is the shape
+  // observed from a real run, not one invented to match the parser.
+  check('a name built from a suite path proves a requirement', () =>
     withRepo(
       {
         '.spec-flow/config.json': JSON.stringify(
-          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('tests/auth_test.py::test_REQ-USER-001_rejects') } },
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('auth > rejects > REQ-USER-001 the user can do the thing') } },
           null,
           2,
         ),
         'specs/user.md': spec(),
       },
-      (r) => (r.status === 0 ? null : `a real, executed pytest proof was reported as absent: ${r.out}`),
+      (r) => (r.status === 0 ? null : `an executed test whose reported name nests the id was read as absent: ${r.out}`),
     ),
   ),
 
-  check('a Go-shaped subtest report proves a requirement', () =>
+  // `_` is read as `-`, so a repo that titles its tests the way it names its
+  // identifiers still binds. This was found the hard way — a report naming
+  // `test_REQ_USER_001_...` read as "has no test that RAN" while the test had
+  // run and passed — and the guard is kept under ADR-007 because the spelling
+  // is legal here too: a title is a string, and plenty of suites write them
+  // this way.
+  check('an id written with underscores still binds', () =>
     withRepo(
       {
-        '.spec-flow/config.json': JSON.stringify(
-          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran('--- PASS: TestAuth/REQ-USER-001_rejects_a_bad_password (0.00s)') } },
-          null,
-          2,
-        ),
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
         'specs/user.md': spec(),
+        'reports/junit.xml':
+          '<?xml version="1.0" encoding="utf-8"?>\n<testsuites><testsuite name="suite" tests="1" failures="0">' +
+          '<testcase classname="test/user.test.ts" name="test_REQ_USER_001_the_user_can_do_the_thing" time="0.001"/>' +
+          '</testsuite></testsuites>\n',
       },
-      (r) => (r.status === 0 ? null : `a real, executed Go proof was reported as absent: ${r.out}`),
+      (r) =>
+        r.status === 0
+          ? null
+          : `a test that ran and passed was reported as absent over its spelling — the defect ADR-001 exists to remove, arriving through the id: ${r.out}`,
     ),
   ),
 
@@ -333,6 +348,83 @@ await Promise.all([
           return 'a repo declared a requirement and no way to prove it, and the check went green — an opt-out that survives its own precondition is a disarmed gate';
         }
         if (!/opt-in|opted out|trace\.report/.test(r.out)) return `the refusal did not say how to arm it: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  // The state every adopter is in on their first run, and the one no case
+  // here covered: `init` always writes `trace.report`, so "declared but not
+  // producing anything yet" — not "no source" — is what the install route
+  // ends on. Its pair is the refusal case above: the SAME missing report with
+  // a requirement declared must still be refused, which is what keeps this
+  // grace from being an opt-out that outlives its precondition.
+  check('a declared report that has not landed yet, with nothing to prove, is not a refusal', () =>
+    withRepo(
+      { '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }) },
+      (r) => {
+        if (r.status !== 0) {
+          return `the contract init writes failed the command the install route ends with, on a repo with no requirements: ${r.out}`;
+        }
+        if (!/nothing to bind|no requirement/i.test(r.out)) {
+          return `it passed without saying it was unarmed, which is how an unarmed check gets mistaken for a passing one: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // A capability file with no `###` heading yet is a real state — a fold that
+  // wrote the file before the first requirement landed in it — and it is the
+  // one where `specs/` is non-empty while `requirements` is. The green must
+  // not claim proof it never looked for.
+  check('an unarmed source never reports requirements as proven', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'specs/user.md': '<!-- spec-scope: modules/user -->\n\n# User\n\nNo requirement declared yet.\n',
+      },
+      (r) => {
+        if (r.status !== 0) return `a spec file with no requirement in it blocked the check: ${r.out}`;
+        if (/every one proven by a test/.test(r.out)) {
+          return `it claimed every requirement was proven while nothing was read about which tests ran: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  // The same grace on the other proof source. `executed_tests` is where an
+  // unfinished translator lands, which is the same fact as a report that has
+  // not been written — nothing has been produced to read — and the two must
+  // not answer differently for a repo with nothing to prove.
+  check('the same grace covers the other proof source, so neither is the odd one out', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': JSON.stringify(
+          { ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ['node', '-e', 'process.exit(3)'] } },
+          null,
+          2,
+        ),
+      },
+      (r) => {
+        if (r.status !== 0) {
+          return `a report source producing nothing blocked a repo with no requirements, while a missing report file does not: ${r.out}`;
+        }
+        return null;
+      },
+    ),
+  ),
+
+  check('the unarmed grace does not swallow the other checks', () =>
+    withRepo(
+      {
+        '.spec-flow/config.json': reportContract({ format: 'junit', path: 'reports/junit.xml' }),
+        'specflow/archive/old-change/spec.md': '# Old change\n\nNo status line anywhere.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `an archived change with no status passed under the unarmed grace: ${r.out}`;
+        if (!/no status/i.test(r.out)) return `the failure was not the archive problem: ${r.out}`;
         return null;
       },
     ),
@@ -804,7 +896,7 @@ await Promise.all([
   // It matters more than it looks, because the gate's attempt-1 route hands a
   // red suite straight back to an implementer, and skipping is the cheapest
   // way to make a failing test stop failing.
-  check('a test that exists in every language\'s skipped form is not proof', () =>
+  check('a test that exists in every skipped form is not proof', () =>
     withRepo(
       {
         '.spec-flow/config.json': JSON.stringify(
@@ -813,9 +905,14 @@ await Promise.all([
           2,
         ),
         'specs/user.md': spec(),
+        // Every way this scope has of not running a test, in files the walk
+        // would once have found. The source is irrelevant now and that is the
+        // point of the case: what decides is the report, which names none of
+        // them.
         'tests/user.test.ts': `it.skip('REQ-USER-001 skipped', () => {});\n`,
-        'tests/user_test.py': `@pytest.mark.skip\ndef test_REQ_USER_001_skipped(): pass\n`,
-        'tests/user_test.go': `func TestUser(t *testing.T) { t.Skip(); t.Run("REQ-USER-001 x", nil) }\n`,
+        'tests/todo.test.ts': `test.todo('REQ-USER-001 not written yet');\n`,
+        'tests/suite.test.ts': `describe.skip('REQ-USER-001', () => { it('x', () => {}); });\n`,
+        'tests/runtime.test.ts': `it('REQ-USER-001', (t) => { t.skip('not today'); });\n`,
       },
       (r) => {
         if (r.status === 0) return 'a skipped test registered as proof — the requirement is unproven but reads as covered';

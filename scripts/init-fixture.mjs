@@ -142,9 +142,22 @@ await Promise.all([
         return `a fully discoverable repo still has ${missing.length} field(s) the adopter must supply:\n${missing.join('\n')}`;
       }
 
-      const reportReview = res.stdout.split('\n').filter((l) => /^\s*REVIEW\s+trace\.report/.test(l));
+      // ADR-007 moved this from "the path is proposed and the flag is yours" to
+      // "the flag is appended too", for the runners the supported scope knows.
+      // The REVIEW is still required and is now about an EDIT to the adopter's
+      // own test command, which is a stronger reason to show it than a guessed
+      // path was.
+      const reportReview = res.stdout.split('\n').filter((l) => /^\s*REVIEW\s+(trace\.report|verify\.test)\b/.test(l));
       if (reportReview.length !== 1) {
-        return `the report path was not flagged for review, so a guessed path reads as a detected one: ${res.stdout}`;
+        return `the report source was not flagged for review, so an inference reads as a reading: ${res.stdout}`;
+      }
+
+      // The claim the line above only asserts in prose: a flag that was
+      // announced and not written is the shape this engine exists to refuse.
+      const written = JSON.parse(readFileSync(join(dir, '.spec-flow', 'config.json'), 'utf8'));
+      const reportPath = written.trace.report.path;
+      if (!written.verify.test.some((token) => token.includes(reportPath))) {
+        return `init said it appended a reporter flag and verify.test does not name ${reportPath}: ${JSON.stringify(written.verify.test)}`;
       }
 
       // The escape hatch must not be written unasked: nothing points at it, and

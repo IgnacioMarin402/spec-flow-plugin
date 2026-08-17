@@ -32,8 +32,8 @@
  * engine cannot read would silently get someone else's values instead of a
  * refusal to run. Every hook calls `loadConfig` unguarded for this reason.
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The list of readable formats has one home, and it is the file that reads
 // them. Restating it here would let a format be accepted by the contract and
@@ -239,6 +239,40 @@ function validate(config, source) {
   }
 
   return problems;
+}
+
+/**
+ * Creates the directory `trace.report.path` points into, before the suite runs.
+ *
+ * **Every caller that spawns `verify.test` must call this first**, and there
+ * are two — the gate and `check-changed` — which already have to agree command
+ * for command, so this is one more thing they cannot be allowed to differ on.
+ *
+ * The engine owns this because the engine causes it. `init` appends the
+ * reporter flag itself now, so a runner that will not create its own output
+ * directory gets handed a path that does not exist and dies on the adopter's
+ * first run, holding a command this package wrote. Runners disagree about
+ * this — some create it, some do not — and which ones is exactly the kind of
+ * per-runner behaviour that does not belong in a table.
+ *
+ * Doing it at RUN time rather than at `init` time is the whole point: an empty
+ * directory is not a thing git stores, so one created during setup is gone from
+ * the next clone and CI meets the same ENOENT with nobody around to read it.
+ *
+ * @param {string} root Absolute path to the consuming repo.
+ * @param {object} config A loaded contract.
+ */
+export function ensureReportDir(root, config) {
+  const path = config?.trace?.report?.path;
+  if (!path) return;
+  const dir = dirname(isAbsolute(path) ? path : join(root, path));
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    // Not fatal here: the suite is about to run and will say so far more
+    // clearly than this could, and a report that never lands is already a
+    // refusal spec-trace knows how to explain.
+  }
 }
 
 /** @param {string} root Absolute path to the repo whose contract this reads. */

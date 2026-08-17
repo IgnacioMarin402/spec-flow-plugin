@@ -34,7 +34,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const SCAN_DIRS = ['commands', 'agents', 'hooks'];
+// `skills` is the plugin-root directory, not `.claude/skills` — the first ships
+// to adopters inside the package, the second is this repo's own development
+// skills and reaches nobody else. A skill carries the same call sites a command
+// does, because it is the same markdown a model acts on.
+const SCAN_DIRS = ['commands', 'agents', 'hooks', 'skills'];
 const SCAN_EXTENSIONS = ['.md', '.json'];
 
 // `${CLAUDE_PLUGIN_ROOT}/some/path.mjs` — the trailing character class stops
