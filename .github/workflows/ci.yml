@@ -111,6 +111,13 @@ jobs:
       - name: test-report readers
         run: npm run report:check
 
+      # The session-reuse numbers in the stats report. The case that carries
+      # the design is the cross-milestone one: counting repeated reads over a
+      # whole run is the obvious implementation and it reports the EXPECTED
+      # case — a fresh session per milestone — as waste.
+      - name: stats report
+        run: npm run stats:check
+
       # The other nine hooks. Shallower than the gate fixture, and that is
       # the right trade: they are nine small adapters over one protocol, and
       # what a port breaks in them is coarse — a hook that crashes, or fires

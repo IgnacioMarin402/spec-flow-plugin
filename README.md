@@ -192,6 +192,7 @@ npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
 npm run report:check  # the report readers, against real emitters' output
+npm run stats:check   # the telemetry report's session-reuse numbers
 npm run hooks:check   # the other nine hooks
 npm run agents:check  # the planner and the reviewer agree about the milestone
 npm run skill:check   # the setup skill and the engine agree about the contract
