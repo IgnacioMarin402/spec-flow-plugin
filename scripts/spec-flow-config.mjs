@@ -1,37 +1,30 @@
 #!/usr/bin/env node
 /**
- * The only reader of `.spec-flow/config.json`.
- *
- * Everything the engine needs to know about the repo it is running in comes
- * through here: which command lints, which one tests, which files are in
- * scope, where the specs live, which extra checks the repo declares. Nothing
- * else parses that file — one reader means defaults, validation and the
- * version check exist once instead of in ten hooks.
+ * The only reader of `.spec-flow/config.json`. One reader means defaults,
+ * validation and the version check exist once instead of in ten hooks.
  *
  *   import { loadConfig } from './spec-flow-config.mjs';
  *   const config = loadConfig(root);
  *
  * `root` is the consuming repo's directory, explicit rather than inferred,
- * and it is never where this script sits. Every caller passes it down from
- * `CLAUDE_PROJECT_DIR` (hooks) or `process.cwd()` (the CLI). Resolving it from
- * `import.meta.url` would read the PLUGIN's contract, or none at all — both of
- * which fail without saying so.
+ * and never where this script sits. Callers pass it from `CLAUDE_PROJECT_DIR`
+ * (hooks) or `process.cwd()` (the CLI); resolving it from `import.meta.url`
+ * would read the PLUGIN's contract, or none at all, and fail without saying so.
  *
- * **A missing file is not silent, and neither is an unreadable version.**
- * There is no test runner, linter or layer name safe to assume for a repo this
- * engine has never seen, so the defaults below carry only what has no
- * stack-specific content (`specs_dir`, the not-a-capability filenames);
- * everything naming a tool or a layer is required. `validate()` runs on EVERY
- * load, missing file included, and says what is absent and where it goes. An
- * adopter meets that message before anything runs with a guess: `spec-flow
- * init` at setup, `preflight.mjs` at the first subagent of a run.
+ * **A missing file is not silent, and neither is an unreadable version.** No
+ * test runner, linter or layer name is safe to assume for a repo this engine
+ * has never seen, so the defaults carry only what has no stack-specific
+ * content (`specs_dir`, the not-a-capability filenames) and everything naming
+ * a tool or a layer is required. `validate()` runs on EVERY load, missing file
+ * included, and says what is absent and where it goes.
  *
  * **Every caller MUST let a thrown error propagate — never catch it and fall
- * back to defaults.** A caller that did would make a version mismatch
- * indistinguishable from a missing file, and a repo declaring a version this
- * engine cannot read would silently get someone else's values instead of a
- * refusal to run. Every hook calls `loadConfig` unguarded for this reason.
+ * back to defaults.** Catching would make a version mismatch
+ * indistinguishable from a missing file, handing a repo whose declared
+ * version this engine cannot read someone else's values instead of a refusal
+ * to run.
  */
+
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';

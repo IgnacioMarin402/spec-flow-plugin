@@ -1,51 +1,28 @@
 #!/usr/bin/env node
 /**
- * External lint/test/spec gate. Runs OUTSIDE the model on the Stop event.
+ * External lint/test/spec gate. Runs OUTSIDE the model on the Stop event, and
+ * only while the flow is in the `implement` phase.
  *
- * - Only enforces while the flow is in the `implement` phase.
- * - Scopes LINT to the files CHANGED on this branch (vs the base branch), so
- *   a milestone is never blocked by pre-existing lint debt in files it never
- *   touched. Which files count is declared in `.spec-flow/config.json`, and
- *   which branch they are compared against is resolved by `resolveBase` —
- *   which refuses to guess: a wrong base disarms this gate entirely, since a
- *   scope of zero changed files lints nothing.
- * - Does NOT scope tests the same way, on purpose, and does not skip them
- *   when the scope is empty either. `lint(file)` is a total, local predicate
- *   over one file — file-scoping it is exact. A test suite's outcome is not a
- *   property of one file; it is a property of the system. A scoped test run
- *   can stay green while this change breaks a consumer outside the diff —
- *   silent-pass through the import graph, which is the exact failure this
- *   engine exists to close, reintroduced one level up in the test command's
- *   argv. The same argument applies to the degenerate case: "no file in scope
- *   changed" is a statement about the diff, not about the system, and an
- *   empty diff is not always real — a mis-resolved base manufactures one. So
- *   `verify.test` runs on EVERY armed gate. A red suite routes to the
- *   implementer first (attempt 1) before it is treated as evidence the plan
- *   is wrong.
- * - Also runs the unscoped checks, so a milestone cannot close while the specs
+ * - LINT is scoped to the files changed against the base branch; the SUITE
+ *   never is, and never skips, not even on an empty scope — see ADR-008.
+ *   `resolveBase` refuses to guess the base for the same reason: a wrong one
+ *   manufactures an empty scope and disarms the gate.
+ * - Runs the unscoped checks too, so a milestone cannot close while the specs
  *   and the tests that prove them disagree.
- * - Skips entirely (allowing the stop) while the tree is dirty: implementers
- *   run in the background, so a Stop can fire mid-write, and judging that
- *   snapshot produces false failures. The environment's own git-check owns
- *   dirty trees; this gate owns clean ones.
- * - Every invocation writes one line to `state/gate-history.log`: `running`
- *   before it judges, replaced by the outcome when it does. A `running` line
- *   that survives is proof its invocation was killed, and the next armed gate
- *   reports it as `fail:killed` — see `replaceRunning` below.
- * - Declares an explicit `timeout` in hooks.json (1800s) — the one guarantee
- *   in this file that this file cannot make. A `command` hook that reaches its
- *   timeout is CANCELED: output discarded, no decision rendered, and a Stop
- *   hook that renders no decision ALLOWS the stop. That is above this file's
- *   catch-all, so the `running` line is the only thing that makes it visible
- *   after the fact. The declared value buys headroom over the 600s default; it
- *   does not remove the ceiling, so a repo with a long suite declares a smoke
- *   subset as `verify.test` rather than hoping.
- * - On pass: allows the agent to stop. On fail: blocks and routes the failure
- *   back to PLAN or straight to the implementer, depending on its class.
- * - Caps the loop at MAX_ATTEMPTS, then hands control to a human, writing
- *   `blocked` into the phase file as it does — the wait state would be
- *   unreachable if the phase stayed `implement`, since the very act of
- *   stopping to wait would re-trigger this gate.
+ * - Skips entirely (allowing the stop) while the tree is dirty. Implementers
+ *   run in the background, so a Stop can fire mid-write and judging that
+ *   snapshot produces false failures.
+ * - Writes `running` to `state/gate-history.log` before judging and replaces
+ *   it with the outcome. A surviving `running` line is proof its invocation
+ *   was killed, and the next armed gate reports it as `fail:killed`. That line
+ *   is the only trace a CANCELED hook leaves: reaching the `timeout` declared
+ *   in hooks.json discards this file's output, and a Stop hook that renders no
+ *   decision ALLOWS the stop — above this file's catch-all.
+ * - On pass: allows the stop. On fail: blocks, routing back to PLAN or to the
+ *   implementer depending on the failure's class.
+ * - At MAX_ATTEMPTS it hands control to a human and writes `blocked` into the
+ *   phase file. The wait state would be unreachable under `implement`, since
+ *   stopping to wait re-triggers this gate.
  */
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';

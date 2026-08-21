@@ -2,34 +2,26 @@
 /**
  * Binds `decisions/` to the code, in both directions.
  *
- * A standalone document in this repo needs a reason to be trusted, because the
- * last one did not have it: `.spec-flow/skills.md` was deleted after it turned
- * out nothing read it — no script parsed it, so it could name skills that had
- * been renamed and nobody would learn. `decisions/` is allowed to exist on two
- * conditions, and this file is the second one.
+ *   node scripts/decisions.mjs
  *
- *   1. A decision record claims a MOMENT, not a present state. "On this date,
- *      for these reasons, we chose X" stays true after X is reversed; a
- *      reversal writes a superseding record rather than editing the old one.
- *      That is the property `skills.md` lacked — it claimed "these are the
- *      skills", which the present falsified silently.
+ * A standalone document here is trusted on two conditions, and this file is
+ * the second one:
  *
+ *   1. A record claims a MOMENT, not a present state. "On this date, for
+ *      these reasons, we chose X" stays true after X is reversed; a reversal
+ *      writes a superseding record rather than editing the old one.
  *   2. Every record is REACHABLE from the code it governs, and every citation
- *      resolves. That is what this checks, and it is the same shape as
- *      `plugin-paths.mjs`: an instruction naming a file that does not ship is
- *      an instruction that silently never runs, and a decision nobody cites is
- *      a decision nobody will find at the moment they are about to undo it.
+ *      resolves. Same shape as `plugin-paths.mjs`.
  *
- * Both directions fail, and for different reasons:
+ * Both directions fail:
  *
  *   citation with no record  -> a reader following `see ADR-007` finds
  *                               nothing, which is worse than no citation.
  *   record with no citation  -> the decision is unreachable from the code it
- *                               governs, so it will drift out of relevance
- *                               exactly the way `skills.md` did.
- *
- *   node scripts/decisions.mjs
+ *                               governs, so nobody finds it at the moment
+ *                               they are about to undo it.
  */
+
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';

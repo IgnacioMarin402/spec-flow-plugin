@@ -3,47 +3,31 @@
  * PreToolUse hook on subagent spawn AND SendMessage — refuses to start a run
  * the engine cannot finish.
  *
- * Until this existed, the contract's first BLOCKING check was `gate.mjs`, and
- * the gate only fires on `Stop` while the phase is `implement`. Everything
- * before that either reads the contract defensively or not at all, so a repo
- * with an unusable contract ran the whole way through SPEC, the human
- * sign-off, PLAN — an Opus call — REVIEW, and a full implementer milestone
- * before anything said the engine could not run here. The most expensive
- * calls in the flow were spent ahead of the cheapest check it has.
+ * It fires on the first subagent of a run: the earliest enforceable moment,
+ * and the one where a denial costs nothing because no agent has produced
+ * anything yet. A hook rather than a step in the orchestrator's instructions,
+ * for the same reason `opus-budget.mjs` is one — a preflight the model has to
+ * remember to run is not a preflight.
  *
- * A hook rather than a step in the orchestrator's instructions, for the same
- * reason `opus-budget.mjs` is one: a preflight the model has to remember to
- * run is not a preflight. This fires on the first subagent of a run, which is
- * the earliest enforceable moment and the one where a denial costs nothing —
- * no agent has produced anything yet.
+ * It checks only what stops a run dead:
  *
- * It checks the things that stop a run dead, and nothing else:
- *
- *   0. The Node running this engine is one the engine declares support for.
+ *   0. The Node running this engine is one it declares support for.
  *      `package.json`'s `engines.node` is the single source — a floor written
- *      twice drifts. Major version only, and only when it parses: a floor this
- *      engine cannot compare against confidently is not worth denying a run
- *      over. Why Node gets a floor and Claude Code does not: see ADR-004.
+ *      twice drifts. Major version only, and only when it parses. Why Node
+ *      gets a floor and Claude Code does not: see ADR-004.
+ *   1. The contract loads and validates, through the same reader every hook
+ *      uses, so this cannot disagree with what the gate would say later.
+ *   2. The base branch resolves IN THIS ENVIRONMENT. This cannot live in
+ *      `validate()`, which judges the shape of a file: a shallow or
+ *      single-branch clone has refs a full one does not, so the same contract
+ *      can be fine on one machine and unusable on another.
  *
- *   1. The contract loads and validates. Same reader every hook uses, so this
- *      cannot disagree with what the gate would have said later.
- *   2. The base branch resolves IN THIS ENVIRONMENT. That check cannot live
- *      in `validate()`, which judges the shape of a file: whether a base
- *      resolves depends on the clone — a shallow or single-branch checkout
- *      has refs a full one does not — so the same contract can be fine on one
- *      machine and unusable on another. Here it is checked where the run will
- *      actually happen.
+ * It is NOT a general policy hook. An empty `specs/`, a missing skill, an
+ * unwise test command — none stop a run from starting, so none belong here.
  *
- * It is NOT a general policy hook. `specs/` being empty, a missing skill, an
- * unwise test command — none of those stop a run from starting, so none of
- * them belong here. Every check above is fatal and cheap: two file reads and,
- * in most repos, one or two `git merge-base` calls.
- *
- * Stands down outside a run (`idle`/`done`), so a subagent spawned for
- * something unrelated to the flow never sees it. And like every hook here
- * except the gate, a crash in this file ALLOWS the call — `run()` without an
- * `onError` exits 0. Only a check that genuinely failed denies, and it does
- * so through the PreToolUse protocol: stderr plus exit 2.
+ * Stands down outside a run (`idle`/`done`), and like every hook except the
+ * gate a crash here ALLOWS the call: `run()` without an `onError` exits 0.
+ * Only a check that genuinely failed denies, via stderr plus exit 2.
  */
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';

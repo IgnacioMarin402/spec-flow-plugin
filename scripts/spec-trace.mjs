@@ -1,45 +1,39 @@
 #!/usr/bin/env node
 // Traceability check between a repo's capability specs and the tests that
-// prove them.
-//
-// A spec is the source of truth only if something breaks when the spec and
-// the code disagree. Otherwise it is documentation, and documentation rots
-// quietly. This script is what breaks.
+// prove them. A spec is the source of truth only if something breaks when the
+// spec and the code disagree; otherwise it is documentation, and
+// documentation rots quietly. This script is what breaks.
 //
 // It binds two artifacts the contract names:
 //
 //   <trace.specs_dir>/<capability>.md   what the system does today
 //   <trace.executed_tests>              argv naming the tests that RAN
 //
-// The binding is the requirement id (REQ-USER-001), and it binds from a test
-// the runner REPORTED as executed — a tag in a comment or a helper string
-// proves nothing, because no test ran under that name.
+// The binding is the requirement id (REQ-USER-001), and it binds only from a
+// test the runner REPORTED as executed — a tag in a comment or a helper
+// string proves nothing, because no test ran under that name.
 //
-// **Nothing here reads source code, and nothing walks the repo.** That is what
-// makes this check language-neutral, and it is a decision rather than an
-// implementation detail: see ADR-001.
+// **Nothing here reads source code, and nothing walks the repo**: see ADR-001.
 //
-// It is checked in BOTH directions:
+// Checked in BOTH directions:
 //
 //   requirement with no test     -> the spec claims something nobody proves.
 //   test tag with no requirement -> behaviour is protected that no spec
-//                                   declares, or a requirement was
-//                                   renamed/removed and its test left behind.
+//                                   declares, or a requirement was renamed
+//                                   and its test left behind.
 //
-// It also checks one thing about the archive: every change parked under
-// `specflow/archive/` declares what became of it (SHIPPED / REJECTED /
-// SUPERSEDED). An archived change with no status is indistinguishable from an
-// abandoned one.
+// Plus one archive rule: every change parked under `specflow/archive/`
+// declares what became of it (SHIPPED / REJECTED / SUPERSEDED), since an
+// archived change with no status cannot be told from an abandoned one.
 //
 //   node scripts/spec-trace.mjs          # check, exit 1 on drift
 //   node scripts/spec-trace.mjs --list   # also print the requirement -> test matrix
 //
 // Capabilities are opt-in: a module with no spec file under `specs_dir` is
-// not checked at all.
-//
-// This is engine core, not something a repo opts into — spec-trace is what
-// makes `specs/` authoritative rather than decorative, so it is deliberately
-// NOT in `.spec-flow/config.json`'s `extra_checks`. See `unscoped-checks.mjs`.
+// not checked. But the check itself is engine core, which is why it is NOT in
+// `.spec-flow/config.json`'s `extra_checks` — it is what makes `specs/`
+// authoritative rather than decorative. See `unscoped-checks.mjs`.
+
 
 import { readdirSync, readFileSync, statSync, lstatSync, realpathSync, existsSync } from 'node:fs';
 import { join, relative, basename } from 'node:path';

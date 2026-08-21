@@ -1,46 +1,32 @@
 #!/usr/bin/env node
 /**
  * PreToolUse hook on subagent spawn AND SendMessage — hard budget for the
- * Opus agents (`planner`, `architect`).
+ * Opus agents (`planner`, `architect`). A hook, not an instruction to the
+ * orchestrator: a budget that depends on the model remembering to count is
+ * not a budget.
  *
- * A hook, not an instruction to the orchestrator, on purpose: a budget that
- * depends on the model remembering to count is not a budget.
+ * SendMessage counts too, and has to — a follow-up into an existing planner
+ * session costs the same tokens as a fresh spawn. Identifying the recipient
+ * is best-effort over the payload's name-ish fields and FAILS OPEN: an
+ * unrecognised recipient is allowed, uncounted. Failing open is fine; failing
+ * open SILENTLY is not, so `state/opus-budget-unmatched.log` records the
+ * input's field names — NEVER the message body — one line per distinct shape.
+ * Session ids resolve through `state/agent-registry`, written at spawn time
+ * by register-agent.mjs.
  *
- * SendMessage counts too, and has to: a follow-up into an existing planner
- * session costs the same Opus tokens as a fresh spawn. Identifying the
- * recipient is best-effort over the payload's name-ish fields and FAILS OPEN
- * — a recipient the hook cannot recognize is allowed uncounted.
+ * `max_opus_calls` lives in the consuming repo's `.claude/spec-flow.config.json`,
+ * not in `.spec-flow/config.json`: it is a run-scoped number, not an
+ * architectural fact about the repo. Counted only while a run is in progress,
+ * so a one-off question to the architect outside the flow is never charged.
  *
- * Failing open is fine; failing open SILENTLY is not. `state/opus-budget-
- * unmatched.log` records the input's field names, NEVER the message body —
- * one line per distinct shape. Session ids resolve through
- * `state/agent-registry`, written at spawn time by register-agent.mjs.
+ * Two inaccuracies are accepted rather than fixed, because both err small
+ * against a default budget of 6 and neither can silently disarm it:
  *
- * `max_opus_calls` is deliberately NOT read from `.spec-flow/config.json` —
- * the Opus budget is deliberately outside the contract. It lives in the consuming repo's `.claude/spec-flow.config.json`
- * instead, next to nothing else — a run-scoped number, not an architectural
- * fact about the repo.
- *
- * Counts only while a run is actually in progress (phase != idle/done), so
- * asking the architect a one-off question outside the flow is never charged.
- *
- * Two known inaccuracies, both accepted rather than fixed, because the fix
- * costs more than the error:
- *
- *   - It counts the INTENT to spawn, not the spawn. This is a PreToolUse
- *     hook: it runs before the call and never learns whether it succeeded,
- *     so a spawn that errors out is still charged. Correcting it would take
- *     a second PostToolUse hook that decrements on failure — a second piece
- *     of state, able to drift from this one, to recover at most a call or
- *     two per run.
- *   - Read-then-write is not atomic, so two spawns racing in the same
- *     instant can read the same count and undercharge by one. The flow is
- *     sequential by construction (the orchestrator waits on each subagent),
- *     so this needs concurrency the pipeline does not currently have.
- *
- * Both err small against a default budget of 6, and the failure they cause
- * is a budget that stops a run one call early or late — recoverable, and
- * visible in `state/opus_calls`. Neither can silently disarm the budget.
+ *   - It counts the INTENT to spawn. PreToolUse never learns whether the call
+ *     succeeded, so a failed spawn is still charged. Correcting it needs a
+ *     PostToolUse hook holding second state that can drift from this one.
+ *   - Read-then-write is not atomic, so two spawns in the same instant can
+ *     undercharge by one. The flow is sequential by construction.
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';

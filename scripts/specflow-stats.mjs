@@ -4,38 +4,34 @@
 //   node scripts/specflow-stats.mjs          # the report
 //   node scripts/specflow-stats.mjs --raw    # also dump the timeline it read
 //
-// THIS SCRIPT NEVER FAILS. It always exits 0, it is not wired into the gate,
-// into CI or into the everyday check command, and nothing in the flow
-// consults it. That is deliberate: the flow's change policy says a proposal
-// without a failing run attached defaults to no, so the missing piece was
-// never another rule — it was evidence. A check that blocked on these numbers
-// would be exactly the preemptive rule that policy exists to refuse.
+// THIS SCRIPT NEVER FAILS. It always exits 0, is wired into neither the gate
+// nor CI, and nothing in the flow consults it. Deliberate: the change policy
+// refuses a proposal with no failing run attached, so a check that blocked on
+// these numbers would be the preemptive rule that policy exists to refuse.
+// What was missing was never another rule — it was evidence.
 //
-// It answers three questions the flow cannot currently answer about itself:
+// It answers three questions the flow cannot answer about itself:
 //
 //   1. Does a silent PASS strand runs between milestones? A gate history
-//      whose last line is a PASS, with the phase still `implement` and
-//      nothing after it, is that stall.
+//      ending in PASS, phase still `implement`, nothing after it, is that
+//      stall.
 //   2. Is the test-first protocol honored? It lives in prose in the
-//      implementer's instructions and the gate only ever sees the final
-//      state — but it has an observable signature: the spec file is
-//      written, a scoped test run goes red, and only then the source
-//      appears.
-//   3. Does the reviewer review, or rubber-stamp? If every plan it ever sees
-//      comes back APPROVED with no escalation, the step is costing a call
-//      and buying nothing.
+//      implementer's instructions and the gate sees only the final state, but
+//      it has a signature: spec written, scoped test run red, source after.
+//   3. Does the reviewer review, or rubber-stamp? Every plan coming back
+//      APPROVED with no escalation means the step costs a call and buys
+//      nothing.
 //
-// Sources, in two tiers:
+// Two tiers of source, kept SEPARATE rather than concatenated — that is a
+// correctness requirement, since two of the three questions are about ORDER
+// within one run and across a run boundary the gap is days:
 //
 //   .claude/state/{gate-history,run-trace}.log     the run happening now
-//   specflow/**/<SLUG>/telemetry/*.log             every run that was archived
+//   specflow/**/<SLUG>/telemetry/*.log             every archived run
 //
-// The state files are gitignored working files, so a fresh clone sees only
-// the archived tier — telemetry-snapshot.mjs writes the second tier.
-//
-// Kept SEPARATE rather than concatenated, and that is a correctness
-// requirement: two of the three questions below are about ORDER inside one
-// run, and across a run boundary the gap is days and means nothing.
+// The state files are gitignored, so a fresh clone sees only the archived
+// tier, which telemetry-snapshot.mjs writes.
+
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';

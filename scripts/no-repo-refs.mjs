@@ -1,43 +1,35 @@
 #!/usr/bin/env node
 /**
- * The plugin's equivalent of a consuming repo's own architectural boundary
- * rules: fails if any engine file mentions the vocabulary or the reasoning
- * pattern of the one repo this engine was extracted from.
+ * Fails if any engine file couples itself to one consuming repo: its
+ * vocabulary, or the reasoning pattern only its history supports.
  *
- * The engine stops knowing the repo and starts depending on a contract the
- * repo implements — `.spec-flow/config.json` — the same inversion a
- * hexagonal repo applies one level down (`application` depends on a port,
- * `infrastructure` implements it). This is the check that makes the reversed
- * arrow checkable, instead of a rule that only holds while whoever edits a
- * hook remembers not to reach for `src/` again.
+ * The engine depends on a contract the repo implements
+ * (`.spec-flow/config.json`), never on the repo. This check is what makes
+ * that arrow verifiable instead of a rule that holds only while whoever edits
+ * a hook remembers it.
  *
- * Two different kinds of leak are banned, and they fail for different
- * reasons:
+ * Two kinds of leak, banned for different reasons:
  *
  *   - vocabulary tokens (`application`, `pnpm run`, `NestJS`, ...) couple the
- *     engine to one repo's STACK. A plugin that assumed a test runner, or a
- *     `src/` layout, or a hexagonal `application` directory would not run
- *     correctly against a repo on a different stack or architecture, which is
- *     the whole reason this extraction exists.
+ *     engine to one STACK. A plugin that assumed a test runner, a `src/`
+ *     layout or a particular architecture would misbehave anywhere else.
  *   - a "read the archive for precedent" INSTRUCTION couples the engine to
- *     one repo's HISTORY, which is a sharper problem than vocabulary: it
- *     passes a token check clean and then degrades in the worst possible
- *     direction — a repo with no history behaves one way, a repo with years
- *     of it another, so plan quality becomes a function of how long the repo
- *     has existed. `planner.md` in this plugin draws its own line already
- *     (failure lore yes, solution shape no); this check is what keeps that
- *     line from being re-crossed by whoever edits it next. It is deliberately
- *     narrower than banning the string `specflow/archive` outright — that
- *     path is the engine's own structural convention and appears throughout
- *     this plugin doing ordinary archival work (moving a folder, checking a
- *     status). What is actually banned is recommending the archive's
- *     CONTENTS as a template.
+ *     one repo's HISTORY, which is sharper: it passes a token check clean and
+ *     then degrades in the worst direction — plan quality becomes a function
+ *     of how long the repo has existed. `planner.md` already draws the line
+ *     (failure lore yes, solution shape no); this keeps it from being
+ *     re-crossed. Deliberately narrower than banning the string
+ *     `specflow/archive`, which is the engine's own convention and appears
+ *     throughout doing ordinary archival work. What is banned is recommending
+ *     the archive's CONTENTS as a template.
  *
  *   node scripts/no-repo-refs.mjs
  *
- * Scans every command, agent, hook and script this plugin ships. Excludes
- * itself: a checker necessarily names what it checks for.
+ * Scans every command, agent, hook and script this plugin ships, plus the
+ * prose in SCAN_FILES. Excludes itself: a checker necessarily names what it
+ * checks for.
  */
+
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
