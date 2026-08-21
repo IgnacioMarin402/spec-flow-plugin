@@ -176,6 +176,36 @@ never reused. Every requirement needs a test that **runs** and whose reported
 **name** contains its id — where that test's file lives is a convention your
 repo sets, not something this check decides.
 
+### Declaring a delta
+
+A change spec under `specflow/<SLUG>/` says what it does to `specs/` in three
+shapes, and only two of them are provable. `ADDED` fails the gate when the new
+id has no test that ran; `REMOVED` fails it when a test still reports an id no
+spec declares. `CHANGED` is checked by nothing on its own — the id already
+exists and already has a test, so the binding holds before the edit and after
+it, whatever the body now says.
+
+The suite covers most of that gap: change the behaviour, change the code, and
+a test asserting the old behaviour goes red. What it does not cover is a
+`CHANGED` that **widens**. Add a clause to an existing requirement and nothing
+breaks, because nothing that used to pass stopped passing — the clause is now
+claimed by `specs/` and proven by nobody.
+
+So a behaviour claim that appears, disappears or changes is written as
+`REMOVED` on the old id plus `ADDED` on a new one, and `CHANGED` is reserved
+for the two edits that move no proof. It must name which:
+
+```markdown
+- CHANGED REQ-USER-001 (wording)    — means what it meant; the text is clearer
+- CHANGED REQ-USER-001 (correction) — was wrong; now matches behaviour that
+                                      already exists and is already proven
+```
+
+`(correction)` is legal only in a `/spec-fix` brief — case 3, the one that
+flow stops for a human on. `spec-trace` fails a `CHANGED` with no kind, an
+unrecognised kind, or `(correction)` anywhere else. Live change specs only;
+archived ones predate the rule. See ADR-009.
+
 ### `extra_checks`
 
 Your own project checks, run at every gate and again at `done`. Each entry:

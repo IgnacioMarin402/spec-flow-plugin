@@ -1053,6 +1053,139 @@ await Promise.all([
     ),
   ),
 
+  // ==== ADR-009: a CHANGED delta says which kind it is ======================
+  //
+  // ADDED and REMOVED are proven by this script in both directions; CHANGED
+  // is proven by nothing, because the id and its test both exist before the
+  // edit and after it. The case that survives the test suite as well is a
+  // CHANGED that WIDENS — a clause added to an existing requirement breaks
+  // nothing, so nothing goes red, and the new claim is proven by nobody.
+  //
+  // These cases hold the two halves apart: the marker is required, and the
+  // fix-brief exemption that already existed covers the spec/proposal split
+  // ONLY — it never covered the delta.
+
+  check('a CHANGED delta with no kind is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/widen/spec.md':
+          '# Spec — widen\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — also locks the account after three failures\n',
+        'specflow/widen/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a CHANGED with no kind passed, which is the delta nothing else in this engine checks: ${r.out}`;
+        if (!/REMOVED REQ-USER-001/.test(r.out)) return `the failure did not name the decomposition that makes the change provable: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('a CHANGED marked (wording) passes', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/tidy/spec.md':
+          '# Spec — tidy\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (wording) — present tense, same meaning\n',
+        'specflow/tidy/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a re-wording that moves no proof was blocked: ${r.out}`),
+    ),
+  ),
+
+  // `(correction)` asserts that a human was asked whether the OLD requirement
+  // was wrong — which is a stop `/spec-fix` has and `/spec-flow` does not. A
+  // feature spec reaching for it is claiming a review that never happened.
+  check('a CHANGED marked (correction) outside a fix brief is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/feature/spec.md':
+          '# Spec — feature\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (correction) — the old text was wrong\n',
+        'specflow/feature/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a feature spec claimed the fix flow's human-reviewed correction: ${r.out}`;
+        if (!/spec-fix/.test(r.out)) return `the failure did not say which flow may use it: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('a CHANGED marked (correction) inside a fix brief passes', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/fix-wrong-req/spec.md':
+          '# Fix — wrong req\n\n## Case\n3 WRONG-SPEC\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (correction) — said 30 days, the system has always done one hour\n',
+        'specflow/fix-wrong-req/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `case 3, the one the fix flow stops for a human on, was blocked: ${r.out}`),
+    ),
+  ),
+
+  // The exemption above is for the spec/proposal SPLIT, and a fix brief that
+  // declares a bare CHANGED is not exercising it. Without this case the two
+  // rules would be one, and every fix brief would be exempt from both.
+  check('a bare CHANGED inside a fix brief is still reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/fix-thing/spec.md':
+          '# Fix — thing\n\n## Case\n3 WRONG-SPEC\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — rewritten\n',
+        'specflow/fix-thing/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) =>
+        r.status === 0
+          ? `the fix-brief exemption swallowed the delta rule as well as the split rule: ${r.out}`
+          : null,
+    ),
+  ),
+
+  check('an invented kind is reported rather than accepted', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/odd/spec.md':
+          '# Spec — odd\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (minor) — a kind nobody defined\n',
+        'specflow/odd/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) =>
+        r.status === 0 ? `an unrecognised kind passed, so the marker is spelling rather than a decision: ${r.out}` : null,
+    ),
+  ),
+
+  // Archived changes predate this rule, exactly as they predate the split
+  // rule. Re-stamping history to satisfy a check written later would rewrite
+  // the record this engine keeps in order to be able to read it.
+  check('an archived change keeps its bare CHANGED', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/old/spec.md':
+          '# Spec — old\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — from before this rule\n',
+        'specflow/archive/old/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `an archived change was held to a rule written after it shipped: ${r.out}`),
+    ),
+  ),
+
+  // The check reads the `## Requirement deltas` section, not the file. A spec
+  // is entitled to DISCUSS a changed requirement in its prose without
+  // DECLARING one, and a check that reads a sentence as a delta fails runs
+  // that are correct — which costs more trust than the case it would catch.
+  check('a CHANGED named in prose outside the deltas section is not a delta', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/prose/spec.md':
+          '# Spec — prose\n\n## Requirement deltas\n- none — infrastructure only\n\n## Out of scope\n- CHANGED REQ-USER-001 — deliberately NOT part of this change\n',
+        'specflow/prose/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a sentence outside the deltas section was read as a delta: ${r.out}`),
+    ),
+  ),
+
   // ---- an unconfigured repo says so, rather than reporting everything proven ----
   check('a repo with no specs and nothing archived says what it is not checking', () =>
     withRepo({ '.spec-flow/config.json': contract() }, (r) => {

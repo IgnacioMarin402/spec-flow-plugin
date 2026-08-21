@@ -92,6 +92,47 @@ const SCOPE_MARKER = /^<!--\s*spec-scope:\s*(.+?)\s*-->$/m;
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
 const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
 
+// `- CHANGED REQ-USER-001 (wording) — was X, now Y`, inside a change spec's
+// `## Requirement deltas` section. The marker is OPTIONAL to this regex and
+// required by the check that reads it: matching the line without one is what
+// lets the failure quote the line it is complaining about, instead of
+// reporting that it found nothing.
+const CHANGED_DELTA = /^[-*]\s*CHANGED\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)[ \t]*(?:\(([a-z]+)\))?.*$/gm;
+
+/** The two edits a CHANGED may legitimately be. Everything else decomposes. */
+const CHANGED_KINDS = ['wording', 'correction'];
+
+/**
+ * The body of `## Requirement deltas`, or '' when the spec has no such
+ * section.
+ *
+ * Scoped to that section rather than read over the whole file: a spec's prose
+ * is entitled to DISCUSS a changed requirement without DECLARING one, and a
+ * check that reads a sentence as a delta fails runs that are correct — which
+ * costs more trust than the case it would catch.
+ */
+function deltasSection(body) {
+  const heading = /^## Requirement deltas\b.*$/m.exec(body);
+  if (!heading) return '';
+  const after = body.slice(heading.index + heading[0].length);
+  const next = after.search(/^## /m);
+  return next === -1 ? after : after.slice(0, next);
+}
+
+/** Every CHANGED delta a change spec declares, with the kind it claims. */
+function* changedDeltas(body) {
+  for (const m of deltasSection(body).matchAll(CHANGED_DELTA)) {
+    yield { line: m[0], id: m[1], kind: m[2] ?? null };
+  }
+}
+
+/** Why one CHANGED line was rejected, in the failure's own voice. */
+function explainKind(kind) {
+  if (!kind) return 'does not say which kind of change it is';
+  if (kind === 'correction') return 'is marked (correction), which only a `/spec-fix` brief may use';
+  return `is marked (${kind}), which is not one of the two kinds a CHANGED may be (${CHANGED_KINDS.join(', ')})`;
+}
+
 /**
  * The only walk left is over `specs/` — Markdown this flow itself writes — so
  * the only thing worth skipping is dot-directories, and only for size: `.git`
@@ -402,7 +443,67 @@ for (const slug of live) {
   if (!existsSync(specPath)) continue; // a folder mid-write is not a failure
 
   const body = readFileSync(specPath, 'utf8');
-  if (/^## Case\b/m.test(body)) continue; // a fix brief, exempt by design
+  const isFixBrief = /^## Case\b/m.test(body);
+
+  // ---- a CHANGED delta says which kind it is ------------------------------
+  //
+  // ADDED and REMOVED are both PROVEN by this script: a new id with no test
+  // that ran fails, and a test naming an id no spec declares fails. CHANGED
+  // is neither, and the asymmetry is invisible because the three read as
+  // peers in the template. The id already exists and already has a test, so
+  // the binding this file checks is satisfied before the edit and after it,
+  // whatever the body now says.
+  //
+  // The suite covers most of the gap without help: if behaviour really
+  // changed, the code changed, and a test asserting the old behaviour goes
+  // red. What survives is a CHANGED that WIDENS — "A and B" becomes "A, B and
+  // C". Nothing breaks, because nothing that used to pass stopped passing,
+  // and C is now claimed by the spec layer and proven by nobody. Declared as
+  // ADDED, that same clause fails this script on sight.
+  //
+  // So the rule routes the unprovable case back into the provable deltas: a
+  // behaviour claim that appears, disappears or changes is REMOVED + ADDED —
+  // ids are permanent, which is exactly what makes retiring one safe — and
+  // CHANGED keeps only the two edits that genuinely move no proof:
+  //
+  //   (wording)    the requirement means what it meant; the text is clearer.
+  //                What MODE=FOLD does when it fixes tense, and the only
+  //                delta a pure re-wording run has to declare.
+  //   (correction) the requirement was WRONG and is corrected to match
+  //                behaviour that already exists and is already proven.
+  //                `/spec-fix` case 3, and fix briefs only — the one case
+  //                that flow stops for a human on, precisely because a diff
+  //                cannot tell it from rewriting the spec to agree with the
+  //                bug. The marker records that the human was asked; it does
+  //                not stand in for them.
+  //
+  // What this does NOT do: verify the kind is TRUE. `(wording)` written over a
+  // requirement that grew three clauses passes, exactly as a bare CHANGED did.
+  // The machine checks that the claim was declared; the reviewer and the
+  // sign-off check that it holds. Said here because a check whose reach is
+  // overestimated is the same failure as one that is disarmed. See ADR-009.
+  //
+  // Unconditional, unlike `require_skills_field` below, and the difference is
+  // the peer test that field's own history turned on: its siblings are
+  // checked by the reviewer alone, so enforcing one of them was an asymmetry.
+  // This delta's siblings are enforced HERE, on every gate. Leaving CHANGED
+  // out is the asymmetry. See ADR-009.
+  for (const { line, id, kind } of changedDeltas(body)) {
+    if (kind === 'wording') continue;
+    if (kind === 'correction' && isFixBrief) continue;
+
+    problems.push(
+      `specflow/${slug}/spec.md: "${line.trim()}" ${explainKind(kind)}. ` +
+        `CHANGED is the one delta this script cannot prove — ${id} already exists and already has a test, ` +
+        `so the spec/test binding passes before the edit and after it, whatever the body now says. ` +
+        `If the requirement means exactly what it meant and no test moves, write \`CHANGED ${id} (wording)\`. ` +
+        `Otherwise this is not a CHANGED: split it into \`REMOVED ${id}\` plus an \`ADDED\` on a NEW id, ` +
+        `which this script proves in both directions. Widening counts — a clause added to an existing ` +
+        `requirement is claimed by the spec layer and proven by nobody.`,
+    );
+  }
+
+  if (isFixBrief) continue; // exempt from the split below, by design
 
   const leaked = HEAVY_HEADINGS.filter((h) => new RegExp(`^${h}\\b`, 'm').test(body));
   if (leaked.length > 0) {

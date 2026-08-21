@@ -37,7 +37,7 @@ The classification is the whole design of this command, so it is worth knowing w
 |------|------------------------|-------------------|---------------|
 | **1 — UNSPECIFIED** | The behaviour was never specified. Nothing was lying; there was simply no claim. | new `REQ` + its test | no |
 | **2 — WEAK-TEST** | The requirement is right, its test did not prove all of it. | none — the test grows under the same id | no |
-| **3 — WRONG-SPEC** | The code did what the requirement said, and the requirement was wrong. | `CHANGED` — same id, new body | **yes** |
+| **3 — WRONG-SPEC** | The code did what the requirement said, and the requirement was wrong. | `CHANGED (correction)` — same id, corrected body | **yes** |
 | **4 — INFRA** | The bug is outside the contract's proof surface (`trace.proof_dir`) — an adapter, a controller, a mapping, wiring code the project does not require a test for. | none | no |
 | **5 — NOT-A-FIX** | Making it "correct" changes behaviour with business implications. | — | **yes** |
 
@@ -49,7 +49,7 @@ Expect `STATUS: TRIAGED` with a `CASE:` line. If it returns `STATUS: NEEDS_INPUT
 
 **Cases 1, 2, 4:** continue straight to step 3. Do not ask.
 
-**Case 3 (WRONG-SPEC):** show the human the requirement id, its current body, the proposed new body, and the triage's evidence that the old one was wrong. Wait for an explicit OK. If they say the requirement was right after all, the defect is really case 1 or 2 — send it back to `spec-writer` with that correction rather than arguing it through yourself.
+**Case 3 (WRONG-SPEC):** show the human the requirement id, its current body, the proposed new body, and the triage's evidence that the old one was wrong. Wait for an explicit OK. The delta is written `CHANGED REQ-X-0NN (correction)`, and that marker is legal in a fix brief and nowhere else — it is the record that this stop happened. `spec-trace` rejects it in any other spec, and rejects a `CHANGED` carrying no kind at all. See ADR-009. If they say the requirement was right after all, the defect is really case 1 or 2 — send it back to `spec-writer` with that correction rather than arguing it through yourself.
 
 **Case 5 (NOT-A-FIX):** this run ends here, and it ends **on the record**:
 
