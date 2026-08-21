@@ -115,7 +115,7 @@ briefs from `MODE=TRIAGE` are exempt — they are ~80 lines whole.
 > What this change does to `specs/`. Ids are permanent: never renumber, never
 > reuse a removed one. New ids continue that capability's sequence.
 - ADDED   REQ-<CAP>-0NN — <one line, in the present tense: what the system will do>
-- CHANGED REQ-<CAP>-0NN — <what it said before -> what it says after>
+- CHANGED REQ-<CAP>-0NN (wording) — <the requirement means exactly what it meant; only the text is clearer>
 - REMOVED REQ-<CAP>-0NN — <why the behaviour is going away>
 
 ## Non-functional / constraints
@@ -159,6 +159,12 @@ The human signs off on scope and behaviour — user stories, deltas, decision �
 not on an implementation roadmap that a second agent would then redo.
 
 Rules for the deltas: every user story maps to at least one delta, and every delta is behaviour that a test under the contract's proof surface (`trace.proof_dir` in `.spec-flow/config.json`) can prove. If you cannot state a requirement as something a test could check, it is not a requirement yet — sharpen it or drop it. A change that only touches wiring or bootstrap code outside that surface legitimately has **no deltas**; say so explicitly (`- none — infrastructure only`) rather than inventing one.
+
+**A behaviour change is never a `CHANGED`.** `ADDED` and `REMOVED` are both proven by `spec-trace`: a new id with no test that ran fails the gate, and a test naming an id no spec declares fails it too. `CHANGED` is proven by nothing — the id already exists and already has a test, so that binding holds before your edit and after it, whatever the body now says.
+
+The suite covers most of the difference on its own: change the behaviour, change the code, and a test asserting the old behaviour goes red. One case slips past both, and it is the one to watch for — a `CHANGED` that **widens**. Add a clause to an existing requirement and nothing breaks, because nothing that used to pass stopped passing; the clause is now claimed by `specs/` and proven by nobody. Written as `ADDED`, that same clause fails the gate on sight.
+
+So a claim that appears, disappears or changes is `REMOVED` on the old id plus `ADDED` on a new one. Ids are permanent, which is exactly what makes retiring one safe, and both halves are checked. That leaves `CHANGED` with the single edit that moves no proof, and it has to say so: `CHANGED REQ-X-0NN (wording)`. `spec-trace` fails a `CHANGED` carrying no kind. See ADR-009.
 
 Rules for the decision: `- Chosen: <x>. No alternative was viable — <one line why>` is a legitimate answer and the common one. Do **not** pad this section with alternatives nobody considered; an invented trade-off is worse than a short section, because it makes the real ones harder to trust. What is never acceptable is silence: if you weighed two options, the one you discarded is the single most useful line in this file six months from now, when somebody asks why it works this way. Reserve it for choices that outlive the change — a boundary, a shape other modules will copy, a behaviour being removed. Not for naming or file placement.
 
@@ -210,7 +216,7 @@ Derive `<SLUG>` as in `MODE=SPEC` (a short kebab-case slug like `fix-empty-filte
 
 ## Requirement deltas
 - ADDED   REQ-<CAP>-0NN — <one line, present tense>   (case 1)
-- CHANGED REQ-<CAP>-0NN — <what it said -> what it says now, and why the old text was wrong>   (case 3)
+- CHANGED REQ-<CAP>-0NN (correction) — <what it said -> what it says now, and why the old text was wrong>   (case 3)
 - none — <the requirement is right, its test was incomplete | outside the proof surface>   (cases 2 and 4)
 
 ## Proof
@@ -220,6 +226,8 @@ Derive `<SLUG>` as in `MODE=SPEC` (a short kebab-case slug like `fix-empty-filte
 - **Chosen:** <the fix, in one line>
 - **Rejected: <alternative>** — <why it lost>
 ```
+
+**`(correction)` is this flow's marker and only this flow's.** A case 3 rewrites a requirement so it agrees with behaviour that already exists and is already proven — which is why the flow stops for a human before it: from the diff alone, that is indistinguishable from rewriting the spec to agree with the bug. The marker records that the stop happened; it does not stand in for it. `spec-trace` rejects `(correction)` in any spec that is not a fix brief, and rejects a bare `CHANGED` here exactly as it does in `MODE=SPEC`. A case 3 that would **widen** the requirement is not a case 3 at all — it adds a claim, which is a case 5.
 
 The `Decision` section follows the same rule as in `MODE=SPEC`: "no alternative was viable" is legitimate and common, an invented trade-off is worse than a short section. For a fix the alternative worth recording, when it existed, is usually *the other case* — "could have been read as a case 3 and the spec rewritten; rejected because REQ-x contradicts the glossary" is precisely the line somebody will want in six months.
 
@@ -242,7 +250,7 @@ For `CASE: 5` write the brief anyway — with the `## Case` section explaining w
 The orchestrator calls you with `MODE=FOLD` and a `specflow/<SLUG>/spec.md` whose milestones have all shipped and passed the gate. The milestones themselves already wrote their deltas into `specs/<capability>.md` — each one edited the spec and the tagged test in the same pass, because `spec-trace` runs at every milestone gate and fails on an id that exists on only one side. Your job here is to close the change, not to fold code-facing edits in at the end.
 
 1. Read the change spec's **Requirement deltas** section.
-2. **Verify** each delta landed in `specs/<capability>.md`: every ADDED id is present, every CHANGED body matches the new behaviour, every REMOVED id is gone. A change whose deltas are `none` — a wiring-only change, or a fix that only strengthened an existing test — has nothing to verify here; go straight to the stamp rather than inventing a requirement to point at. Requirements must read in the present tense — what the system does, not what the change did; fixing tense or wording is yours to do. A missing or wrong delta is a real gap: fix it if it is a spec edit, report it if the gap is in code or tests — never paper over it, the gate re-checks in seconds.
+2. **Verify** each delta landed in `specs/<capability>.md`: every ADDED id is present, every REMOVED id is gone, and every CHANGED body reads as its kind promised — a `(wording)` edit means what it meant before, a `(correction)` matches behaviour that already existed. A change whose deltas are `none` — a wiring-only change, or a fix that only strengthened an existing test — has nothing to verify here; go straight to the stamp rather than inventing a requirement to point at. Requirements must read in the present tense — what the system does, not what the change did; fixing tense or wording is yours to do. A missing or wrong delta is a real gap: fix it if it is a spec edit, report it if the gap is in code or tests — never paper over it, the gate re-checks in seconds.
 3. Stamp the outcome on the change spec: insert `**Status:** SHIPPED <YYYY-MM-DD>` immediately under its top heading (`# Spec — ...` from `MODE=SPEC`, or `# Fix — ...` from `MODE=TRIAGE`). Every archived spec carries a status, so a reader can tell at a glance what became of it without digging through git history. `scripts/spec-trace.mjs` checks this.
 4. Move `specflow/<SLUG>/` to `specflow/archive/<SLUG>/`. It is a record of how the change was built, not an authority on what the system does — that job belongs to `specs/`.
 5. Do **not** touch code or tests.
