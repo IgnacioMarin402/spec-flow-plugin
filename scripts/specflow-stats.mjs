@@ -302,6 +302,79 @@ if (reads.length === 0) {
 }
 say('');
 
+// ---- 5. session reuse, which is where a run's token cost actually goes -----
+//
+// A milestone is delimited by a gate PASS: the gate allows the stop and the
+// orchestrator moves on. Inside one milestone the contract in
+// `commands/spec-flow.md` is that the implementer is spawned ONCE and every
+// follow-up returns to that session by SendMessage. Both halves of that are
+// already observable, with no new instrumentation:
+//
+//   - `agent type=...` is written on a Task/Agent return, and SendMessage is
+//     not in run-trace's matcher, so every such line is a FRESH session.
+//   - a fresh session re-reads what the previous one already had, so the same
+//     path read twice inside one milestone is what the cold start cost.
+//
+// Two proxies, and the output says so: the trace carries no milestone id, so
+// the segmentation is inferred from the gate, and a milestone that never
+// passed runs to the end of the log.
+
+/** Trace events split into milestones, each ending at a gate PASS. */
+function milestones(run) {
+  const passes = run.gate.filter((g) => g.result === 'pass' && g.at).map((g) => g.at);
+  const events = run.trace.filter((e) => e.at).sort((a, b) => a.at - b.at);
+  const segments = [];
+  let start = null;
+  for (const end of [...passes, null]) {
+    const inSegment = events.filter((e) => (start === null || e.at > start) && (end === null || e.at <= end));
+    if (inSegment.length > 0) segments.push({ closed: end !== null, events: inSegment });
+    start = end;
+  }
+  return segments;
+}
+
+const segments = runs.flatMap((r) => milestones(r).map((s, i) => ({ ...s, run: r.name, index: i + 1 })));
+
+say('Session reuse');
+if (segments.length === 0) {
+  say('  no run trace yet — run-trace.mjs writes it during a live run.');
+} else {
+  const rereadTally = new Map();
+
+  for (const segment of segments) {
+    const spawns = segment.events.filter((e) => e.type && e.status);
+    const implementers = spawns.filter((e) => e.type === 'implementer').length;
+
+    const seen = new Map();
+    for (const e of segment.events) {
+      if (!e.raw?.includes(' read file=') || !e.file) continue;
+      seen.set(e.file, (seen.get(e.file) ?? 0) + 1);
+    }
+    const repeated = [...seen].filter(([, n]) => n > 1);
+    const extra = repeated.reduce((sum, [, n]) => sum + n - 1, 0);
+    for (const [file, n] of repeated) rereadTally.set(file, (rereadTally.get(file) ?? 0) + n - 1);
+
+    const where = runs.length > 1 ? `[${segment.run}] ` : '';
+    const open = segment.closed ? '' : ' (never reached a PASS)';
+    const reads = repeated.length === 0 ? 'no file read twice' : `${repeated.length} file(s) re-read, ${extra} extra read(s)`;
+    say(`  ${where}milestone ${segment.index}${open}: ${implementers} implementer session(s), ${reads}`);
+
+    if (implementers > 1) {
+      warn.push(
+        `milestone ${segment.index}${runs.length > 1 ? ` of ${segment.run}` : ''} spawned the implementer ${implementers} times. The flow spawns it once per milestone and returns to that session by SendMessage — a second spawn re-reads the plan and every touched file into a cold context, which is most of what a run costs.`,
+      );
+    }
+  }
+
+  const ranked = [...rereadTally].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (ranked.length > 0) {
+    say(`  most re-read: ${ranked.map(([f, n]) => `${baseOf(f)} +${n}`).join(', ')}`);
+  }
+  say('  Both numbers are proxies: the trace carries no milestone id, so a milestone here is');
+  say('  whatever happened between two gate PASSes.');
+}
+say('');
+
 // ---- parsing gaps this telemetry knows about -------------------------------
 for (const [file, what] of [
   ['run-trace-unmatched.log', 'subagent returns with no STATUS line'],
