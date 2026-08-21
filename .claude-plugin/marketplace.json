@@ -2,14 +2,14 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "spec-flow-marketplace",
   "version": "0.1.0",
-  "description": "A single-plugin marketplace for spec-flow — install with `claude plugin install spec-flow@spec-flow-marketplace` after adding this repo with `claude marketplace add`.",
+  "description": "A single-plugin marketplace for spec-flow. Install with `claude plugin install spec-flow@spec-flow-marketplace`.",
   "owner": {
     "name": "Ignacio Marín"
   },
   "plugins": [
     {
       "name": "spec-flow",
-      "description": "Spec-driven multi-agent pipeline, gated by an external lint/test/spec-trace loop.",
+      "description": "Spec-driven multi-agent pipeline for Node projects: a feature ships only when a test that actually ran proves every requirement in its spec.",
       "author": {
         "name": "Ignacio Marín"
       },
