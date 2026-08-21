@@ -2,12 +2,11 @@
 /**
  * Behaviour fixture for hooks/gate.mjs.
  *
- * The gate is the one hook every other guarantee in this engine depends on,
- * so it is the one thing tested by running it, not by reading it. Every case
- * builds a throwaway git repo, installs the engine at a SEPARATE path (the
- * way it actually ships — a plugin cache directory, never inside the repo it
- * serves), points `CLAUDE_PROJECT_DIR` at the repo, and asserts what the real
- * hook did.
+ * The gate is what every other guarantee in this engine rests on, so it is
+ * tested by running it. Every case builds a throwaway git repo, installs the
+ * engine at a SEPARATE path (the way it actually ships — a plugin cache
+ * directory, never inside the repo it serves), points `CLAUDE_PROJECT_DIR` at
+ * the repo, and asserts what the real hook did.
  *
  * The contract every case is really testing:
  *
@@ -16,36 +15,19 @@
  *   at all — the stop proceeds. So "did it exit 0" is never the assertion;
  *   "did it say block, and did it write down what it judged" is.
  *
+ * Two properties of the scaffolding are load-bearing, because without them
+ * the cases below pass while invoking neither `verify.lint` nor `verify.test`:
+ *
+ *   - `fixture()` creates a real base branch plus a commit that changes a
+ *     tracked file, so every case has a NON-EMPTY changed-file scope. An
+ *     empty one short-circuits the gate before either command runs. The
+ *     "a green run reports the real scope" case exists to break loudly if
+ *     that ever regresses.
+ *   - `baseBranch` is a parameter, never hardcoded. A fixture built around
+ *     one branch name cannot catch a resolver that only sees that name.
+ *
  * Cases run concurrently: each builds its own two temp directories and its
  * own child process, nothing is shared.
- *
- * ---- the fixture's own history ----------------------------------------
- * Every case here used to build a repo with a single commit and no base
- * branch to diff against: `resolveBase` had nothing to find, fell through to
- * `HEAD`, and `changedFiles(root, globs, HEAD)` is empty by construction
- * (a diff against yourself is always empty). That made `files.length === 0`
- * on every single case, which routes straight through the "no files in
- * scope" short-circuit in gate.mjs — meaning this fixture asserted the
- * gate's block/pass behaviour around `verify.lint` and `verify.test` for
- * years WITHOUT EVER ONCE INVOKING either of them. The fixture reproduced,
- * inside itself, the exact class of failure this whole engine exists to
- * catch: a check that looks armed and is not. `fixture()` now creates a real
- * base branch (`main`) plus a second commit on `feature` that changes a
- * tracked file, so `files.length > 0` for every case below — and the
- * "a green run reports the real scope" case exists specifically to keep that
- * true, by breaking loudly if it ever regresses back to empty.
- *
- * That fix left a second copy of the same assumption behind, in this file's
- * own scaffolding: it hardcoded the base branch to `main`, because `main` is
- * what `resolveBase` probed for, and this header documented the coupling as
- * though it were a property of the fixture. It was a property of the ENGINE,
- * and it was a defect. A repo whose default branch is `master`, `develop` or
- * `trunk` got `resolveBase() === 'HEAD'`, an empty changed-file list, and a
- * gate that wrote `result=pass` over a red linter and a red suite that had
- * never been invoked. No case here could have caught it, because every case
- * had been built to match the bug. `baseBranch` is a parameter now, and the
- * cases below run the real hook against branch names the old resolver could
- * not see.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync, readFileSync, existsSync } from 'node:fs';

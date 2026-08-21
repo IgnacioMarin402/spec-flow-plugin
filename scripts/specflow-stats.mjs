@@ -132,30 +132,25 @@ say('');
 
 // ---- 2. test-first, by its observable signature ----------------------------
 //
-// Pairing a source file to its test used to be two hardcoded extensions —
-// `.spec.ts` and `.ts` — in the one part of this engine whose whole purpose is
-// saying whether the protocol in the implementer's prose is being followed. On
-// any repo that was not TypeScript the pairing matched nothing and this
-// section printed "no source file was written alongside its own spec", which
-// reads as "nothing to report" and meant "this metric cannot see your repo".
-// Reporting absence where the truth is blindness is the same failure as a
-// check that looks armed and is not, with the severity turned down because
-// nothing here gates anything.
+// Pairing a source file to its test reads the contract rather than assuming
+// extensions: `trace.proof_suffix` is what a test file is called, and
+// `verify.scope_globs` names the source extensions. Hardcoding them makes the
+// pairing match nothing outside one language, and this section then prints
+// "no source file was written alongside its own spec" — reporting absence
+// where the truth is blindness, which is the same failure as a check that
+// looks armed and is not, with the severity turned down because nothing here
+// gates anything.
 //
-// The contract already knew both halves: `trace.proof_suffix` is what a test
-// file is called, and `verify.scope_globs` names the source extensions. Read
-// defensively, because this script's header promises it never fails — an
-// unreadable contract makes the pairing UNKNOWN, which is said out loud rather
-// than reported as an absence of pairs.
+// Read defensively, because this script never fails: an unreadable contract
+// makes the pairing UNKNOWN, said out loud rather than reported as an absence.
 //
-// Two things the old version got wrong, and the second is why this pairs on
-// BASENAME rather than on the whole path:
+// Two traps, and the second is why this pairs on BASENAME rather than on the
+// whole path:
 //
-//   - `file.replace(/\.ts$/, '.spec.ts')` is a no-op on a file that does not
-//     end in `.ts`, so in a repo using any other extension — `.js`, `.mjs`,
-//     `.tsx` — every source file was looked up as ITSELF, found itself, and
-//     produced a verdict. That is not blindness, it is fabricated data:
-//     `no-red-run` MISSes for files that had never been paired with anything.
+//   - a suffix swap like `file.replace(/\.ts$/, '.spec.ts')` is a no-op on any
+//     other extension, so every source file resolves to ITSELF, finds itself
+//     and produces a verdict. That is not blindness, it is fabricated data:
+//     `no-red-run` MISSes for files never paired with anything.
 //   - it assumed a test sits beside its source. That holds for a colocated
 //     layout and not for a repo that keeps proofs in a directory of their own,
 //     which the contract explicitly supports via `proof_dir`. Matching the
