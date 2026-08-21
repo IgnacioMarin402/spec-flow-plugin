@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "spec-flow",
   "displayName": "spec-flow",
-  "description": "Spec-driven multi-agent pipeline: free-text requirement -> spec (HITL) -> plan -> review -> implement per milestone, gated by an external lint/test/spec-trace loop that runs outside the model. Requires a consuming repo to declare its own .spec-flow/config.json — see this repo's README.",
+  "description": "Ships a feature only when a test that actually ran proves every requirement in its spec. Free-text requirement -> spec (you sign it off) -> plan -> review -> implement per milestone, gated by a lint/test/spec-trace loop that runs outside the model. For Node projects; your repo declares its test and lint commands in .spec-flow/config.json, which `spec-flow init` writes.",
   "author": {
     "name": "Ignacio Marín"
   },

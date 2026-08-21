@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PostToolUse hook on Write|Edit|Bash|Task|Agent — the run's observable
+ * PostToolUse hook on Write|Edit|Read|Bash|Task|Agent — the run's observable
  * timeline.
  *
  * This hook enforces NOTHING. It exists because the flow's change policy

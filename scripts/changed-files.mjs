@@ -53,19 +53,13 @@ function mergeBase(root, ref) {
  * The commit this branch is judged against.
  *
  * **This function throws rather than guessing, and that is the whole point of
- * it.** It used to probe `origin/main` then `main` and, finding neither, fall
- * back to `'HEAD'` — a base against which `git diff` is empty BY
- * CONSTRUCTION. In any repo whose default branch is named something else
- * (`master`, `develop`, `trunk`) the consequence was not a degraded scope, it
- * was a disarmed gate: `changedFiles` returned `[]`, and the caller read zero
- * changed files as "this milestone touched nothing in scope" and reported a
- * clean pass — with a red linter and a red suite sitting untouched in the
- * repo, because neither was ever invoked. A gate that looks armed and is not
- * is the exact failure this engine exists to close, and it was living in the
- * engine's own resolver, one layer below everything built to catch it.
+ * it.** A base that matches nothing does not degrade the scope, it disarms
+ * the gate: `changedFiles` returns `[]`, and the caller reads zero changed
+ * files as "this milestone touched nothing in scope" and reports a clean pass
+ * over a red linter and a red suite that were never invoked.
  *
- * So the ladder below ends in an exception, not a value. Every rung before it
- * only reduces how often a repo has to say the name out loud:
+ * So the ladder ends in an exception, not a value. Every rung before it only
+ * reduces how often a repo has to say the name out loud:
  *
  *   1. `verify.base_ref` from the contract — explicit, and it wins. A repo
  *      with an unusual base (a release branch, a fork's upstream) says so
@@ -75,10 +69,10 @@ function mergeBase(root, ref) {
  *      would think: CI checkouts frequently do not set it, so this is a good
  *      first rung and a terrible only one.
  *   3. The candidate list above.
- *   4. Throw. The caller decides what a loud failure means for IT — `preflight`
- *      refuses to start the run, the gate blocks the stop, the CLI exits
- *      non-zero — but nobody gets to continue with a base that silently
- *      matches nothing.
+ *   4. Throw. The caller decides what a loud failure means for IT —
+ *      `preflight` refuses to start the run, the gate blocks the stop, the
+ *      CLI exits non-zero — but nobody continues on a base that matches
+ *      nothing.
  *
  * @param {string} root Absolute path to the repo being judged.
  * @param {{verify?: {base_ref?: string}}} [config] The loaded contract, if the caller has one.

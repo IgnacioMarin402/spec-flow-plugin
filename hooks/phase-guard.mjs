@@ -3,42 +3,36 @@
  * PreToolUse hook on Bash|Write|Edit — guards every write to
  * `.claude/state/phase`.
  *
- * That file is the spine of the whole engine: every enforcement hook decides
- * whether it is armed by matching it against a CLOSED SET of values. Each one
- * falls through to "not my business" on a value it does not recognise, so a
- * phase nobody defined — `triage`, `fix`, `verify` — stands down the gate, the
- * write-time linter, the whole-repo command deny, `preflight` and the Opus
- * budget **all at once**, and nothing anywhere says so. Code written with the
- * gate off looks exactly like code that passed it.
+ * That file is the spine: every enforcement hook decides whether it is armed
+ * by matching it against a CLOSED SET of values, and each falls through to
+ * "not my business" on a value it does not recognise. So a phase nobody
+ * defined — `triage`, `fix`, `verify` — stands down the gate, the write-time
+ * linter, the whole-repo command deny, `preflight` and the Opus budget **all
+ * at once**, silently. Code written with the gate off looks exactly like code
+ * that passed it.
  *
- * That rule was written in four documents and enforced by nothing. This hook
- * is the enforcement, and it answers one question in two halves:
+ * One question in two halves:
  *
  *   1. Is the value a phase this engine knows? An unrecognised one is denied,
  *      with the vocabulary, before it disarms anything.
  *   2. If the value is `done`, is it EARNED? `done` disarms everything the
- *      same way an invented phase does, only legitimately — so it is checked
- *      rather than trusted:
- *        - every unscoped check green (unscoped-checks.mjs declares them)
- *        - `specflow/` holds no unarchived change folder (the FOLD step ran)
+ *      same way, only legitimately, so it is checked rather than trusted:
+ *      every unscoped check green (unscoped-checks.mjs declares them), and no
+ *      unarchived change folder left in `specflow/` (the FOLD step ran).
  *
- * Both halves are the same question — *is this transition legitimate* — which
- * is why they live in one hook rather than two that would have to agree about
- * how a phase write is recognised.
+ * Both halves ask whether a transition is legitimate, which is why they are
+ * one hook rather than two that must agree about how a phase write is
+ * recognised.
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
- * A `Write`/`Edit` of the phase file carries the value as its body: exact. A
- * Bash `printf`/`echo` redirected into the phase file carries it as an
- * argument: also exact. Anything else that merely mentions the file — `cat`,
- * a grep, a path in an unrelated string — cannot be read reliably, so it is
- * ALLOWED. Denying on a guess would block legitimate work to enforce a rule
- * about a value nobody wrote; every hook here except the gate fails open, and
- * a guard that cannot see the value has nothing to guard.
+ * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
+ * redirect carries it as an argument: both exact. Anything that merely
+ * mentions the file — `cat`, a grep, a path in an unrelated string — is
+ * ALLOWED, because a guard that cannot see the value has nothing to guard and
+ * denying on a guess blocks legitimate work.
  *
- * Only acts while a run is in progress. Degrades quietly if the contract
- * cannot be read: this is a consistency guard, not a security boundary, and a
- * hook that denied every phase write because of an unrelated config problem
- * would be worse than one that let a `done` through unchecked in that case.
+ * Only acts during a run, and degrades quietly when the contract cannot be
+ * read: this is a consistency guard, not a security boundary.
  */
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';

@@ -1,18 +1,19 @@
 # spec-flow
 
-A spec-driven multi-agent pipeline for Claude Code. A free-text requirement
-becomes a spec you sign off on, a milestone-by-milestone plan, a review pass,
-and an implementation loop gated by lint, tests and requirement traceability
-running **outside the model**.
+**A feature ships only when a test that actually ran proves every requirement
+in its spec.** The failure this closes is the quiet one: a requirement everyone
+believes is covered, and no test that proves it.
+
+spec-flow is a spec-driven multi-agent pipeline for Claude Code. A free-text
+requirement becomes a spec you sign off on, a milestone-by-milestone plan, a
+review pass, and an implementation loop gated by lint, tests and requirement
+traceability running **outside the model**.
 
 Two commands — `/spec-flow` for a feature, `/spec-fix` for a defect — drive
-five subagents, each pinned to the model its job needs. **It is built for
-Node projects** — that is the scope, and it is what the fixtures, CI and `init`
-are written against. Within it the engine still has no opinion about your
-framework or your architecture, and that part is structural rather than
-aspirational: **it reads no source code.** It runs the commands your repo
-declares in one file it writes, `.spec-flow/config.json`, and reads their
-output.
+five subagents, each pinned to the model its job needs. **It supports Node
+projects.** Inside that scope it has no opinion about your framework or your
+architecture, because **it reads no source code**: it runs the commands your
+repo declares in one file, `.spec-flow/config.json`, and reads their output.
 
 Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 
@@ -21,12 +22,10 @@ Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 ## Requirements
 
 - Claude Code, and a git repo with a base branch you branch off of
-- **A Node project** — a `package.json` declaring how you test and lint. That
-  is the supported scope: what is documented, what CI exercises, and what
-  `init` reads. Nothing here refuses to run elsewhere, and the engine parses no
-  source, so a contract filled in by hand on another stack may well work — it
-  is simply not tested or supported. [Why the scope was narrowed, and what was
-  refused](decisions/007-the-supported-scope-is-node.md)
+- **A Node project** — a `package.json` declaring how you test and lint.
+  Nothing refuses to run on another stack, and a contract filled in by hand may
+  well work there; it is simply not tested or supported.
+  [Why the scope is Node, and what was refused](decisions/007-the-supported-scope-is-node.md)
 - Node 20+ — enforced: a run refuses to start below it
 - A linter and a test runner you can invoke from the command line
 
