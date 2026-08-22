@@ -484,11 +484,10 @@ await Promise.all([
     }),
   ),
 
-  // Renamed from "allows the stop" — since ADR-010 a first pass no longer
-  // does; the "wakes the orchestrator" cases below cover that half. What
-  // this case still owns: a green tree is never REJECTED (a `decision:
-  // 'block'` whose reason is a failure, not a pass), and every declared
-  // check's field lands in the history line either way.
+  // What this case owns, with the wake half covered separately below (a first
+  // pass does block, per ADR-010): a green tree is never REJECTED — no
+  // `decision: 'block'` whose reason is a failure rather than a pass — and
+  // every declared check's field lands in the history line either way.
   check('a green run is never rejected, and always records the pass', () =>
     withFixture({ specTrace: 'green' }, (r) => {
       if (rejected(r)) return 'the gate rejected a tree where every check passed';
@@ -501,13 +500,12 @@ await Promise.all([
   // ---- a FIRST pass wakes the orchestrator, on the channel that actually
   // reaches a human (ADR-010) --------------------------------------------
   //
-  // `emitNotice`'s `systemMessage` was verified lost in an interactive
-  // session while `decision:'block'` was not, so the first pass for a commit
-  // must use the latter — the exact opposite of what this case asserted
-  // before ADR-010. The reason string is the only thing a human or an
+  // `emitNotice`'s `systemMessage` was verified lost in an interactive session
+  // while `decision:'block'` was not, so the first pass for a commit must use
+  // the latter. The reason string is then the only thing a human or an
   // orchestrator has to act on, so it has to both say PASSED and say what to
-  // do next; a block that merely announces success and leaves the reader
-  // guessing is the same stall this replaced, in the other channel.
+  // do next: a block that announces success and leaves the reader guessing
+  // strands the run just as silence does, one channel over.
   check('a green run on a NEW commit wakes the orchestrator, on the channel that reaches a human', () =>
     withFixture({ specTrace: 'green' }, (r) => {
       if (!r.blocked) return `a first-time pass did not block — nothing will advance the run: ${JSON.stringify(r.payload)}`;
@@ -816,13 +814,13 @@ await Promise.all([
     }),
   ),
 
-  // ---- the empty-scope short-circuit, which used to skip the suite too ----
+  // ---- the empty-scope short-circuit, which must not reach the suite ----
   //
   // `files.length === 0` is a statement about the DIFF, not about the system,
-  // and the gate used to treat it as grounds to skip `verify.test` — the same
-  // scoping mistake the header of gate.mjs rejects, at its degenerate case.
-  // It is also what made the base defect above fatal rather than merely
-  // wrong: an empty scope invented by a bad base skipped everything.
+  // so treating it as grounds to skip `verify.test` is the scoping mistake
+  // gate.mjs's header rejects (ADR-008), at its degenerate case. It is also
+  // what would make the base defect above fatal rather than merely wrong: an
+  // empty scope invented by a bad base would skip everything.
   check('a milestone that changed no file in scope still runs the suite', () =>
     withFixture({ specTrace: 'green', changedFile: null, test: RED }, (r) => {
       if (!r.blocked) {
@@ -858,13 +856,13 @@ await Promise.all([
   // base too, so the scope is empty for the whole run and for every run after
   // it.
   //
-  // The consequence is narrower than the old `'HEAD'` fallback (`cba77ef`
-  // made the suite, spec-trace and the extra checks run on every armed gate
-  // regardless of scope, so this is not a disarmed gate) and it is not
-  // nothing: `verify.lint` is the one check scoped to the diff, so it never
-  // runs, for any milestone, while nothing anywhere says the linter is not
-  // participating. `lint=-` in the history is honest and reads identically to
-  // the milestone that genuinely touched no `.ts` file.
+  // The consequence is bounded — the suite, spec-trace and the extra checks
+  // run on every armed gate regardless of scope (ADR-008), so this is not a
+  // disarmed gate — and it is not nothing: `verify.lint` is the one check
+  // scoped to the diff, so it never runs, for any milestone, while nothing
+  // anywhere says the linter is not participating. `lint=-` in the history is
+  // honest and reads identically to the milestone that genuinely touched no
+  // `.ts` file.
   check('a base that resolves to HEAD itself is refused, not read as an empty milestone', () =>
     withFixture({ specTrace: 'green', stayOnBase: true }, (r) => {
       if (!r.blocked) {

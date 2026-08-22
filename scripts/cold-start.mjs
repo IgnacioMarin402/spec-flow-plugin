@@ -15,11 +15,10 @@
  * in exactly the check that exists to notice it. The report here is written by
  * a runner, so a spelling this engine cannot bind fails loudly.
  *
- * The claim under test moved with ADR-007. It used to be that a repo the
- * engine could guess nothing about could still satisfy the contract by hand;
- * the supported scope is Node now, and the front page promises more than
- * satisfiability — that `init` reads the commands, appends the reporter flag,
- * and leaves a bounded, named set of gaps. Each of those is a case below.
+ * The claim under test is the one the front page makes for the supported scope
+ * (Node, per ADR-007), and it is stronger than "the contract can be satisfied
+ * by hand": `init` reads the commands, appends the reporter flag, and leaves a
+ * bounded, named set of gaps. Each of those is a case below.
  *
  *   node scripts/cold-start.mjs
  */

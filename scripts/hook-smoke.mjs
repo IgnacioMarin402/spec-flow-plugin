@@ -168,7 +168,7 @@ t(
   (repo) => {
     // `preflight` arms on every run phase, so an abandoned `plan` makes it
     // validate — and potentially DENY — every subagent spawn in that repo
-    // forever. session-start used to skip these as "already harmless".
+    // forever. No run phase is "already harmless" to leave standing.
     const phaseFile = join(repo, '.claude/state/phase');
     const old = Date.now() / 1000 - 60 * 60 * 24 * 3;
     utimesSync(phaseFile, old, old);

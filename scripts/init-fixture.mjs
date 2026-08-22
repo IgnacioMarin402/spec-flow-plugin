@@ -2,13 +2,13 @@
 /**
  * Behaviour fixture for scripts/init.mjs.
  *
- * This is the reason `init` replaced a worked example file. An example is a
- * static artifact nothing executes: when the contract gains a required field
- * or renames one, the example keeps reading as authoritative while being
- * wrong, and the first person to notice is an adopter whose gate will not
- * start. A generator can be held to the claim it makes — that what it writes
- * VALIDATES, through the same reader every hook uses — so the same contract
- * change turns this red instead.
+ * This is what a generator buys over a worked example file, and the reason the
+ * engine ships one. An example is a static artifact nothing executes: when the
+ * contract gains a required field or renames one, the example keeps reading as
+ * authoritative while being wrong, and the first person to notice is an
+ * adopter whose gate will not start. A generator can be held to the claim it
+ * makes — that what it writes VALIDATES, through the same reader every hook
+ * uses — so that same contract change turns this red instead.
  *
  * Every case builds a throwaway repo, runs the real CLI against it, and reads
  * back the file it produced.
@@ -176,22 +176,16 @@ const COMPLETE = {
 
 await Promise.all([
   // ---- the claim this file exists to hold ----
-  // Twice rewritten, and both rewrites were decisions rather than regressions.
   //
-  // It first asserted that a fully discoverable repo got a contract that
-  // validated outright. ADR-001 broke that: `trace.executed_tests` names how a
-  // repo reports the tests it RAN and nothing in a repo declares it, so the
-  // case became "exactly ONE field is left, init names it, and filling only
-  // that field validates" — pinning the size of the gap instead of denying it.
+  // A fully discoverable repo gets a contract with no field left for an
+  // adopter to write code for: the engine reads the report FORMAT (ADR-005),
+  // so `init` finishes rather than pinning the size of a gap.
   //
-  // ADR-005 closes the gap itself. The engine now reads the report FORMAT, so
-  // there is no field left that an adopter must write code for, and init
-  // finishes. What has to be asserted instead is the thing that could quietly
-  // replace the old failure: init must not present an INFERENCE as a reading.
-  // The report path is a convention on a repo whose test command names no XML
-  // file, so it belongs in REVIEW — and a green "the contract is valid" with
-  // no REVIEW line would be exactly the false all-clear this engine exists to
-  // refuse, one layer up from the gate.
+  // The second half is what could quietly take the place of that gap: `init`
+  // must not present an INFERENCE as a reading. The report path is a
+  // convention on a repo whose test command names no XML file, so it belongs
+  // in REVIEW — a green "the contract is valid" carrying no REVIEW line is the
+  // false all-clear this engine exists to refuse, one layer up from the gate.
   check('init finishes with no field left to write, and calls the inferred path an inference', () =>
     withRepo(COMPLETE, async (dir) => {
       const res = await run([], dir);
@@ -503,11 +497,11 @@ await Promise.all([
   // Every case above invokes scripts/init.mjs directly, and that is not how a
   // consuming repo runs it: `spec-flow init` goes through bin/spec-flow.mjs,
   // which imports the target module. `init.mjs` guards its CLI section with
-  // `fileURLToPath(import.meta.url) === process.argv[1]`, and the dispatcher
-  // used to leave argv[1] pointing at ITSELF — so the guard was false, the
-  // module imported cleanly, nothing ran, and the process exited 0. A
-  // documented command that silently does nothing. Direct-invocation cases
-  // cannot see that, which is the whole reason this one exists.
+  // `fileURLToPath(import.meta.url) === process.argv[1]`, so a dispatcher that
+  // leaves argv[1] pointing at ITSELF makes that guard false — the module
+  // imports cleanly, nothing runs, and the process exits 0. A documented
+  // command that silently does nothing, invisible to every direct-invocation
+  // case above, which is the whole reason this one goes through the CLI.
   check('`spec-flow init` through the CLI actually writes the contract', () =>
     withRepo(COMPLETE, async (dir) => {
       const res = await new Promise((resolve) => {

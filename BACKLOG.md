@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B17, B14, B4, B15. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it; B4 is blocked on real runs rather than on code.
+**Open order:** B14, B4, B15. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it; B4 is blocked on real runs rather than on code.
 
 ---
 
@@ -397,6 +397,43 @@ differ on `decisions/` deliberately and the comment says why — a record citing
 another record is a cross-reference, not the code reaching for the decision
 that governs it, so including it there would let a record keep itself alive.
 
+### B17 — the fixtures were exempt from the comment rule, and the exemption was hiding less than it looked — `PENDING`
+
+The item opened on `gate-fixture.mjs` carrying 28 lines under a literal
+`---- the fixture's own history ----` heading. **That evidence was already
+stale when this was picked up:** `e9e57af` removed exactly that section five
+days after the item was written, and nobody updated the entry. Re-measuring
+first is what surfaced it, and it is the second item in a row whose stated
+premise had expired before anyone acted on it.
+
+**The exclusion was hiding less than the item assumed.** B13 reported the
+engine at 37% "(hooks and scripts, fixtures excluded)" and never argued the
+parenthetical. Counted the same way, the fixtures sit at **22%** — well under
+the engine — so the exempt half was never the bloated one. What the exemption
+did hide was transition text in specific files, which is a different problem
+with a different fix.
+
+Eight blocks in `spec-trace-fixture.mjs` and one each in `init-fixture.mjs`,
+`gate-fixture.mjs`, `hook-smoke.mjs` and `cold-start.mjs` narrated what the
+code used to be — the old matcher's call shapes, a curried-paren parser bug,
+four skip spellings, a build-directory skip list, a dispatcher leaving argv[1]
+pointing at itself. Each is now the invariant it established, in the present
+tense, with the trap named where someone could reintroduce it (a location
+check, a skip list, an early exit on the grace path) and three ADR citations
+where the argument already had a record.
+
+**The measurement after the pass is the finding worth keeping: 22% → 22%.**
+Twenty-two comment lines left about a thousand. Ratio and transition text are
+close to independent here — the files carrying history were not the files
+scoring high — so a percentage is a poor way to decide where to look and a
+worse way to decide when to stop. `.claude/skills/engine-comments` now says
+that, states no file in `hooks/` or `scripts/` is exempt, and replaces B13's
+unargued parenthetical.
+
+No regression test, and none is possible: this changes no behaviour. What it
+is held to instead is the full suite staying green across a diff that touches
+five fixture files, which it did.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
@@ -531,32 +568,6 @@ than re-explained.
 adds is applying it to a specific task on demand. Worth doing **after** B13,
 not before: a skill that encoded the current comment habit would make the
 thing B13 exists to fix harder to change.
-
-## B17 — the comment rule was never applied to the files that test the rule's subject
-
-B13 reports the engine at 37% comment "(hooks and scripts, fixtures excluded)".
-The exclusion was never argued, and measuring it now shows what it bought:
-`gate-fixture.mjs` carries 28 lines under a literal `---- the fixture's own
-history ----` heading, and `spec-trace-fixture.mjs` and `init-fixture.mjs` sit
-at 26% and 21% on the same pattern.
-
-That heading is the exact shape `.claude/skills/engine-comments` sends to a
-commit message. The skill grants one narrow exception — a trap someone is
-likely to reintroduce earns *a single line* naming it — and the trap here is
-real and worth naming: every case in that fixture once ran with
-`files.length === 0` and never invoked `verify.lint` or `verify.test` at all.
-Three paragraphs on how that was discovered is what the exception does not
-cover.
-
-**Not done here, deliberately.** It surfaced while the pass-notice contract was
-open, and folding a comment pass into a behaviour change is how a diff stops
-being reviewable. It is also genuinely a judgement call about the exception's
-width, which is the kind of thing this repo decides on purpose rather than in
-passing.
-
-**Done looks like:** the history sections moved to commit messages, one line of
-trap left behind in each, and B13's parenthetical either extended to the
-fixtures or replaced by a stated reason they are exempt.
 
 ## Deliberately not doing
 

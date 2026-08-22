@@ -119,6 +119,16 @@ is finished**, and trimming it further deletes exactly what this skill exists
 to protect. The signal to act on is a header that opens with what the file used
 to do, not a percentage.
 
+**The fixtures make that concrete, and they are measured too — no file in
+`hooks/` or `scripts/` is exempt from this rule.** They were left out of the
+first pass and the exclusion was never argued; counted afterwards they sit near
+**22%**, well under the engine's own figure, so the exemption had never been
+hiding volume. A full transition pass over them then moved that percentage by
+roughly nothing while still removing real history from four files. Ratio and
+transition text turn out to be close to independent: the files carrying history
+were not the files scoring high, which is why a percentage is a poor way to
+decide where to look and a worse way to decide when to stop.
+
 What is left should answer, in order:
 
 1. What does this file guarantee?
