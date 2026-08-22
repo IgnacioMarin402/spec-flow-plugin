@@ -134,9 +134,14 @@ into the comments.
 
 ## Docs are checked, not trusted
 
-`scripts/no-repo-refs.mjs` scans every prose file in `SCAN_FILES` — add new
-ones there, or the next doc becomes the path of least resistance for exactly
-what the check keeps out. `scripts/plugin-paths.mjs` asserts that every
+`scripts/no-repo-refs.mjs` scans every prose file in `SCAN_FILES` and every
+prose directory in `SCAN_DIRS` — add new ones there, or the next doc becomes
+the path of least resistance for exactly what the check keeps out. **A whole
+directory is the version of that failure nobody notices**, since the check
+prints a count and exits 0 either way. `scripts/coupling-fixture.mjs` asserts
+each surface is reached, from a list written out rather than imported — a
+fixture reading `SCAN_DIRS` would agree with a directory dropped from it.
+`scripts/plugin-paths.mjs` asserts that every
 `${CLAUDE_PLUGIN_ROOT}/...` path an instruction names actually ships, and that
 `hooks.json` and `hooks/` agree. Counts written as prose ("ten hooks") have
 drifted before and will again; prefer a check over a sentence.

@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · unit · coupling · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
+    name: lint · typecheck · unit · coupling · scan-reach · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +56,13 @@ jobs:
       # what it bans and why the archive check is narrower than a path ban.
       - name: No repo-specific coupling
         run: npm run check
+
+      # And that the check above reaches every surface it claims. It prints a
+      # count and exits 0 when it finds nothing, so a scan walking the wrong set
+      # of directories passes exactly as a clean repo does; without this step the
+      # only thing standing behind the scan's reach is that someone remembered.
+      - name: Coupling scan reaches its surfaces
+        run: npm run coupling:check
 
       # `init` generates a consuming repo's contract, which is what a worked
       # example file used to do worse: an example is a static artifact nothing
