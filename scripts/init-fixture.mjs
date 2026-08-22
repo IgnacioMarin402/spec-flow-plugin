@@ -14,7 +14,7 @@
  * back the file it produced.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -46,12 +46,69 @@ async function check(name, fn) {
 }
 
 /**
- * A throwaway repo. `scripts` goes into package.json verbatim, `files` is a
- * map of repo-relative path to contents, and `bins` are the entries faked
- * under node_modules/.bin so `init` prefers the local binary path the way it
- * would in a real install.
+ * npm publishes a package's bin two different ways, and which one it picks is
+ * decided by the platform, not by the package. On POSIX `node_modules/.bin/x`
+ * is a SYMLINK to the package's real entrypoint, so it is JavaScript and
+ * `node` can run it. On Windows npm cannot symlink, so it writes three files
+ * — `x`, `x.cmd`, `x.ps1` — and the extensionless one is a `#!/bin/sh`
+ * script, which `node` cannot parse at all.
+ *
+ * `bins` writes an empty placeholder, which is enough for the cases that only
+ * need `init` to PREFER the local path. It is not enough for any case about
+ * what that path resolves to: an empty file is neither shape, so it agrees
+ * with whatever the resolver happens to do. `installedBins` fabricates the
+ * real thing for the host platform instead — no `npm install`, because what
+ * is under test is this engine's resolution, not npm's.
  */
-function repo({ scripts = {}, files = {}, bins = [], gitignore = null, existingConfig = null, git = true }) {
+function installBin(dir, { name, pkg, entry }) {
+  const binDir = join(dir, 'node_modules', '.bin');
+  const target = join(dir, 'node_modules', pkg, entry);
+  mkdirSync(binDir, { recursive: true });
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, 'process.exit(0);\n');
+  writeFileSync(
+    join(dir, 'node_modules', pkg, 'package.json'),
+    JSON.stringify({ name: pkg, version: '1.0.0', bin: { [name]: `./${entry}` } }, null, 2),
+  );
+
+  const shim = join(binDir, name);
+  if (process.platform !== 'win32') {
+    symlinkSync(join('..', pkg, entry), shim);
+    return;
+  }
+  // The `$basedir/../<pkg>/<entry>` token is the only part a resolver can
+  // read; the rest is reproduced because a shim that does not look like npm's
+  // would let a resolver pass on a shape npm never writes.
+  const rel = `../${pkg}/${entry}`;
+  writeFileSync(
+    shim,
+    '#!/bin/sh\n' +
+      'basedir=$(dirname "$(echo "$0" | sed -e \'s,\\\\,/,g\')")\n\n' +
+      'if [ -x "$basedir/node" ]; then\n' +
+      `  exec "$basedir/node"  "$basedir/${rel}" "$@"\n` +
+      'else\n' +
+      `  exec node  "$basedir/${rel}" "$@"\n` +
+      'fi\n',
+  );
+  writeFileSync(`${shim}.cmd`, `@ECHO off\r\nnode  "%~dp0\\${rel.replace(/\//g, '\\')}" %*\r\n`);
+}
+
+/**
+ * A throwaway repo. `scripts` goes into package.json verbatim, `files` is a
+ * map of repo-relative path to contents, `bins` are empty placeholders faked
+ * under node_modules/.bin so `init` prefers the local binary path the way it
+ * would in a real install, and `installedBins` are full fakes — see
+ * `installBin` for when each one is the right tool.
+ */
+function repo({
+  scripts = {},
+  files = {},
+  bins = [],
+  installedBins = [],
+  gitignore = null,
+  existingConfig = null,
+  git = true,
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'spec-flow-init-'));
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fixture', scripts }, null, 2));
 
@@ -63,6 +120,7 @@ function repo({ scripts = {}, files = {}, bins = [], gitignore = null, existingC
     mkdirSync(join(dir, 'node_modules', '.bin'), { recursive: true });
     writeFileSync(join(dir, 'node_modules', '.bin', bin), '');
   }
+  for (const bin of installedBins) installBin(dir, bin);
   if (gitignore !== null) writeFileSync(join(dir, '.gitignore'), gitignore);
   if (existingConfig !== null) {
     mkdirSync(join(dir, '.spec-flow'), { recursive: true });
@@ -101,7 +159,10 @@ async function withRepo(opts, assert) {
 /** A repo with everything discoverable: scripts, local bins, a lint config, tests in their own directory. */
 const COMPLETE = {
   scripts: { test: 'vitest run', lint: 'eslint .', 'lint:fix': 'eslint . --fix' },
-  bins: ['vitest', 'eslint'],
+  installedBins: [
+    { name: 'eslint', pkg: 'eslint', entry: 'bin/eslint.js' },
+    { name: 'vitest', pkg: 'vitest', entry: 'dist/cli.js' },
+  ],
   files: {
     'eslint.config.js': '',
     'lib/a.ts': 'export const a = 1;\n',
@@ -111,6 +172,7 @@ const COMPLETE = {
     'test/b.test.ts': 'it("b", () => {});\n',
   },
 };
+
 
 await Promise.all([
   // ---- the claim this file exists to hold ----
@@ -256,8 +318,27 @@ await Promise.all([
     withRepo(COMPLETE, async (dir) => {
       await run([], dir);
       const c = readContract(dir);
-      if (!c.verify.test[1]?.includes(join('node_modules', '.bin'))) {
-        return `verify.test does not point at the local binary: ${c.verify.test.join(' ')}`;
+      if (c.verify.test[0] !== 'node' || !c.verify.test[1]?.startsWith('node_modules/')) {
+        return `verify.test does not point at the local install: ${c.verify.test.join(' ')}`;
+      }
+      return null;
+    }),
+  ),
+
+  // The other side of `resolveLocalBin`: a local bin it cannot resolve to
+  // JavaScript. A native binary is the honest case — there is no entrypoint to
+  // name — and the contract has to fall back to the bare name rather than
+  // invent a path, because a name still resolves through PATH the way the
+  // repo's own script already does.
+  check('a local bin with no JavaScript behind it falls back to the bare name', () =>
+    withRepo({ ...COMPLETE, installedBins: [], bins: ['vitest', 'eslint'] }, async (dir) => {
+      await run([], dir);
+      const c = readContract(dir);
+      if (c.verify.test[0] !== 'vitest') {
+        return `expected the bare runner name, got: ${c.verify.test.join(' ')}`;
+      }
+      if (c.verify.lint[0] !== 'eslint') {
+        return `expected the bare linter name, got: ${c.verify.lint.join(' ')}`;
       }
       return null;
     }),
@@ -348,7 +429,7 @@ await Promise.all([
 
   // ---- the rule from spec-flow-config.mjs's header, enforced here ----
   check('an undetectable runner is left empty and reported, never defaulted', () =>
-    withRepo({ ...COMPLETE, scripts: { lint: 'eslint .' }, bins: ['eslint'] }, async (dir) => {
+    withRepo({ ...COMPLETE, scripts: { lint: 'eslint .' } }, async (dir) => {
       const res = await run([], dir);
       const c = readContract(dir);
       if (c.verify.test.length > 0) {
@@ -521,6 +602,59 @@ await Promise.all([
     withRepo({ ...COMPLETE, existingConfig: '{"mine":true}' }, async (dir) => {
       await run(['--force'], dir);
       if (readContract(dir).mine === true) return '--force left the old contract in place';
+      return null;
+    }),
+  ),
+
+  // ---- the contract is a file the team COMMITS ----
+  //
+  // Everything else in this file asks whether init READ the repo correctly.
+  // These two ask whether what it wrote can be RUN, by a machine other than
+  // the one that wrote it. The gate spawns `verify.lint` and `verify.test`
+  // exactly as the contract spells them, so a path that resolves only on the
+  // generating platform is not a cosmetic difference — it is a gate that
+  // cannot start.
+  check('the contract names a runnable entrypoint, not the .bin shim', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const c = readContract(dir);
+      for (const [field, argv] of [
+        ['lint', c.verify.lint],
+        ['test', c.verify.test],
+      ]) {
+        if (/node_modules[\\/]\.bin/.test(argv.join(' '))) {
+          return `verify.${field} points into node_modules/.bin (${argv.join(' ')}). That path is a symlink to JavaScript on POSIX and a #!/bin/sh script on Windows, so naming it makes the contract mean two different things — and on Windows \`node\` cannot parse it, which reaches the gate as a SyntaxError attributed to the linter.`;
+        }
+        // The interpreter and its entrypoint only — the trailing arguments are
+        // the repo's own and are not this case's claim.
+        const res = spawnSync(argv[0], [argv[1]], { cwd: dir, encoding: 'utf8' });
+        if (res.error || res.status !== 0) {
+          const why = res.error
+            ? (/** @type {NodeJS.ErrnoException} */ (res.error).code ?? res.error.message)
+            : `exit ${res.status}: ${(res.stderr ?? '').split('\n')[0]}`;
+          return `verify.${field} does not execute as written (${argv[0]} ${argv[1]}): ${why}`;
+        }
+      }
+      return null;
+    }),
+  ),
+
+  // Only the platform that HAS a second separator can fail this, so on POSIX
+  // it is a guard rather than a reproduction. It is still the assertion that
+  // states the claim: the file is committed, so the string has to be the same
+  // one wherever `init` ran.
+  check('the contract carries no host-OS path separator', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const c = readContract(dir);
+      const offenders = [
+        ['lint', c.verify.lint],
+        ['lint_no_fix', c.verify.lint_no_fix],
+        ['test', c.verify.test],
+      ].filter(([, argv]) => argv.some((token) => token.includes('\\')));
+      if (offenders.length > 0) {
+        return `${offenders.map(([f, a]) => `verify.${f} = ${JSON.stringify(a)}`).join('; ')} — a backslash here is the generating machine's separator written into a file the whole team reads, so a contract produced on Windows names a path nobody on macOS or Linux has.`;
+      }
       return null;
     }),
   ),

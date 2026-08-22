@@ -28,7 +28,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, appendFileSync } from 'node:fs';
 import { join, extname, sep } from 'node:path';
 import { resolveBase } from './changed-files.mjs';
-import { RUNTIMES, stripTargets } from './argv.mjs';
+import { RUNTIMES, stripTargets, resolveLocalBin } from './argv.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'out', 'vendor', '.claude']);
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
@@ -124,10 +124,12 @@ function toArgv(root, parsed, { stripTrailingTargets = false } = {}) {
   const args = stripTrailingTargets
     ? stripTargets(parsed.args, root)
     : { argv: parsed.args, stripped: [], remaining: [] };
-  const local = join('node_modules', '.bin', parsed.bin);
-  const argv = existsSync(join(root, local))
-    ? ['node', local, ...args.argv]
-    : [parsed.bin, ...args.argv];
+  // Past the `.bin` shim, never at it: what that name points to differs by
+  // platform, and this argv is written into a file the team commits. See
+  // `resolveLocalBin`. A bin it cannot resolve keeps the bare name, which
+  // resolves through PATH the way the script the repo already runs does.
+  const entrypoint = resolveLocalBin(root, parsed.bin);
+  const argv = entrypoint ? ['node', entrypoint, ...args.argv] : [parsed.bin, ...args.argv];
   return { argv, stripped: args.stripped, remaining: args.remaining };
 }
 

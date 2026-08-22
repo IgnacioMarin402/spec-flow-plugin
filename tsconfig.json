@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["hooks/**/*.mjs", "scripts/**/*.mjs", "bin/**/*.mjs"]
+  "include": ["hooks/**/*.mjs", "scripts/**/*.mjs", "bin/**/*.mjs", "test/**/*.mjs"]
 }

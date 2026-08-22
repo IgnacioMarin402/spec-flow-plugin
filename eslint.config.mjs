@@ -12,7 +12,7 @@
 // `checkJs`), not this file's.
 export default [
   {
-    files: ['hooks/**/*.mjs', 'scripts/**/*.mjs', 'bin/**/*.mjs'],
+    files: ['hooks/**/*.mjs', 'scripts/**/*.mjs', 'bin/**/*.mjs', 'test/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

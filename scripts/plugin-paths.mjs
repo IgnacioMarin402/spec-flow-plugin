@@ -137,7 +137,7 @@ for (const doc of DOCS) {
 }
 
 let anchorsChecked = 0;
-for (const [doc, own] of anchors) {
+for (const doc of anchors.keys()) {
   const text = readFileSync(join(ROOT, doc), 'utf8');
   for (const [, target, anchor] of text.matchAll(/\]\(([A-Za-z.]*\.md)?#([^)]+)\)/g)) {
     const where = target ?? doc;

@@ -25,6 +25,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveLocalBin } from './argv.mjs';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -35,11 +36,62 @@ const check = (name, problem) => {
 
 const git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
 
-/** The installed binary, run the way a consuming repo's scripts run it. */
+/**
+ * How to invoke npm without going through a shell.
+ *
+ * On POSIX `npm` is on PATH and spawns directly. On Windows it is `npm.cmd`,
+ * and neither spelling reaches it: the bare name is ENOENT, because
+ * `spawnSync` consults PATHEXT only under a shell, and the explicit `.cmd` is
+ * EINVAL, because Node refuses to spawn a batch file unshelled (the
+ * CVE-2024-27980 mitigation). Both verified on this platform, not inferred.
+ *
+ * `shell: true` is the third spelling and the wrong trade. It works, and it
+ * concatenates the arguments rather than escaping them — Node deprecates it
+ * for exactly that (DEP0190) — while every path here comes out of `mkdtemp`,
+ * under a home directory that is allowed to contain a space.
+ *
+ * So on Windows this runs npm's own JavaScript entrypoint under `node`, which
+ * needs no shell and no quoting. npm sets `npm_execpath` for the scripts it
+ * runs, so it is present whenever this fixture is reached the documented way.
+ */
+const NPM = process.platform !== 'win32'
+  ? ['npm']
+  : process.env.npm_execpath?.endsWith('.js')
+    ? [process.execPath, process.env.npm_execpath]
+    : null;
+
+/** npm, or a synthetic failure that says why rather than an unexplained empty result. */
+function npm(args, opts) {
+  if (!NPM) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr:
+        'npm could not be invoked without a shell on this platform. Run this through `npm run pack:check`, which sets npm_execpath.',
+      error: null,
+    };
+  }
+  return spawnSync(NPM[0], [...NPM.slice(1), ...args], opts);
+}
+
+/** What a spawn actually did, including the failures that leave stdout and stderr undefined. */
+const why = (res) =>
+  res.error ? `${/** @type {NodeJS.ErrnoException} */ (res.error).code ?? res.error.message}` : `${res.stdout ?? ''}${res.stderr ?? ''}`;
+
+/**
+ * The installed binary, run the way a consuming repo's scripts run it.
+ *
+ * Resolved past `node_modules/.bin`, for the reason ADR-011 gives: that name
+ * is a symlink to JavaScript on POSIX and a `#!/bin/sh` script on Windows, so
+ * handing it to `node` runs the CLI on one platform and dies parsing it on the
+ * other. This is the same resolution the contract goes through, against a real
+ * npm install rather than a fabricated one.
+ */
 function cli(cwd, sub, args = []) {
   const env = { ...process.env };
   delete env.CLAUDE_PROJECT_DIR;
-  return spawnSync(process.execPath, [join(cwd, 'node_modules', '.bin', 'spec-flow'), sub, ...args], {
+  const entrypoint = resolveLocalBin(cwd, 'spec-flow');
+  return spawnSync(process.execPath, [join(cwd, entrypoint ?? join('node_modules', '.bin', 'spec-flow')), sub, ...args], {
     cwd,
     env,
     encoding: 'utf8',
@@ -58,8 +110,8 @@ const work = mkdtempSync(join(tmpdir(), 'spec-flow-pack-'));
  */
 async function run() {
   // ---- pack ---------------------------------------------------------------
-  const packed = spawnSync('npm', ['pack', '--pack-destination', work], { cwd: ENGINE, encoding: 'utf8' });
-  check('npm pack succeeds', packed.status === 0 ? null : `npm pack failed:\n${packed.stdout}${packed.stderr}`);
+  const packed = npm(['pack', '--pack-destination', work], { cwd: ENGINE, encoding: 'utf8' });
+  check('npm pack succeeds', packed.status === 0 ? null : `npm pack failed:\n${why(packed)}`);
 
   const tarball = readdirSync(work).find((f) => f.endsWith('.tgz'));
   check('a tarball was produced', tarball ? null : `no .tgz in ${work}: ${readdirSync(work).join(', ')}`);
@@ -98,13 +150,13 @@ async function run() {
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'baseline');
 
-  const install = spawnSync('npm', ['install', '--no-audit', '--no-fund', '--save-dev', join(work, tarball)], {
+  const install = npm(['install', '--no-audit', '--no-fund', '--save-dev', join(work, tarball)], {
     cwd: repo,
     encoding: 'utf8',
   });
   check(
     'the tarball installs as a devDependency',
-    install.status === 0 ? null : `npm install of the packed tarball failed:\n${install.stdout}${install.stderr}`,
+    install.status === 0 ? null : `npm install of the packed tarball failed:\n${why(install)}`,
   );
 
   // The bin name and the package name differ on purpose. If this is ever
