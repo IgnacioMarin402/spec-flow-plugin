@@ -727,7 +727,7 @@ flowchart TD
     P -->|"yes"| CFG{"contract readable?"}
     CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
     CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
-    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing"]
+    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing <br/> (10 in a row wakes the run once)"]
     DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
@@ -743,7 +743,10 @@ flowchart TD
 ```
 
 - **A dirty tree is not judged.** Implementers run in the background, so a
-  `Stop` can fire mid-write; judging that snapshot manufactures failures.
+  `Stop` can fire mid-write; judging that snapshot manufactures failures. A
+  tree that stays dirty for ten stops in a row is not that, and wakes the run
+  once: nothing has been judged for the milestone, and a skip is not a
+  failure, so without it the only trace is a log nobody opens.
 - **spec-trace runs after the suite, and that ordering is load-bearing.** It
   establishes which requirements are proven by asking your contract's
   `trace.executed_tests` what actually ran, so it has to judge *this*
