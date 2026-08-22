@@ -587,10 +587,11 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | `run-trace-unmatched.log` | Subagent returns with no `STATUS:` line |
 | `opus-budget-unmatched.log` | Payloads the budget could not attribute |
 | `register-agent-unmatched.log` | Spawns whose session id was not found |
+| `phase-guard-unmatched.log` | Programs that wrote the phase file in a form the guard could not read |
 
-The four `*-unmatched.log` files are how each hook reports its own blind
-spots. A hook that fails open silently is indistinguishable from one that had
-nothing to do; these are what make the difference readable.
+The `*-unmatched.log` files are how each hook reports its own blind spots. A
+hook that fails open silently is indistinguishable from one that had nothing
+to do; these are what make the difference readable.
 
 ---
 

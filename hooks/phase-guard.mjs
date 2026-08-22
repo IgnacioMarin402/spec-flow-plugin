@@ -36,7 +36,7 @@
  */
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, phasePath, readPayload, readFileOrDefault, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readPayload, readFileOrDefault, readLinesDeduped, appendLine, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 
@@ -76,6 +76,50 @@ function bashWrittenValue(cmd) {
   return values.length === 1 ? values[0] : null;
 }
 
+/**
+ * Records that a write got past unread, one line per distinct program.
+ *
+ * The matcher above is narrow because this hook DENIES, so `tee`, `cp`,
+ * `sh -c` and a variable all go through. That is the right trade and it leaves
+ * the hook unable to see its own blind spot; this is the half that IS
+ * available — the same shape `opus-budget` and `lint-on-write` use for what
+ * they let past, and for the same reason: failing open is fine, failing open
+ * silently is not.
+ *
+ * Narrower than the matcher on purpose. A command that merely READS the file
+ * got past nothing, and a log that fills with `cat` is one nobody opens — so a
+ * redirect or a pipe is required as the structural evidence that something was
+ * WRITING. A writer taking the path as a positional argument (`cp x <phase>`)
+ * still leaves no line, and that gap is what keeps the log worth opening.
+ *
+ * The program only, never the arguments: this file has no business copying a
+ * command's content into a log.
+ */
+function recordUnreadableWrite(root, cmd) {
+  try {
+    const redirects = />>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase/.test(cmd);
+
+    // The pipeline SEGMENT that names the file is the one touching it; in
+    // `printf x | tee <phase>` the command's own first token is the producer,
+    // which is not what got past.
+    const segments = cmd.split('|');
+    const at = segments.findIndex((s) => PHASE_FILE_RE.test(s));
+
+    // Something must be flowing INTO the file. A redirect says so outright; a
+    // pipe says so only when the file is downstream of it, since
+    // `cat <phase> | grep x` is a read that happens to contain a pipe.
+    if (!redirects && at < 1) return;
+
+    const program = (segments[at === -1 ? 0 : at].trim().split(/\s+/)[0] ?? '').replace(/^.*[\\/]/, '');
+    if (!program) return;
+
+    const path = join(stateDir(root), 'phase-guard-unmatched.log');
+    if (!readLinesDeduped(path).has(program)) appendLine(path, program);
+  } catch {
+    /* logging must never be why this hook fails */
+  }
+}
+
 await run(async () => {
   const root = projectDir();
   const phaseFile = phasePath(root);
@@ -88,7 +132,9 @@ await run(async () => {
 
   let written = null;
   if (String(payload.tool_name ?? '') === 'Bash') {
-    written = bashWrittenValue(String(input.command ?? ''));
+    const cmd = String(input.command ?? '');
+    written = bashWrittenValue(cmd);
+    if (!written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
   } else {
     const filePath = String(input.file_path ?? input.filePath ?? '');
     if (PHASE_FILE_RE.test(filePath)) {
