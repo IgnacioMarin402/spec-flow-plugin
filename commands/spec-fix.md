@@ -85,7 +85,7 @@ Those exact two paths, with those exact names, because the implementer reads exa
    - *a red test, attempt 1*: `SendMessage` the log to `IMPL_SESSION` and have it fix the code. Do not re-triage yet — the gate routes the first red suite back as a direct fix whichever flow is running, and here that matters more than in `/spec-flow`: a re-triage is this flow's only heavy step, and the first red test after a one-milestone fix is usually just the fix being wrong, not the case being wrong.
    - *a red test that survives that, or lint-only from the third attempt*: **re-run the triage** (step 1) with `.claude/state/gate-failure.log`. A fix whose test will not go green is a fix aimed at the wrong case — most often a case 3 that was filed as a case 1.
    - *attempt cap*: the gate has already written `blocked`. Summarize for the human and stop. On their answer, write `implement` back and `SendMessage` to `IMPL_SESSION`.
-   - *pass* (silent to you — the hook allows the stop and renders no decision, so nothing about it enters your context; the one-line notice it prints goes to the human's screen, not yours): continue to step 5. If a `send_later`-style tool is available, schedule a ~2 minute self check-in before the gate-triggering stop: "Read the LAST LINE of `.claude/state/gate-history.log`: it names the commit it judged and its `result=`. `result=pass` on the current tip means the gate passed. `result=running` means that invocation never finished — it was killed, most likely by the Stop hook's timeout — so nothing was judged; do not advance, and expect the next gate to say `fail:killed`. Any `result=fail:*` means it blocked, and you should already have its message. No line at all, or a line naming an older commit, means the gate has not judged this commit yet. Go to FOLD only on `result=pass` for the current tip."
+   - *pass, the first time the gate reports this commit* (ADR-010): the gate re-invokes you with a `reason` starting `spec-flow: gate PASSED`, naming what to do next. That is not a failure — continue to step 5 without re-running lint or tests. A repeat stop on that same tree is silent instead, so you are not asked twice.
 
 ## 5. FOLD (subagent: spec-writer · Sonnet 5)
 
@@ -93,7 +93,7 @@ Keep the phase at `implement` — the fold may touch `specs/` wording, and that 
 
 Invoke `spec-writer` in `MODE=FOLD` with `specflow/<SLUG>/spec.md`. It verifies the deltas landed, stamps `**Status:** SHIPPED`, and archives the folder. A case 2 or case 4 fix has no deltas to verify and the fold is just the stamp and the move — run it anyway. That stamp is the only thing standing between `specflow/` and a pile of folders nobody can interpret, and it is what the spec-trace check verifies.
 
-**Commit and push the fold, then end your turn** so the gate re-runs the spec-trace check against a clean tree. If it fails on the spec side, `SendMessage` the log back to the spec-writer session. If the gap is in code or tests, go back to step 1.
+**Commit and push the fold, then end your turn** so the gate re-runs the spec-trace check against a clean tree. A pass re-invokes you the same way step 4 does — proceed straight to step 6. If it fails on the spec side, `SendMessage` the log back to the spec-writer session. If the gap is in code or tests, go back to step 1.
 
 ## 6. DONE
 

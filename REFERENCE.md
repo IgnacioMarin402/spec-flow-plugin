@@ -666,7 +666,7 @@ flowchart TD
     G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
     G -->|"whatever survives that"| RE
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
-    G -->|"green — no decision rendered, <br/> a notice printed for the human"| MORE{"another milestone?"}
+    G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
     MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
@@ -732,7 +732,9 @@ flowchart TD
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
     BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
-    RUN -->|"all green"| PASS["allow the stop — no decision, <br/> so the model is not re-invoked. <br/> print one notice for the human. <br/> attempts reset to 0"]
+    RUN -->|"all green"| SEEN{"already reported <br/> this commit's sha?"}
+    SEEN -->|"no, first time"| PASS["BLOCK — wake the orchestrator <br/> with what to do next. <br/> attempts reset to 0"]
+    SEEN -->|"yes, repeat stop"| QUIET["allow the stop — no decision, <br/> print one notice for the human. <br/> attempts already at 0"]
     RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
     CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
     CLS -->|"a red test, attempt 1"| FIX
@@ -758,6 +760,11 @@ flowchart TD
   them is a pass. A base that resolves *to HEAD* is refused for the same
   reason: work committed straight onto the base branch has an empty diff by
   construction, so the scoped linter never runs for the whole run.
+- **A pass blocks once per commit, not once per stop** (ADR-010). Blocking on
+  every stop over an unchanged tree would thrash — an implementer that
+  reported early, a human who said nothing in between, each firing another
+  round — so the gate checks its own history for a `result=pass` already
+  recorded against the current sha before deciding to wake anyone again.
 - **The failure class decides the route, not the severity.** A traceability
   gap is usually a test that proves the requirement and never named it — an
   edit, not a re-think.

@@ -138,24 +138,26 @@ What happens:
    and archived, not deleted.
 3. **Plan, review, then implementation** — one milestone at a time, each in a
    fresh implementer session, test-first per requirement.
-4. **The gate runs when the turn ends.** Green allows the stop; red blocks and
-   tells the orchestrator what to fix.
+4. **The gate runs when the turn ends.** Green blocks the stop and tells the
+   orchestrator to advance; red blocks it and tells the orchestrator what to
+   fix.
 5. **Fold and done.** The change spec is verified against `specs/`, stamped
    SHIPPED, archived with the run's telemetry.
 
-**A pass is silent to the model and not to you.** The gate renders no decision,
-so the stop is allowed and nothing wakes the orchestrator back up — and it
-prints one line for you as it goes:
+**A pass wakes the orchestrator, once per commit** (ADR-010). The first time
+the gate reports a given commit as green, it blocks the stop the same way a
+failure does, so both you and the orchestrator see it — a milestone advances
+on its own, with nothing to type:
 
 ```
 Stop says: spec-flow: gate PASSED — 6fdfb93 (eslint 0, npm test 0, spec=0).
-A pass does not wake the run, so nothing more will happen on its own:
-say "continue" to advance to the next milestone.
+Advance the run now: start the NEXT milestone with a fresh implementer
+Agent call, or if none remain, invoke spec-writer in MODE=FOLD; if this
+was the fold's own gate re-run, write 'done' into .claude/state/phase.
 ```
 
-Both commands also schedule a self check-in when the session provides a
-scheduling tool; where it does not, a green milestone waits for your next
-message.
+A second stop over the same commit — nothing new committed — stays silent to
+the model instead, so the run is not asked to act on the same pass twice.
 
 If it stops and asks for a human, read `.claude/state/gate-failure.log`.
 
@@ -172,9 +174,10 @@ stop or blocks with the instruction for what to do next.
   artifact is a subagent pinned to the model its job needs.
 - **The gate is not a step in the pipeline** — it is what happens when the
   pipeline stops. Its block message *is* the next instruction.
-- **A pass renders no decision**, so nothing wakes the orchestrator back up and
-  a green milestone costs no tokens at all. You still see it: the gate prints a
-  notice naming the commit it judged and what to say next.
+- **The first pass on a commit blocks too**, on the same channel a failure
+  uses (ADR-010) — a green milestone advances the run on its own, and you see
+  it happen. A repeat stop on that same commit is where the free ride is: it
+  renders no decision, so it costs nothing and wakes nobody.
 
 The three flowcharts — a feature, a defect, and the gate's own routing — are in
 [REFERENCE](REFERENCE.md#how-a-run-unfolds), along with the reasoning behind

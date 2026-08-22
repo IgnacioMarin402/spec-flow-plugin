@@ -18,8 +18,11 @@
  *   is the only trace a CANCELED hook leaves: reaching the `timeout` declared
  *   in hooks.json discards this file's output, and a Stop hook that renders no
  *   decision ALLOWS the stop — above this file's catch-all.
- * - On pass: allows the stop. On fail: blocks, routing back to PLAN or to the
- *   implementer depending on the failure's class.
+ * - On the first pass for a commit: blocks the stop and wakes the
+ *   orchestrator with what to do next — see ADR-010. A repeat pass for a
+ *   commit already reported this way allows the stop instead, silently to
+ *   the model. On fail: blocks, routing back to PLAN or to the implementer
+ *   depending on the failure's class.
  * - At MAX_ATTEMPTS it hands control to a human and writes `blocked` into the
  *   phase file. The wait state would be unreachable under `implement`, since
  *   stopping to wait re-triggers this gate.
@@ -215,22 +218,49 @@ await run(
       return;
     }
 
-    // A pass stays silent TO THE MODEL — no decision is rendered, so the stop
-    // is allowed and nothing re-invokes the orchestrator — and is no longer
-    // silent to the HUMAN, who was the only party the silence ever cost. Both
-    // halves are load-bearing and they pull opposite ways, so neither may be
-    // satisfied alone: a `decision` of any kind here would spend a turn on the
-    // one outcome that needs nothing done, and printing nothing at all is what
-    // makes a green milestone look identical to a hung run. `emitNotice`'s
-    // header holds the protocol; the fixture holds both halves as one case.
+    // A pass now WAKES the orchestrator — see ADR-010, which reverses the
+    // "silent to the model" half of the design this replaced. What forced
+    // it: `emitNotice`'s `systemMessage` renders in `claude -p` and is
+    // discarded in an interactive session — verified against real
+    // transcripts, cited in the ADR — so "the human always sees it" was
+    // never true on the surface this engine actually runs on. `emitBlock`
+    // IS rendered there, the same way every GATE FAILED message in this
+    // file already is, so a pass now speaks through that channel instead of
+    // inventing a second one that only half of it needed.
+    //
+    // Waking on every stop would thrash: Stop can fire more than once on the
+    // SAME clean tree (an implementer that reported early, a human who said
+    // nothing), and a milestone only needs the orchestrator's attention once
+    // per commit it produced. So this wakes ONCE per sha — `previous`,
+    // captured above before this invocation's own history line existed,
+    // already carries a `result=pass` for the current sha if an earlier stop
+    // on this exact tree already woke the run. Later stops on that same sha
+    // fall back to `emitNotice`: still on screen, just not spent re-waking a
+    // model with nothing new to do.
     const passAndExit = (lintRc, testRc, unscopedFields, filesField) => {
+      const sha = shortSha(root);
       hist('pass', lintRc, testRc, unscopedFields, filesField);
       writeFile(attFile, '0');
       writeFile(logFile, '');
       writeFile(fullLogFile, '');
-      emitNotice(
-        `spec-flow: gate PASSED — ${shortSha(root)} (${config.verify.lint_name} ${lintRc}, ${config.verify.test_name} ${testRc}, ${unscopedFields}). ` +
-          `A pass does not wake the run, so nothing more will happen on its own: say "continue" to advance to the next milestone.`,
+
+      const summary = `spec-flow: gate PASSED — ${sha} (${config.verify.lint_name} ${lintRc}, ${config.verify.test_name} ${testRc}, ${unscopedFields}).`;
+
+      // `sha !== '-'`: `shortSha` returns `-` when git itself failed, and
+      // reading that as "already woke" would silence every future pass on a
+      // broken checkout forever — the same silent-disarm shape this file
+      // exists to close, one line further down.
+      const alreadyWoke = sha !== '-' && previous.some(
+        (l) => l.split(' ')[1] === sha && / result=pass /.test(l),
+      );
+
+      if (alreadyWoke) {
+        emitNotice(`${summary} Already reported for this commit — nothing more happens on its own unless you act.`);
+        return;
+      }
+
+      emitBlock(
+        `${summary} Advance the run now: start the NEXT milestone with a fresh implementer Agent call, or if none remain, invoke spec-writer in MODE=FOLD; if this was the fold's own gate re-run, write 'done' into .claude/state/phase. Do not re-run lint or tests yourself and do not repeat what already passed.`,
       );
     };
 
