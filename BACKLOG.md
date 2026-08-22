@@ -296,6 +296,65 @@ What this does **not** close: B4's question. The notice is screen output, not
 record, and a human who is away still misses it — `run-trace.mjs`'s header now
 says so rather than claiming a pass leaves no trace at all.
 
+### B20 — B16's verification held for one client and was read as holding for all of them — `PENDING`, supersedes half of B16 (ADR-010)
+
+B16 verified `emitNotice`'s `systemMessage` against `claude -p` — headless,
+2.1.233 — and that verification was real: the notice showed up, `num_turns`
+stayed at 1, `stop_reason` was `end_turn`. What never got checked is whether
+an *interactive* session renders the same field the same way, because nobody
+had a reason to expect a difference.
+
+A real run in a consuming repo supplied the reason. Three milestones passed
+the gate in a row, and the human never saw a single `Stop says:` line — the
+run stalled three times waiting for a "continue" the notice never produced,
+because it never arrived.
+
+**Verified before touching anything**, against the real transcripts, not a
+screenshot: two Stop hooks (one printing only `systemMessage`, one printing
+only `decision:'block'`) were run through Claude Code 2.1.233 and 2.1.238,
+both `claude -p` and interactive. `claude -p` recorded the `systemMessage`
+every time. The interactive session recorded `decision:'block'` every time
+and the `systemMessage` **zero out of three** — `hasOutput:false` on all
+three passes of the run that stalled, while a `PostToolUse` notice in that
+same session rendered fine, so the loss is specific to a `systemMessage` off
+a `Stop` hook. Across all 120 session transcripts on the machine, the only
+`Stop`-hook `systemMessage` ever recorded are the two generated to run this
+check — no real spec-flow run, ever, produced one.
+
+**The decision:** `passAndExit` now calls `emitBlock`, the channel this
+investigation found DOES reach the session that lost the other one — the
+same channel every `GATE FAILED` message already uses — the first time a
+commit passes. Guarded to once per commit (checked against `gate-history.log`,
+not a new file) so a second `Stop` over the same clean tree, which fires
+routinely while a background implementer writes, does not re-block with
+nothing new to report; that repeat stop keeps using `emitNotice`, unaffected.
+Full argument, including what B16's cost argument still gets right and why
+the comparison it was weighed against does not exist on the surface this
+engine runs on: **ADR-010**.
+
+**A second, previously undiscovered failure surfaced in the same run and is
+closed by the same change, not patched separately.** Both commands told the
+orchestrator to schedule a `send_later`-style self-check-in specifically so a
+silent pass would not strand the run — and it never fired, in this run or (as
+far as any transcript shows) any other. The candidate tools
+(`ScheduleWakeup`, `mcp__scheduled-tasks__create_scheduled_task`) are
+*deferred*: invisible until searched for, so an orchestrator reading its own
+visible tool list correctly concludes none exists. That clause was written in
+one prose-only commit (`1b9d2b5`, pre-plugin) and never run against a real
+orchestrator before now. It is removed from both commands rather than
+repaired — a deterministic wake at the gate closes the identical failure
+without depending on which tools a given client happens to expose.
+
+**Guards written alongside the fix, not proof of it:** every rewritten
+fixture case that merely asserts the new contract shape (a green tree is
+never *rejected*, extra_checks still surface in history, lint stays scoped)
+would have failed against the pre-fix commit too, for the same root cause —
+they don't distinguish this fix from a cruder one. The one case that does is
+isolated separately: run against this same fix with the once-per-commit guard
+deliberately disabled, exactly that case goes red (a second stop re-blocks)
+and nothing else does — proof the guard is pulling its own weight, not
+riding along on the wake-on-pass change.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither

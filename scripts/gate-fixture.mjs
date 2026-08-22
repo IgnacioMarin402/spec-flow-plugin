@@ -79,6 +79,18 @@ function have(cmd) {
 }
 
 /**
+ * Since ADR-010, `r.blocked` alone no longer means "the gate rejected this
+ * tree" — a first-time PASS blocks too, to wake the orchestrator on the
+ * channel verified to reach a human. Cases whose subject is something other
+ * than that wake behavior (scoping, base resolution, extra_checks wiring...)
+ * use this instead: true only when the block is an actual GATE FAILED, never
+ * a pass reported through the same channel.
+ */
+function rejected(r) {
+  return r.blocked && !/spec-flow: gate PASSED/.test(r.payload?.reason ?? '');
+}
+
+/**
  * Installs the engine at one temp directory and a throwaway git repo at a
  * DIFFERENT one — the split this whole fixture exists to exercise. A repo
  * under test that never had this engine's own file, `spec-trace.mjs`,
@@ -330,7 +342,7 @@ await Promise.all([
   // ---- the reason this fixture exists: engine and repo are never the same directory ----
   check('the gate reads CLAUDE_PROJECT_DIR, never its own install location', () =>
     withFixture({ specTrace: 'green' }, (r) => {
-      if (r.blocked) return `the gate blocked a green tree — stderr: ${r.stderr}`;
+      if (rejected(r)) return `the gate rejected a green tree — stderr: ${r.stderr}`;
       if (!/result=pass/.test(r.history)) {
         return `no pass recorded in the REPO's own state — the hook wrote state somewhere else, or did not run against the repo at all. stdout: ${r.stdout} stderr: ${r.stderr}`;
       }
@@ -341,7 +353,7 @@ await Promise.all([
   // ---- the fixture's own signature failure, closed: it must actually reach verify.lint/verify.test ----
   check('a green run against real changes reports the real scope (files=1), not the empty short-circuit', () =>
     withFixture({ specTrace: 'green' }, (r) => {
-      if (r.blocked) return `the gate blocked a green tree — stderr: ${r.stderr}`;
+      if (rejected(r)) return `the gate rejected a green tree — stderr: ${r.stderr}`;
       if (!/files=1\b/.test(r.history)) {
         return `expected files=1 in the history line — if this reads files=0, resolveBase() stopped finding the 'main' branch and every case in this fixture is back to never invoking verify.lint/verify.test. history: ${r.history}`;
       }
@@ -457,41 +469,79 @@ await Promise.all([
     }),
   ),
 
-  check('a green run allows the stop and records the pass', () =>
+  // Renamed from "allows the stop" — since ADR-010 a first pass no longer
+  // does; the "wakes the orchestrator" cases below cover that half. What
+  // this case still owns: a green tree is never REJECTED (a `decision:
+  // 'block'` whose reason is a failure, not a pass), and every declared
+  // check's field lands in the history line either way.
+  check('a green run is never rejected, and always records the pass', () =>
     withFixture({ specTrace: 'green' }, (r) => {
-      if (r.blocked) return 'the gate blocked a tree where every check passed';
+      if (rejected(r)) return 'the gate rejected a tree where every check passed';
       if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
       if (!/spec=0/.test(r.history)) return `the declared check did not report its field: ${r.history}`;
       return null;
     }),
   ),
 
-  // ---- a pass is silent to the MODEL and visible to the HUMAN ---------------
+  // ---- a FIRST pass wakes the orchestrator, on the channel that actually
+  // reaches a human (ADR-010) --------------------------------------------
   //
-  // The two halves are one case on purpose: satisfying either alone
-  // reintroduces the failure the other exists to prevent. A `decision` field
-  // of any kind wakes the orchestrator and turns a green milestone into
-  // another turn; no output at all is the stall the README has to apologise
-  // for in prose.
-  check('a green run tells the human it passed, and still does not wake the model', () =>
+  // `emitNotice`'s `systemMessage` was verified lost in an interactive
+  // session while `decision:'block'` was not, so the first pass for a commit
+  // must use the latter — the exact opposite of what this case asserted
+  // before ADR-010. The reason string is the only thing a human or an
+  // orchestrator has to act on, so it has to both say PASSED and say what to
+  // do next; a block that merely announces success and leaves the reader
+  // guessing is the same stall this replaced, in the other channel.
+  check('a green run on a NEW commit wakes the orchestrator, on the channel that reaches a human', () =>
     withFixture({ specTrace: 'green' }, (r) => {
-      if (r.blocked) return 'the gate blocked a tree where every check passed';
-      if (!r.payload) return `a pass printed nothing parseable, so the human sees a stall: stdout=${JSON.stringify(r.stdout)}`;
-      if (r.payload.decision !== undefined) {
-        return `a pass carried decision=${JSON.stringify(r.payload.decision)} — any decision re-invokes the model, which is what "a pass is silent" exists to avoid`;
+      if (!r.blocked) return `a first-time pass did not block — nothing will advance the run: ${JSON.stringify(r.payload)}`;
+      if (r.payload?.decision !== 'block') {
+        return `expected decision:'block' on a first pass, got: ${JSON.stringify(r.payload)}`;
       }
-      if (typeof r.payload.systemMessage !== 'string' || !r.payload.systemMessage) {
-        return `a pass emitted no systemMessage, so a green milestone is indistinguishable from a hung run: ${JSON.stringify(r.payload)}`;
+      const reason = r.payload?.reason ?? '';
+      if (!/spec-flow: gate PASSED/.test(reason)) {
+        return `the block reason does not announce a pass, so a human reading it cannot tell it apart from a failure: ${reason}`;
       }
-      // The notice has one job beyond existing: saying what to do next. A
-      // message that announces a pass and leaves the human guessing is the
-      // same stall with better lighting.
-      if (!/continue/i.test(r.payload.systemMessage)) {
-        return `the pass notice does not tell the human how to resume the run: ${r.payload.systemMessage}`;
+      if (!/(next milestone|MODE=FOLD|'done')/i.test(reason)) {
+        return `the pass block does not say what to do next: ${reason}`;
       }
+      if (/^GATE FAILED/.test(reason)) return `a pass block reads exactly like a failure block: ${reason}`;
       return null;
     }),
   ),
+
+  // ---- a SECOND stop on the same commit does not re-block --------------
+  //
+  // Stop can fire more than once over one clean tree — an implementer that
+  // reported early, a human who said nothing in between. Waking the
+  // orchestrator on every one of those would thrash: block, get answered,
+  // stop again, block again with nothing new to report. `gate.mjs` guards
+  // this by sha, so this case runs the SAME repo through the gate twice
+  // without any new commit and asserts the second stop is silent to the
+  // model. Two separate `runGate` calls on one `fixture()`, not
+  // `withFixture` — the helper only runs the gate once.
+  check('a second stop on the same commit does not re-wake the model', async () => {
+    const built = await fixture({ specTrace: 'green' });
+    try {
+      const first = await runGate(built);
+      if (!first.blocked) return `the first pass did not wake the orchestrator: ${JSON.stringify(first.payload)}`;
+      const second = await runGate(built);
+      if (second.blocked) {
+        return `a second stop on a tree with no new commit re-blocked — this is the thrash the sha guard exists to prevent: ${JSON.stringify(second.payload)}`;
+      }
+      if (second.payload?.decision !== undefined) {
+        return `the second stop carried a decision when none was expected: ${JSON.stringify(second.payload)}`;
+      }
+      if (typeof second.payload?.systemMessage !== 'string' || !second.payload.systemMessage) {
+        return `the second stop said nothing at all, so it reads exactly like a hung run: ${JSON.stringify(second.payload)}`;
+      }
+      return null;
+    } finally {
+      rmSync(built.engineDir, { recursive: true, force: true });
+      rmSync(built.repoDir, { recursive: true, force: true });
+    }
+  }),
 
   // ---- the seam between the two changes: real spec-trace, real report,
   // real gate -------------------------------------------------------------
@@ -501,7 +551,7 @@ await Promise.all([
   // spec-trace.mjs directly, never through gate.mjs's Stop-hook protocol.
   // Neither exercises what happens when a real JUnit file, read by the real
   // spec-trace, decides what the real gate tells a human. These two do.
-  check('a real JUnit report proving the requirement passes silently and tells the human', () =>
+  check('a real JUnit report proving the requirement wakes the orchestrator and tells it what passed', () =>
     withFixture(
       {
         report: { format: 'junit', path: 'reports/junit.xml' },
@@ -509,10 +559,12 @@ await Promise.all([
         specs: { 'specs/fix.md': FIX_SPEC },
       },
       (r) => {
-        if (r.blocked) return `the gate blocked a requirement a real JUnit report proves executed: ${r.failureLog}`;
+        if (!r.blocked) return `a real JUnit report proving the requirement did not wake the run: ${JSON.stringify(r.payload)}`;
         if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
-        if (r.payload?.decision !== undefined) return `a pass through the real report path still carried a decision: ${JSON.stringify(r.payload)}`;
-        if (!/spec-flow: gate PASSED/.test(r.payload?.systemMessage ?? '')) {
+        if (r.payload?.decision !== 'block') {
+          return `the real report path passed but did not use the channel verified to reach a human: ${JSON.stringify(r.payload)}`;
+        }
+        if (!/spec-flow: gate PASSED/.test(r.payload?.reason ?? '')) {
           return `the real report path passed without telling the human: ${JSON.stringify(r.payload)}`;
         }
         return null;
@@ -601,7 +653,7 @@ await Promise.all([
         ],
       },
       (r) => {
-        if (r.blocked) return `an all-green tree with a declared extra check blocked: ${r.stderr}`;
+        if (rejected(r)) return `an all-green tree with a declared extra check was rejected: ${r.stderr}`;
         if (!/extra=0/.test(r.history)) return `the declared extra check's field did not appear in history: ${r.history}`;
         return null;
       },
@@ -622,7 +674,7 @@ await Promise.all([
     withFixture(
       { specTrace: 'green', test: ['node', '-e', 'process.exit(process.argv.length > 1 ? 1 : 0)'] },
       (r) => {
-        if (r.blocked) return `the gate blocked because the test command received unexpected argv — verify.test is scoped to changed files again. stderr: ${r.stderr}, failure log: ${r.failureLog}`;
+        if (rejected(r)) return `the gate rejected the run because the test command received unexpected argv — verify.test is scoped to changed files again. stderr: ${r.stderr}, failure log: ${r.failureLog}`;
         if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
         return null;
       },
@@ -641,7 +693,7 @@ await Promise.all([
         ],
       },
       (r) => {
-        if (r.blocked) return `an all-green tree blocked unexpectedly: ${r.stderr}`;
+        if (rejected(r)) return `an all-green tree was rejected unexpectedly: ${r.stderr}`;
         if (r.lintArgv === null) return 'the lint stand-in never ran — verify.lint received no invocation at all';
         if (!r.lintArgv.includes('b.ts')) return `verify.lint's argv did not include the changed file: "${r.lintArgv}"`;
         if (r.lintArgv.includes('a.ts')) return `verify.lint's argv included a.ts, an UNTOUCHED file — lint scoping regressed to whole-repo: "${r.lintArgv}"`;
@@ -699,7 +751,7 @@ await Promise.all([
   // ladder happening to match.
   check('verify.base_ref resolves a base no candidate in the ladder could find', () =>
     withFixture({ specTrace: 'green', baseBranch: 'release/7.x', baseRef: 'release/7.x' }, (r) => {
-      if (r.blocked) return `an all-green tree with an explicit base_ref blocked: ${r.stdout} ${r.stderr}`;
+      if (rejected(r)) return `an all-green tree with an explicit base_ref was rejected: ${r.stdout} ${r.stderr}`;
       if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;
       if (!/files=1\b/.test(r.history)) {
         return `base_ref was declared but the scope is still empty — it is not being read. history: ${r.history}`;
@@ -790,7 +842,7 @@ await Promise.all([
   // this, "refuse an empty scope" would be indistinguishable from the fix.
   check('an empty scope on a real branch still passes — the diff, not the base, is what is empty', () =>
     withFixture({ specTrace: 'green', changedFile: null }, (r) => {
-      if (r.blocked) {
+      if (rejected(r)) {
         return `a milestone that committed real work outside scope_globs was refused as a degenerate base: ${r.stdout} ${r.stderr}`;
       }
       if (!/result=pass/.test(r.history)) return `expected a pass line, got: ${r.history}`;

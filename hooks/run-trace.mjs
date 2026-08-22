@@ -5,14 +5,14 @@
  *
  * This hook enforces NOTHING. It exists because the flow's change policy
  * only accepts a failing run as grounds for changing the flow, and several of
- * its soft spots leave no trace anyone can read after the fact: a gate PASS
- * renders no decision, so a stalled run looks exactly like a finished one to
- * everything downstream — the notice the gate prints for the human is screen
- * output, not record, and a human who is away still misses it; the
- * implementer's test-first protocol lives in prose and the gate only ever
- * sees the final state; nobody knows whether the reviewer approves plans on
- * the merits or rubber-stamps them. Writing the evidence down is the
- * cheapest possible answer to all three.
+ * its soft spots leave no trace anyone can read after the fact: a REPEAT gate
+ * pass on a commit already reported (ADR-010) still renders no decision, so a
+ * stalled run there looks exactly like a finished one to everything
+ * downstream — that repeat notice is screen output, not record, and a human
+ * who is away still misses it; the implementer's test-first protocol lives in
+ * prose and the gate only ever sees the final state; nobody knows whether the
+ * reviewer approves plans on the merits or rubber-stamps them. Writing the
+ * evidence down is the cheapest possible answer to all three.
  *
  * ALWAYS exits 0. A hook whose only job is to observe must never be able to
  * block, annotate or fail anything; if it cannot parse a payload it says so

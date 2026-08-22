@@ -107,22 +107,33 @@ export function readLinesDeduped(path) {
  * calls this instead of `process.exit(2)` with a message, except the ones
  * whose protocol IS stderr + exit 2 (PreToolUse denials use that form; Stop
  * hooks use this one) — each hook below says which.
+ *
+ * On a Stop hook this is also the ONLY channel verified to reach a human in
+ * an interactive session — see `emitNotice` below and ADR-010. `gate.mjs`
+ * uses this for a milestone's first pass for exactly that reason, not only
+ * for failures.
  */
 export function emitBlock(reason) {
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
 }
 
 /**
- * Say something to the HUMAN without saying anything to the model. Claude Code
- * renders this as an informational notice ("Stop says: ...") and still allows
- * the stop — the turn ends, the model is not re-invoked, and the text never
- * becomes input tokens.
+ * Say something to the human without a `decision` field, so a Stop hook
+ * still allows the stop and the model is not re-invoked.
  *
- * The absence of a `decision` field is the entire mechanism, so do not "improve"
- * this by routing it through `emitBlock` or adding `decision: 'approve'`: a Stop
- * hook that renders any decision at all is a Stop hook that gets the model
- * thinking again, which turns the cheapest outcome in the flow — a green
- * milestone — into another turn on every pass.
+ * Where this renders is NOT uniform, and that took a real regression to find
+ * (ADR-010): a headless `claude -p` session records this `systemMessage` in
+ * its transcript every time, but an interactive session (`claude`, the
+ * desktop app) was observed discarding it across three consecutive gate
+ * passes with zero exceptions in every transcript checked on the machine
+ * this was diagnosed on — while a `PostToolUse` notice in that SAME session
+ * rendered fine, so the loss is specific to a `systemMessage` off a `Stop`
+ * hook, not to notices in general. Do not reach for this as "the way to
+ * reach a human without spending a turn" — for a Stop hook, on the surface
+ * this engine actually runs on, it usually is not one. `emitBlock` is what
+ * reaches a human in that session type; this exists for the cases that
+ * deliberately want silence-if-lost, such as a repeat notice `gate.mjs`
+ * already reported once through `emitBlock`.
  *
  * Fail-open like the rest of this file's writers: a notice that cannot be
  * printed must never be why a hook stops working.
