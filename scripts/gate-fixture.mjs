@@ -323,6 +323,21 @@ async function runGate({ engineDir, repoDir }) {
   };
 }
 
+/**
+ * Kept in step with `MAX_DIRTY_SKIPS` in hooks/gate.mjs by hand. A drift makes
+ * the two cases below assert the wrong side of the threshold, which is loud —
+ * one of them goes red — rather than silent.
+ */
+const MAX_DIRTY_SKIPS = 10;
+
+/** A history whose last `n` lines are consecutive skips, the shape a stuck run leaves. */
+const skipDirtyHistory = (n) =>
+  `${Array.from(
+    { length: n },
+    (_, i) =>
+      `2026-08-01T00:00:${String(i).padStart(2, '0')}Z abc1234 phase=implement attempt=0 result=skip-dirty lint=- test=- unscoped=- files=1`,
+  ).join('\n')}\n`;
+
 async function withFixture(opts, assert) {
   const { engineDir, repoDir } = await fixture(opts);
   try {
@@ -620,6 +635,39 @@ await Promise.all([
       // notice here would be noise on a run that has decided nothing, and
       // noise is how a real notice stops being read.
       if (r.stdout.trim()) return `the gate spoke about a tree it deliberately did not judge: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ---- but a tree that NEVER clears is not an implementer mid-write --------
+  //
+  // Skipping is right for one stop and wrong forever. A run that leaves the
+  // tree dirty and ends is never judged at all, and the only trace is a log
+  // nobody opens — a gate that decided nothing, indistinguishable from a gate
+  // that passed. The streak is already in `gate-history.log`, so this needs no
+  // state of its own.
+  check('a tree that has stayed dirty for a whole streak wakes the run', () =>
+    withFixture({ specTrace: 'green', dirty: true, history: skipDirtyHistory(MAX_DIRTY_SKIPS - 1) }, (r) => {
+      if (!r.blocked) {
+        return `the gate skipped for the ${MAX_DIRTY_SKIPS}th stop in a row and still said nothing — nothing has been judged for this milestone and no one has been told. history: ${r.history}`;
+      }
+      const reason = r.payload?.reason ?? '';
+      if (!/dirty/i.test(reason)) return `the block does not say what is wrong: ${reason}`;
+      if (!/result=skip-dirty/.test(r.history)) return `expected the skip still recorded, got: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  // The guard, isolated. Escalating on EVERY stop past the threshold would
+  // block, get answered, and block again with nothing new — which is the
+  // thrash ADR-010 had to solve for the green pass. Disable the once-per-streak
+  // check in `gate.mjs` and this is the case that goes red, alone.
+  check('the escalation fires once per streak, not on every stop past the threshold', () =>
+    withFixture({ specTrace: 'green', dirty: true, history: skipDirtyHistory(MAX_DIRTY_SKIPS) }, (r) => {
+      if (r.blocked) {
+        return `the streak was already reported and the gate blocked again with nothing new to say: ${r.payload?.reason ?? ''}`;
+      }
+      if (r.stdout.trim()) return `the gate spoke twice about the same unbroken streak: ${r.stdout}`;
       return null;
     }),
   ),

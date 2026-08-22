@@ -532,6 +532,44 @@ t('phase-guard does not deny a command that merely reads the phase file', (repo)
   return null;
 });
 
+// The guard reads two forms and denies on what it reads, so everything else
+// is ALLOWED — `tee`, `cp`, `sh -c`, a variable. That is the right call for a
+// hook that denies, and it means the guard has a blind spot it cannot see
+// into. Making the spot observable is the part that is available: `tee` still
+// gets through, and now leaves a line saying so, the same way opus-budget and
+// lint-on-write record what they let past.
+t('phase-guard lets an unreadable write through and records that it did', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'done' | tee .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 0) return `a form the guard cannot read was denied (exit ${r.status}): ${r.stderr}`;
+
+  const log = join(repo, '.claude', 'state', 'phase-guard-unmatched.log');
+  if (!existsSync(log)) return 'the write went through unread and left no trace that it had';
+  const body = readFileSync(log, 'utf8');
+  if (!/\btee\b/.test(body)) return `the log does not name what got past: ${JSON.stringify(body)}`;
+  // The command's arguments are not the hook's to record — only the shape.
+  if (/done/.test(body)) return `the log captured the command's content, not just its shape: ${JSON.stringify(body)}`;
+  return null;
+});
+
+// Including the piped form: a pipe is only evidence of a write when the file
+// is DOWNSTREAM of it. `cat <phase> | grep` reads, and a log that collects
+// reads is one nobody opens — which would cost the line that matters above.
+t('phase-guard does not record a command that only reads the phase file', (repo) => {
+  for (const command of ['cat .claude/state/phase', 'cat .claude/state/phase | grep implement']) {
+    runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
+  }
+  const log = join(repo, '.claude', 'state', 'phase-guard-unmatched.log');
+  const body = existsSync(log) ? readFileSync(log, 'utf8') : '';
+  if (/\bcat\b/.test(body)) {
+    return `a read was logged as an unreadable write; the log fills with reads and stops being worth opening: ${JSON.stringify(body)}`;
+  }
+  return null;
+});
+
 t('phase-guard denies done with an unarchived specflow folder', (repo) => {
   mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
   const r = runHook(

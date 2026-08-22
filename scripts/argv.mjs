@@ -9,8 +9,8 @@
  * that holds; for `["eslint", "."]` it makes the binary `"."`, and for
  * `["eslint", "--cache"]` it makes it `"--cache"`.
  */
-import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, statSync, lstatSync, realpathSync, readFileSync } from 'node:fs';
+import { join, relative, resolve, dirname } from 'node:path';
 
 /**
  * Interpreters that run something else. Shared with `init.mjs`, which needs
@@ -95,6 +95,57 @@ export function stripTargets(argv, root) {
   }
 
   return { argv: kept, stripped, remaining: kept.filter((t) => looksLikeTarget(t, root)) };
+}
+
+/** Repo-relative, always with `/`. The contract is committed, so the separator cannot be the writer's. */
+const toPosix = (path) => path.replace(/\\/g, '/');
+
+/**
+ * Where a locally installed bin's real JavaScript lives, repo-relative, or
+ * null when it cannot be resolved.
+ *
+ * `node_modules/.bin/<name>` is NOT one thing. npm writes a symlink to the
+ * package's entrypoint on POSIX and, because Windows has no symlink it can
+ * count on, three files there instead — `<name>`, `<name>.cmd`, `<name>.ps1`
+ * — of which the extensionless one is a `#!/bin/sh` script. So `node
+ * node_modules/.bin/eslint` runs the linter on one platform and dies with a
+ * JavaScript SyntaxError on the other, and the contract that names it is a
+ * committed file both platforms read. Resolving past the shim is what makes
+ * the two agree — see ADR-011.
+ *
+ * Returns null rather than guessing. A bin that is neither shape (a native
+ * binary, a shell script with no JS behind it) has no entrypoint to name, and
+ * the caller keeps whatever it would have written before.
+ */
+export function resolveLocalBin(root, binName) {
+  const shim = join(root, 'node_modules', '.bin', binName);
+
+  let stat;
+  try {
+    stat = lstatSync(shim);
+  } catch {
+    return null; // not installed locally
+  }
+
+  if (stat.isSymbolicLink()) {
+    try {
+      return toPosix(relative(root, realpathSync(shim)));
+    } catch {
+      return null; // a link with nothing behind it
+    }
+  }
+
+  try {
+    // The shim's `exec` line is the only machine-readable part. `$basedir/node`
+    // appears on it too, which is why the pattern insists on a JS extension
+    // rather than taking the first path it sees.
+    const target = /\$basedir\/(\S+?\.(?:js|mjs|cjs))/.exec(readFileSync(shim, 'utf8'));
+    if (!target) return null;
+    const full = resolve(dirname(shim), target[1]);
+    return existsSync(full) ? toPosix(relative(root, full)) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

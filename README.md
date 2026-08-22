@@ -27,6 +27,10 @@ Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
   well work there; it is simply not tested or supported.
   [Why the scope is Node, and what was refused](decisions/007-the-supported-scope-is-node.md)
 - Node 20+ — enforced: a run refuses to start below it
+- **A POSIX machine** — macOS or Linux. Nothing refuses to run on Windows, and
+  the contract `init` writes there is the same file it writes anywhere; it is
+  simply not what CI exercises or the fixtures assume.
+  [Why the contract is platform-neutral and the engine is not](decisions/011-the-contract-is-platform-neutral.md)
 - A linter and a test runner you can invoke from the command line
 
 ## What is yours and what is the engine's

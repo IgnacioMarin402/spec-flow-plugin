@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · coupling · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
+    name: lint · typecheck · unit · coupling · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +40,17 @@ jobs:
       # either, but a wrong argument count or a typo'd property name is.
       - name: Typecheck
         run: npm run typecheck
+
+      # The pure functions that read an argv the contract declares. Every
+      # other check here builds a throwaway repo to reach behaviour, which is
+      # the right shape for behaviour and a poor one for a total function over
+      # a string array: the defect that motivated this — the binary of
+      # `["eslint", "."]` resolving to `"."` — costs one line to state here and
+      # a repo, a git history and a full generator run to reach anywhere else.
+      # It also covers the shim branch that production only reaches on the
+      # platform this workflow does not run (ADR-011).
+      - name: Unit tests
+        run: npm run unit:check
 
       # The reversed arrow, made checkable — see the file's own header for
       # what it bans and why the archive check is narrower than a path ban.

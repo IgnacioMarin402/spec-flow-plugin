@@ -11,7 +11,9 @@
  *   and the tests that prove them disagree.
  * - Skips entirely (allowing the stop) while the tree is dirty. Implementers
  *   run in the background, so a Stop can fire mid-write and judging that
- *   snapshot produces false failures.
+ *   snapshot produces false failures. A STREAK of them is a different thing
+ *   and wakes the run once: a tree that never clears is a milestone nothing
+ *   ever judged.
  * - Writes `running` to `state/gate-history.log` before judging and replaces
  *   it with the outcome. A surviving `running` line is proof its invocation
  *   was killed, and the next armed gate reports it as `fail:killed`. That line
@@ -36,6 +38,17 @@ import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from 
 import { resolveBase, changedFiles } from '../scripts/changed-files.mjs';
 
 const MAX_ATTEMPTS = 5;
+
+/**
+ * Consecutive dirty skips before the run is woken. Deliberately well past what
+ * a busy milestone produces — Stop fires every time the orchestrator's turn
+ * ends, and several of those land while a background implementer is still
+ * writing — because the cost of being early is noise on the one outcome that
+ * legitimately needs nothing done, and noise is how a real message stops being
+ * read. `gate-fixture.mjs` keeps its own copy; a drift turns one of its two
+ * cases red rather than passing quietly.
+ */
+const MAX_DIRTY_SKIPS = 10;
 // The planner (Opus) reads gate-failure.log on every REPLAN, so it is
 // budgeted, not dumped: a broken suite prints thousands of lines and all of
 // them would become input tokens on the most expensive model in the flow.
@@ -215,6 +228,33 @@ await run(
       : '';
     if (dirty.trim()) {
       hist('skip-dirty', '-', '-', histDashes(config), dirty.trim().split('\n').length);
+
+      // Skipping is right for one stop and wrong forever. A run that leaves
+      // the tree dirty and ends is a milestone NOTHING ever judged, and the
+      // skip is not a failure, so the only trace is a log nobody opens —
+      // which is this engine's own signature failure, reached by never
+      // deciding rather than by deciding wrongly.
+      //
+      // The streak is already on disk, so this needs no counter of its own:
+      // `previous` was read before this invocation appended anything, and a
+      // skip that is not the last line means something else was judged in
+      // between and the streak is broken.
+      //
+      // Woken through `emitBlock` for the reason ADR-010 gives — a Stop hook's
+      // `systemMessage` does not reach an interactive session — and on `===`
+      // rather than `>=`, so an unbroken streak is reported ONCE. Repeating it
+      // every stop would block, get answered, and block again with nothing
+      // new, which is the thrash ADR-010 had to guard the green pass against.
+      let priorSkips = 0;
+      for (let i = previous.length - 1; i >= 0 && / result=skip-dirty /.test(previous[i]); i--) priorSkips++;
+
+      if (priorSkips + 1 === MAX_DIRTY_SKIPS) {
+        emitBlock(
+          `GATE SKIPPED ${MAX_DIRTY_SKIPS} times in a row — the working tree has been dirty at every stop, so this milestone has never been judged: nothing was linted, tested or traced, and each of those stops was ALLOWED because a dirty tree is not a failure. ` +
+            `Uncommitted paths: ${dirty.trim().split('\n').length}. That guard exists for an implementer writing in the background, and this no longer looks like one. ` +
+            `Find out which: if an implementer is still working, let it finish and say nothing. If none is, the work was left uncommitted and no gate will ever see it — commit it to this milestone's branch, then end your turn so the gate runs against a clean tree. Do not change the phase.`,
+        );
+      }
       return;
     }
 
