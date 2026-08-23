@@ -183,11 +183,11 @@ jobs:
       - name: Cold start (a Node repo, from nothing to green)
         run: npm run cold:check
 
-      # `files` in package.json is evaluated nowhere but `npm pack`, so a module
+      # `files` in package.json is evaluated nowhere but packing, so a module
       # dropped from it passes every check above and fails on the first
-      # `npx spec-flow init` in somebody's project. This packs the tarball,
-      # installs it into a throwaway repo as a real devDependency, and drives
-      # the documented CLI route through the installed bin. It is the only step
-      # here that needs the network.
-      - name: The published package works
+      # `spec-flow init` in somebody's project. This clones the engine, installs
+      # the clone into a throwaway repo through the git spec a consumer uses
+      # (ADR-016), and drives the documented CLI route through the installed
+      # bin. No registry is involved, here or in the route it checks.
+      - name: The distribution works
         run: npm run pack:check
