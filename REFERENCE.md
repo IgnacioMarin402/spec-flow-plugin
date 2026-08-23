@@ -639,7 +639,7 @@ ends, and a `Stop` hook runs the checks outside the model and either allows
 the stop or blocks with the instruction for what to do next.
 
 - **The orchestrator never writes code.** It routes. Everything that produces
-  an artifact is a subagent pinned to the model its job needs.
+  an artifact is a subagent on the model tier its job needs.
 - **The gate is not a step in the pipeline** — it is what happens when the
   pipeline stops. Its block message *is* the next instruction.
 
@@ -647,18 +647,18 @@ the stop or blocks with the instruction for what to do next.
 
 ```mermaid
 flowchart TD
-    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet 5 <br/> writes spec.md and proposal.md"]
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet <br/> writes spec.md and proposal.md"]
     B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
     Q -->|"answers"| B
     B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
     S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
-    S -->|"yes"| P["PLAN — planner, Opus 5 <br/> plan.md plus one file per milestone"]
-    P --> R["REVIEW — reviewer, Haiku 4.5 <br/> reads the spec and every milestone file"]
+    S -->|"yes"| P["PLAN — planner, Opus <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer, Haiku <br/> reads the spec and every milestone file"]
     R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
     CON --> R
     R -->|"CHANGES_REQUESTED"| P
-    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet 5 <br/> one fresh session per milestone"]
-    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus 5"]
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus"]
     ARCH --> I
     I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
     RE --> I
@@ -669,7 +669,7 @@ flowchart TD
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
     G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
     G2 -->|"gap in the specs' wording"| F
     G2 -->|"gap in code or tests"| RE
@@ -690,7 +690,7 @@ not planning — which is why this flow drops the planner and the reviewer.
 
 ```mermaid
 flowchart TD
-    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet 5 <br/> phase spec, gate disarmed"]
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet <br/> phase spec, gate disarmed"]
     T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
     T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
     T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
@@ -704,7 +704,7 @@ flowchart TD
     C2 --> W
     C4 --> W
     W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
-    W --> I["FIX — implementer, Sonnet 5"]
+    W --> I["FIX — implementer, Sonnet"]
     I --> CM["commit, push, end the turn"]
     CM --> G{{"the same GATE"}}
     G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I

@@ -27,7 +27,7 @@ Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `
 
 Before your first subagent, a `preflight` hook checks two things and **denies the spawn** if either fails: that `.spec-flow/config.json` loads, and that the base branch resolves in this clone. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
 
-## 1. TRIAGE (subagent: spec-writer · Sonnet 5)
+## 1. TRIAGE (subagent: spec-writer · Sonnet)
 
 Invoke `spec-writer` in `MODE=TRIAGE` with the defect report. It classifies the defect into exactly one of five cases and writes `specflow/<SLUG>/spec.md`.
 
@@ -73,10 +73,10 @@ Those exact two paths, with those exact names, because the implementer reads exa
 
 **This is the one place where you do work instead of routing it**, and it is a deliberate exception to how `/spec-flow` operates. For a defect the triage has already produced everything a plan would contain — the root cause, the file, the delta — so spawning an Opus planner to reformat it into a milestone map would spend the flow's most expensive call on transcription. Keep both files short. If you find yourself writing a second milestone, the triage was wrong and this is a case 5.
 
-## 4. FIX (subagent: implementer · Sonnet 5) + GATE LOOP
+## 4. FIX (subagent: implementer · Sonnet) + GATE LOOP
 
 1. Invoke `implementer` for `M1` with a **new** `Agent` call, passing it `specflow/<SLUG>/plan.md` and `specflow/<SLUG>/milestones/M1.md` — only those two. Remember the id as `IMPL_SESSION`; every later message for this fix goes back to it via `SendMessage`, never a fresh `Agent` call.
-   - `STATUS: NEEDS_ARCHITECT` -> invoke `architect` (Opus 5, new `Agent`) with the questions, then `SendMessage` the guidance to `IMPL_SESSION`. If the architect's `IF_PLAN_WRONG` is not "none", the triage missed something: re-run step 1 rather than patching the work order.
+   - `STATUS: NEEDS_ARCHITECT` -> invoke `architect` (Opus, new `Agent`) with the questions, then `SendMessage` the guidance to `IMPL_SESSION`. If the architect's `IF_PLAN_WRONG` is not "none", the triage missed something: re-run step 1 rather than patching the work order.
    - `STATUS: BLOCKED` -> re-run the triage with the reason. There is no planner to fall back on here, and that is the point: a fix that cannot be implemented from its work order is usually a fix that was classified wrong.
 2. **Wait for the implementer's completion notification, then commit AND push, then end your turn** so the gate hook runs. The hook — not you — runs lint and tests. Never run them yourself.
 3. Gate outcomes, same triage as `/spec-flow`:
@@ -87,7 +87,7 @@ Those exact two paths, with those exact names, because the implementer reads exa
    - *attempt cap*: the gate has already written `blocked`. Summarize for the human and stop. On their answer, write `implement` back and `SendMessage` to `IMPL_SESSION`.
    - *pass, the first time the gate reports this commit* (ADR-010): the gate re-invokes you with a `reason` starting `spec-flow: gate PASSED`, naming what to do next. That is not a failure — continue to step 5 without re-running lint or tests. A repeat stop on that same tree is silent instead, so you are not asked twice.
 
-## 5. FOLD (subagent: spec-writer · Sonnet 5)
+## 5. FOLD (subagent: spec-writer · Sonnet)
 
 Keep the phase at `implement` — the fold may touch `specs/` wording, and that edit deserves the same gate as any other.
 
@@ -109,7 +109,7 @@ Then summarize: the triage case, the root cause, files changed, requirements add
 
 ### Rules
 
-- Model routing holds: `spec-writer` and `implementer` are Sonnet 5, `architect` is Opus 5 and budgeted. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
+- Model routing holds: `spec-writer` and `implementer` are Sonnet, `architect` is Opus and budgeted. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
 - The gate is external and authoritative. On failure you re-triage; you do not hand-patch until green.
 - Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `phase-guard` will say so.
 - Do not edit `/spec-flow`'s command or agents to make something here fit. If a fix needs the full pipeline, it belongs to the full pipeline.

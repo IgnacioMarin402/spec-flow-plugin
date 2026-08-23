@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · unit · coupling · scan-reach · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
+    name: lint · typecheck · unit · coupling · scan-reach · models · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +63,21 @@ jobs:
       # only thing standing behind the scan's reach is that someone remembered.
       - name: Coupling scan reaches its surfaces
         run: npm run coupling:check
+
+      # An agent routes to a tier and lets the harness resolve the current
+      # model of it. Nothing in the engine reads the `model:` frontmatter, so
+      # a pin there rots in total silence — one agent carried a dated id for
+      # months and no check could have said so. This asserts the positive
+      # fact too, and that is the load-bearing half: finding no agents fails,
+      # because a ban-only scan reports a directory it never reached exactly
+      # as it reports a clean one. See ADR-012.
+      - name: Agents route by tier, nothing names a version
+        run: npm run models:check
+
+      # And that the scan above reaches every surface it claims, for the same
+      # reason the coupling scan needs its own step.
+      - name: Model-pin scan reaches its surfaces
+        run: npm run models:reach
 
       # `init` generates a consuming repo's contract, which is what a worked
       # example file used to do worse: an example is a static artifact nothing

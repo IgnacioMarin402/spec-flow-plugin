@@ -28,6 +28,8 @@
   },
   "scripts": {
     "check": "node scripts/no-repo-refs.mjs",
+    "models:check": "node scripts/model-pins.mjs",
+    "models:reach": "node scripts/model-pins-fixture.mjs",
     "coupling:check": "node scripts/coupling-fixture.mjs",
     "paths:check": "node scripts/plugin-paths.mjs",
     "decisions:check": "node scripts/decisions.mjs",

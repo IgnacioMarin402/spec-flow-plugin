@@ -10,7 +10,7 @@ review pass, and an implementation loop gated by lint, tests and requirement
 traceability running **outside the model**.
 
 Two commands — `/spec-flow` for a feature, `/spec-fix` for a defect — drive
-five subagents, each pinned to the model its job needs. **It supports Node
+five subagents, each on the model tier its job needs. **It supports Node
 projects.** Inside that scope it has no opinion about your framework or your
 architecture, because **it reads no source code**: it runs the commands your
 repo declares in one file, `.spec-flow/config.json`, and reads their output.
@@ -175,7 +175,7 @@ ends, and a `Stop` hook runs the checks outside the model and either allows the
 stop or blocks with the instruction for what to do next.
 
 - **The orchestrator never writes code.** It routes. Everything that produces an
-  artifact is a subagent pinned to the model its job needs.
+  artifact is a subagent on the model tier its job needs.
 - **The gate is not a step in the pipeline** — it is what happens when the
   pipeline stops. Its block message *is* the next instruction.
 - **The first pass on a commit blocks too**, on the same channel a failure
