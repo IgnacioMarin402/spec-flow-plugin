@@ -40,9 +40,15 @@ const NUMBERED_TIER = ['Opus', '5'].join(' ');
 const SCANNED_DIRS = ['agents', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
-/** A valid agent, so a case about the ban is not also failing the routing assertions. */
-function agent(name, model = 'sonnet', description = `Does a job (${model}).`) {
-  return `---\nname: ${name}\ndescription: ${description}\nmodel: ${model}\n---\n\nBody.\n`;
+/**
+ * A valid agent, so a case about the ban is not also failing the routing
+ * assertions. `effort` is included by default because the check requires every
+ * agent to have settled the question one way or the other; pass null for the
+ * cases that are about an agent which has not.
+ */
+function agent(name, model = 'sonnet', description = `Does a job (${model}).`, effort = 'medium') {
+  const line = effort === null ? '' : `effort: ${effort}\n`;
+  return `---\nname: ${name}\ndescription: ${description}\nmodel: ${model}\n${line}---\n\nBody.\n`;
 }
 
 /**
@@ -183,6 +189,39 @@ check('naming another agent\'s tier in a description is allowed', () => {
   return code === 0
     ? ''
     : `a description naming the tier it escalates TO was reported. What the check requires is presence, not exclusivity.\n--- output ---\n${out}`;
+});
+
+// ---- effort: settled either way, never by omission ------------------------
+// A spawn discards an effort key, so nothing downstream complains about any of
+// this. These cases are the only thing between a typo here and a setting that
+// reads as applied and is not.
+
+check('an effort level that does not exist is reported', () => {
+  const { code, out } = scan({ 'agents/typo.md': agent('typo', 'sonnet', 'Does a job (Sonnet).', 'hihg') });
+  if (code === 0) return `a misspelled effort passed, and nothing downstream would have said so either.\n--- output ---\n${out}`;
+  return out.includes('not one of') ? '' : `failed, but not on the effort level.\n--- output ---\n${out}`;
+});
+
+check('an agent that declares no effort and is not recorded as inheriting is reported', () => {
+  const { code, out } = scan({ 'agents/quiet.md': agent('quiet', 'sonnet', 'Does a job (Sonnet).', null) });
+  if (code === 0) {
+    return `an agent with no effort passed. That is how every agent came to inherit the session silently in the first place.\n--- output ---\n${out}`;
+  }
+  return out.includes('INHERITS_EFFORT') ? '' : `failed, but not on the missing effort.\n--- output ---\n${out}`;
+});
+
+check('an agent recorded as inheriting may omit effort', () => {
+  // `implementer` is in the real check's INHERITS_EFFORT, with its reason.
+  const { code, out } = scan({ 'agents/implementer.md': agent('implementer', 'sonnet', 'Implements (Sonnet).', null) });
+  return code === 0 ? '' : `a deliberate inherit was reported as an omission.\n--- output ---\n${out}`;
+});
+
+check('an agent recorded as inheriting must not also declare an effort', () => {
+  const { code, out } = scan({ 'agents/implementer.md': agent('implementer', 'sonnet', 'Implements (Sonnet).', 'high') });
+  if (code === 0) {
+    return `the frontmatter and the exemption list disagreed and nothing said so — one of them is stale and a reader cannot tell which.\n--- output ---\n${out}`;
+  }
+  return out.includes('stale') ? '' : `failed, but not on the disagreement.\n--- output ---\n${out}`;
 });
 
 check('a clean tree reports the routing it read, so a silent miss is visible in CI output', () => {

@@ -29,20 +29,37 @@ import { fileURLToPath } from 'node:url';
  */
 export const ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 
+/**
+ * The effort levels a subagent's frontmatter may declare.
+ *
+ * Here for the same one-home reason as `ALIASES`, and with a warning attached:
+ * **nothing in this file applies it.** A spawn silently discards an `effort`
+ * key — measured, with a positive control, in ADR-014 — so this list exists to
+ * VALIDATE what the shipped frontmatter says and to REPORT it, never to route
+ * it. Anything that starts sending effort through a hook is building on a
+ * field the tool call throws away.
+ */
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 /** `<plugin>/agents`, from this file's own location — never the consuming repo's. */
 function agentsDir() {
   return join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'agents');
 }
 
 /**
- * The routing this plugin ships: agent name -> tier, read from each agent's
- * frontmatter. Empty when the directory cannot be read, which every caller
- * has to treat as "no opinion" rather than as "no agents".
+ * What each shipped agent declares: `{ name: { model, effort } }`, with
+ * `effort` undefined where the agent deliberately inherits the session's.
+ * Empty when the directory cannot be read, which every caller has to treat as
+ * "no opinion" rather than as "no agents".
+ *
+ * One parser, because the two questions asked of these files — what tier, what
+ * effort — are one read of one frontmatter block, and two readers of it would
+ * be two chances to disagree about which agents exist.
  */
-export function shippedRouting() {
+export function shippedAgents() {
   const dir = agentsDir();
-  const routing = {};
-  if (!existsSync(dir)) return routing;
+  const agents = {};
+  if (!existsSync(dir)) return agents;
 
   for (const file of readdirSync(dir)) {
     if (!file.endsWith('.md')) continue;
@@ -57,9 +74,18 @@ export function shippedRouting() {
     const head = text.slice(3, end);
     const name = /^name:[ \t]*(\S+)/m.exec(head)?.[1] ?? file.replace(/\.md$/, '');
     const model = /^model:[ \t]*(\S+)/m.exec(head)?.[1];
-    if (model) routing[name.toLowerCase()] = model;
+    if (!model) continue;
+    agents[name.toLowerCase()] = { model, effort: /^effort:[ \t]*(\S+)/m.exec(head)?.[1] };
   }
-  return routing;
+  return agents;
+}
+
+/**
+ * The routing this plugin ships: agent name -> tier. The shape the spawn hook
+ * wants, derived rather than parsed a second time.
+ */
+export function shippedRouting(agents = shippedAgents()) {
+  return Object.fromEntries(Object.entries(agents).map(([name, { model }]) => [name, model]));
 }
 
 /**

@@ -2,6 +2,7 @@
 name: planner
 description: Senior planner (Opus). Turns an approved spec into a milestone-by-milestone implementation plan (M1..Mn). Also acts as the escalation consultant for the reviewer and the re-planner when the lint/test gate fails.
 model: opus
+effort: high
 tools: Read, Write, Edit, Grep, Glob, Skill
 # `Skill` is here because MODE=PLAN below tells the planner to load a skill
 # while routing a milestone; without the tool listed here that instruction

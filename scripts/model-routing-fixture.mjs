@@ -159,6 +159,49 @@ check('a real environment variable wins over both files', () => {
   return r.includes('the environment') ? '' : `won, but was credited to a file: ${r}`;
 });
 
+// ---- effort: the one layer with no project override to report -------------
+
+check('an agent that declares its own effort is reported as the one deciding it', () => {
+  const { code, out } = report({});
+  if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
+  // `reviewer` declares `effort: low` in the frontmatter this repo ships.
+  const r = row(out, 'reviewer');
+  if (!/low \(agent\)/.test(r)) {
+    return `the reviewer's declared effort was not reported as the agent's own: ${r}`;
+  }
+  const inheriting = row(out, 'implementer');
+  return /your session/.test(inheriting) ? '' : `an agent that deliberately inherits did not say so: ${inheriting}`;
+});
+
+check("a session effortLevel is reported for the agents that inherit, and not for the ones that do not", () => {
+  const { code, out } = report({ '.claude/settings.json': { effortLevel: 'xhigh' } });
+  if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
+  const inheriting = row(out, 'implementer');
+  if (!/xhigh \(session\)/.test(inheriting)) return `the session's level was not reported: ${inheriting}`;
+  const declared = row(out, 'reviewer');
+  return /low \(agent\)/.test(declared)
+    ? ''
+    : `a session-wide level overwrote an agent that declares its own, which is not what the frontmatter does: ${declared}`;
+});
+
+check('every column stays aligned when a heading is longer than its values', () => {
+  const { out } = report({});
+  const lines = out.split('\n');
+  const header = lines.find((l) => l.includes('AGENT') && l.includes('EFFORT'));
+  const first = lines[lines.indexOf(header) + 1];
+  const at = (l, h) => l.indexOf(h);
+  // The value under each heading must start where the heading starts.
+  for (const [heading, value] of [
+    ['TIER DECIDED BY', 'plugin default'],
+    ['EFFORT', 'high'],
+  ]) {
+    if (at(header, heading) !== at(first, value)) {
+      return `"${value}" does not start under "${heading}". In a table about which layer decided what, a shifted column reads as a misattributed row.\n${header}\n${first}`;
+    }
+  }
+  return '';
+});
+
 check('a settings file that is not valid JSON does not take the report down', () => {
   const { code, out } = report({ '.claude/settings.json': '{ not json' });
   if (code !== 0) return `exit ${code} — an unparseable settings file is Claude Code's to complain about, not this report's.\n--- output ---\n${out}`;

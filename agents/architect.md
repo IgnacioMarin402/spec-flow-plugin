@@ -2,6 +2,7 @@
 name: architect
 description: Architecture advisor on the best available model (Opus). Consulted by the implementer when a decision gets too complex or design-sensitive. Read-only — gives decisive design guidance, does not write feature code.
 model: opus
+effort: high
 tools: Read, Grep, Glob
 ---
 

@@ -34,7 +34,23 @@ import { fileURLToPath } from 'node:url';
 // then refuses — the contract accepted in one place and rejected in the other,
 // which is the drift this import exists to refuse. Same shape as
 // spec-flow-config.mjs importing its report formats from the reader.
-import { ALIASES } from '../hooks/lib/routing.mjs';
+import { ALIASES, EFFORT_LEVELS } from '../hooks/lib/routing.mjs';
+
+/**
+ * Agents that deliberately take the human's session effort, each with the
+ * reason. Same shape as `agent-contracts.mjs`'s NOT_REVIEWED and for the same
+ * reason: emptying this list is not the goal, deciding each entry is.
+ *
+ * An agent missing from here AND declaring no effort fails, because that is
+ * indistinguishable from nobody having considered it — which is exactly how
+ * every agent came to inherit silently in the first place (ADR-014).
+ */
+const INHERITS_EFFORT = {
+  implementer:
+    'the milestone decides the work, and its difficulty is the plan\'s claim rather than this file\'s — a human who dials their session up for a hard feature should reach the code that feature needs',
+  'spec-writer':
+    'it asks a human when it is unsure instead of thinking harder alone, so its escape hatch is HITL rather than effort; the session\'s level is as good an answer as any this file could invent',
+};
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
@@ -135,7 +151,38 @@ for (const file of agents) {
     continue;
   }
 
-  routing.push(`${file.replace(/\.md$/, '')} -> ${declared}`);
+  // ---- effort: declared on purpose, or absent on purpose ------------------
+  const agent = file.replace(/\.md$/, '');
+  const effort = /^effort:[ \t]*(\S+)/m.exec(head)?.[1];
+
+  if (effort !== undefined && !EFFORT_LEVELS.includes(effort)) {
+    problems.push(
+      `agents/${file} declares \`effort: ${effort}\`, which is not one of ${EFFORT_LEVELS.join(', ')}. ` +
+        `Nothing downstream will complain: a spawn discards an effort it cannot read, so a typo here is a ` +
+        `setting that looks applied and is not — see ADR-014.`,
+    );
+    continue;
+  }
+
+  if (effort === undefined && !(agent in INHERITS_EFFORT)) {
+    problems.push(
+      `agents/${file} declares no \`effort:\` and is not listed in INHERITS_EFFORT in this file. An agent with ` +
+        `no effort inherits the human's session, so the flow's cost stops being a property of the flow — ` +
+        `the cheapest pass runs at \`max\` whenever someone's session is. Declare one, or record here why this ` +
+        `agent should follow the session, so the asymmetry is a decision rather than the one nobody got to.`,
+    );
+    continue;
+  }
+
+  if (effort !== undefined && agent in INHERITS_EFFORT) {
+    problems.push(
+      `agents/${file} declares \`effort: ${effort}\` while INHERITS_EFFORT in this file still says it should ` +
+        `follow the session. One of the two is stale, and the file that loses is whichever nobody re-read.`,
+    );
+    continue;
+  }
+
+  routing.push(`${agent} -> ${declared}, effort ${effort ?? 'inherited from the session'}`);
 }
 
 // ---- 2. nothing names a version -------------------------------------------

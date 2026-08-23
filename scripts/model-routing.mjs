@@ -5,12 +5,14 @@
  *   spec-flow models
  *   node scripts/model-routing.mjs
  *
- * Three layers answer that question and no file shows more than one of them:
+ * Four things answer that question and no file shows more than one of them:
  * the tier an agent's frontmatter ships, the project's override of that tier
- * in `.claude/spec-flow.config.json`, and what the harness resolves the tier
- * to — which `ANTHROPIC_DEFAULT_*_MODEL` can pin. Reading any one of them and
- * concluding is how you get a confident wrong answer, so this reads all three
- * and names the source of every value it prints.
+ * in `.claude/spec-flow.config.json`, what the harness resolves the tier to —
+ * which `ANTHROPIC_DEFAULT_*_MODEL` can pin — and the effort, which comes
+ * either from the agent's frontmatter or from the session and from nowhere in
+ * between (ADR-014). Reading any one of them and concluding is how you get a
+ * confident wrong answer, so this reads all four and names the source of every
+ * value it prints.
  *
  * **It refuses to guess the third layer.** Nothing here can know what Claude
  * Code currently resolves `opus` to; only an explicit pin is knowable, and
@@ -25,7 +27,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ALIASES, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
+import { ALIASES, shippedAgents, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
 
 const root = process.cwd();
 
@@ -37,22 +39,26 @@ const root = process.cwd();
  * managed settings are not readable from here at all. Every value printed
  * carries its source so a reader can tell what this could and could not see.
  */
+function settingsLayers() {
+  const layers = [];
+  for (const label of ['.claude/settings.json', '.claude/settings.local.json']) {
+    const path = join(root, ...label.split('/'));
+    if (!existsSync(path)) continue;
+    try {
+      layers.push([label, JSON.parse(readFileSync(path, 'utf8'))]);
+    } catch {
+      // A settings file this cannot parse is Claude Code's to complain about,
+      // not this report's reason to fail.
+    }
+  }
+  return layers; // lowest precedence first
+}
+
 function envPins() {
   const pins = {};
 
-  const layers = [
-    ['.claude/settings.json', join(root, '.claude', 'settings.json')],
-    ['.claude/settings.local.json', join(root, '.claude', 'settings.local.json')],
-  ];
-
-  for (const [label, path] of layers) {
-    if (!existsSync(path)) continue;
-    let env;
-    try {
-      env = JSON.parse(readFileSync(path, 'utf8')).env;
-    } catch {
-      continue; // a settings file this cannot parse is Claude Code's to complain about
-    }
+  for (const [label, settings] of settingsLayers()) {
+    const env = settings.env;
     if (!env || typeof env !== 'object') continue;
     for (const tier of ALIASES) {
       const value = env[`ANTHROPIC_DEFAULT_${tier.toUpperCase()}_MODEL`];
@@ -70,7 +76,25 @@ function envPins() {
   return pins;
 }
 
-const shipped = shippedRouting();
+/**
+ * The session-wide effort this repo's settings ask for, if any.
+ *
+ * This is the ONLY effort lever a project has. An agent that declares no
+ * effort of its own gets this; there is no per-agent override to report,
+ * because a spawn discards the field (ADR-014).
+ */
+function sessionEffort() {
+  let found = null;
+  for (const [label, settings] of settingsLayers()) {
+    if (typeof settings.effortLevel === 'string' && settings.effortLevel) {
+      found = { value: settings.effortLevel, source: label };
+    }
+  }
+  return found;
+}
+
+const meta = shippedAgents();
+const shipped = shippedRouting(meta);
 const { routing, problems } = projectRouting(root, shipped);
 const declared = (() => {
   const path = join(root, '.claude', 'spec-flow.config.json');
@@ -96,12 +120,15 @@ if (agents.length === 0) {
 }
 
 const pins = envPins();
+const session = sessionEffort();
+const declaredLower = Object.fromEntries(Object.entries(declared).map(([k, v]) => [k.toLowerCase(), v]));
+
 const rows = agents.map((agent) => {
   const fallback = shipped[agent];
   const tier = routing[agent] ?? fallback;
 
   let decided;
-  if (!(agent.toLowerCase() in Object.fromEntries(Object.entries(declared).map(([k, v]) => [k.toLowerCase(), v])))) {
+  if (!(agent.toLowerCase() in declaredLower)) {
     decided = 'plugin default';
   } else if (tier === fallback) {
     decided = 'project (restates the default)';
@@ -110,22 +137,33 @@ const rows = agents.map((agent) => {
   }
 
   const pin = pins[tier];
-  const resolves = pin ? `${pin.value}  — pinned by ${pin.source}` : 'whatever Claude Code resolves this tier to (unpinned)';
+  const resolves = pin ? `${pin.value} (${pin.source})` : 'unpinned';
 
-  return { agent, tier, decided, resolves };
+  // An agent declares an effort or takes the session's. There is no third
+  // source, and no project override to report — see this file's header.
+  const own = meta[agent]?.effort;
+  const effort = own ? `${own} (agent)` : session ? `${session.value} (session)` : 'your session';
+
+  return { agent, tier, effort, decided, resolves };
 });
 
-const w = (key) => Math.max(key.length, ...rows.map((r) => String(r[key]).length));
-const widths = { agent: w('agent'), tier: w('tier'), decided: w('decided') };
-const pad = (s, n) => String(s).padEnd(n);
+// The HEADING is part of the column, not just the values: measuring only the
+// values leaves any column whose title is the longest string in it misaligned,
+// which in a table whose whole job is "which layer decided this" reads as a
+// misattributed row.
+const COLUMNS = [
+  ['AGENT', 'agent'],
+  ['TIER', 'tier'],
+  ['EFFORT', 'effort'],
+  ['TIER DECIDED BY', 'decided'],
+  ['TIER PINNED TO', 'resolves'],
+];
+const widths = COLUMNS.map(([heading, key]) => Math.max(heading.length, ...rows.map((r) => String(r[key]).length)));
+const line = (cells) => `  ${cells.map((c, i) => String(c).padEnd(widths[i])).join('  ')}`.trimEnd();
 
 console.log(`spec-flow models — how each agent will be routed in ${root}\n`);
-console.log(
-  `  ${pad('AGENT', widths.agent)}  ${pad('TIER', widths.tier)}  ${pad('DECIDED BY', widths.decided)}  THE TIER RESOLVES TO`,
-);
-for (const r of rows) {
-  console.log(`  ${pad(r.agent, widths.agent)}  ${pad(r.tier, widths.tier)}  ${pad(r.decided, widths.decided)}  ${r.resolves}`);
-}
+console.log(line(COLUMNS.map(([heading]) => heading)));
+for (const r of rows) console.log(line(COLUMNS.map(([, key]) => r[key])));
 
 const overridden = rows.filter((r) => r.decided.startsWith('project (was'));
 console.log('');
@@ -140,7 +178,12 @@ if (overridden.length === 0) {
   console.log(`  the orchestrator is not asked to, and cannot forget to.`);
 }
 console.log(
-  `\n  To pin what a TIER means, that is Claude Code's own setting, not this engine's:\n` +
-    `  an ANTHROPIC_DEFAULT_<TIER>_MODEL entry in .claude/settings.json's "env" block.\n` +
-    `  A tier is per agent; a pin is per session.`,
+  `\n  "unpinned" means Claude Code resolves that tier to whatever is current, which is\n` +
+    `  the whole point of naming a tier. To pin one, that is Claude Code's own setting\n` +
+    `  rather than this engine's: an ANTHROPIC_DEFAULT_<TIER>_MODEL entry in\n` +
+    `  .claude/settings.json's "env" block. A tier is per agent; a pin is per session.\n\n` +
+    `  EFFORT marked (agent) is declared in that agent's own frontmatter and this project\n` +
+    `  cannot change it — a spawn discards an effort key, so there is no per-agent override\n` +
+    `  to offer. The rest follow the session, which "effortLevel" in .claude/settings.json\n` +
+    `  sets for all of them at once.`,
 );

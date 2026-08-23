@@ -2,6 +2,7 @@
 name: reviewer
 description: Reviews the plan for soundness (Haiku, read-only). Approves, or escalates hard doubts to the planner instead of guessing.
 model: haiku
+effort: low
 tools: Read, Grep, Glob
 ---
 

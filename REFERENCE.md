@@ -356,9 +356,12 @@ this file: it reads the result back through the same code the spawn hook uses,
 so "I wrote it" and "it applies" stop being two separate claims.
 
 There is no `effort` here, and that is measured rather than assumed: a spawn
-silently discards the field, so a contract offering it would validate, write,
-transmit, and do nothing. A project's effort ceiling is `effortLevel` in its
-own settings, which applies to the whole session. See ADR-013.
+silently discards the field — sent alongside four other keys holding invalid
+values, the schema complained about `isolation`, the one it knows, and dropped
+the rest without a word. A contract offering it would validate, write, transmit
+and do nothing. Three agents declare their own effort in the frontmatter this
+plugin ships; the other two take the session's, which `effortLevel` in the
+project's own settings sets. See ADR-013 and ADR-014.
 
 ---
 
@@ -495,7 +498,7 @@ form disambiguates.
 | `/spec-flow <requirement>` | Full pipeline: spec, plan, review, implement, fold |
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
 | `/spec-flow:models` | Show which tier each agent will run on and which layer decided it. `<agent> <tier>` sets one, `<agent> default` clears it |
-| agents | `spec-writer` (Sonnet), `planner` (Opus), `reviewer` (Haiku), `implementer` (Sonnet), `architect` (Opus) — the tiers this plugin ships, before any project override |
+| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — what this plugin ships, before any project override. `spec-writer` and `implementer` take the session's effort on purpose (ADR-014) |
 
 ---
 

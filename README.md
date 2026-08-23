@@ -184,25 +184,36 @@ own turns. `spec-flow models` reports the pin and names the file it came from.
 
 ### Effort
 
-**There is no per-agent effort setting a project can reach, and that was
-measured rather than assumed.** `effort` is a real subagent frontmatter field,
-but a spawn silently discards it — an invented key and a bogus `effort` value
-behave identically, while a bogus `model` is rejected loudly. So an `effort`
-entry in the routing block would validate, write, transmit and do nothing,
-which is the one failure this engine refuses to ship. It is left out on
-purpose ([ADR-013](decisions/013-a-project-routes-tiers-not-versions.md)).
+Effort is the second axis, and it does **not** work like the tier. Three of the
+agents declare their own; the other two follow your session:
 
-What a project *can* set is the ceiling for the whole session, in
+| agent | effort |
+|---|---|
+| `reviewer` | `low` — its prompt already says it is the cheapest pass, and escalating is its escape hatch rather than thinking harder |
+| `planner` | `high` — it writes the artifact every later pass is judged against |
+| `architect` | `high` — it is reached only once a cheaper agent failed to decide safely |
+| `implementer` | your session's — the milestone decides the work, and its difficulty is the plan's claim |
+| `spec-writer` | your session's — it asks you when unsure instead of thinking harder alone |
+
+So the two that follow your session are the lever you have, in
 `.claude/settings.json`:
 
 ```json
 { "effortLevel": "high" }
 ```
 
-Per-agent effort exists only in the frontmatter this plugin ships, which no
-adopter can edit without forking. If you want the reviewer cheaper or the
-planner deeper than the tiers alone give you, open an issue — that is a change
-to the engine's defaults, not to your config.
+**A project cannot set effort per agent, and that is measured rather than
+assumed.** A spawn silently discards an `effort` key: sent one alongside four
+other keys with deliberately invalid values, the schema complained about
+`isolation` — the one it knows — and dropped the rest without a word. An
+`effort` entry in the routing block would validate, write, transmit and do
+nothing, which is the single failure this engine exists to refuse, so it is
+not offered ([ADR-014](decisions/014-effort-is-declared-where-the-role-is-emphatic.md)).
+
+Changing the three declared values is a change to the engine's defaults rather
+than to your config — open an issue. `spec-flow models` marks every row
+`(agent)` or `(session)` so you can always see which of the two you are
+looking at.
 
 ### None of it resets
 
