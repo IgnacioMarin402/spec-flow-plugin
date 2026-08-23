@@ -20,8 +20,7 @@
  * real scoped checks on Stop regardless of what the agent ran mid-turn — an
  * evasion here wastes context on unscoped output, it does not skip the gate.
  */
-import { join } from 'node:path';
-import { projectDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
+import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 /** Basename, minus a trailing `.sh` — the shape a declared script name is matched against. */
@@ -72,7 +71,12 @@ function classify(cmd, denied) {
 
 await run(async () => {
   const root = projectDir();
-  const phase = readFileOrDefault(join(root, '.claude', 'state', 'phase'), '');
+
+  // `readPhase`: this hook DENIES, and a deny driven by a phase the repository
+  // committed is a deny nobody in the session can explain — no run is in
+  // progress to explain it (ADR-017). Same path helper as every other hook now,
+  // rather than the copy this file used to compose itself.
+  const phase = readPhase(root);
   if (phase !== 'implement') return;
 
   const payload = await readPayload();

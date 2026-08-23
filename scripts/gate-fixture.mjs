@@ -125,6 +125,22 @@ async function fixture({
   changedFile = 'b.ts',
   omitSpecTrace = false,
   baseBranch = 'main',
+  // The contract's scope. A parameter for the same reason `baseBranch` is:
+  // every case built around one spelling cannot catch a scope that matches
+  // nothing, and `*.ts` is the spelling that works.
+  scopeGlobs = ['*.ts'],
+  // Turns the engine copy into a git checkout, so `engine=` has a revision to
+  // report. Off by default: `mkdtemp` + `copyFile` is what an installed plugin
+  // looks like from the inside on most of these cases, and every one of them
+  // would otherwise pay for a `git init`.
+  engineIsCheckout = false,
+  // Puts the phase file under version control — the shape a repo the user did
+  // not write can arrive in. Forced past the .gitignore below, exactly as a
+  // repo that meant to commit it would have to.
+  commitPhase = false,
+  // Seals the phase to a session id, the way `phase-guard` does when it sees
+  // the write. Paired with `runGate`'s own `sessionId`.
+  phaseOwner = null,
   baseRef = undefined,
   stayOnBase = false,
   // The real spec-trace.mjs, exercised end to end instead of stubbed — for
@@ -154,7 +170,7 @@ async function fixture({
   // milestone nothing judged. Every case below went silent the moment that
   // import was added, which is the fixture doing its job: this list is the
   // engine's real dependency graph, and it has to be kept honest by hand.
-  for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs', 'test-report.mjs']) {
+  for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs', 'test-report.mjs', 'engine-revision.mjs']) {
     copyFileSync(join(ROOT, 'scripts', f), join(engineDir, 'scripts', f));
   }
 
@@ -185,6 +201,20 @@ async function fixture({
     writeFileSync(target, readFileSync(target, 'utf8').replace(sabotage.find, sabotage.replace));
   }
 
+  // A git checkout of the engine, for the one case whose subject is what
+  // `engine=` reports. Committed here so the caller can add commits on top and
+  // ask whether the field moved with them.
+  if (engineIsCheckout) {
+    const egit = (...args) => run('git', args, { cwd: engineDir });
+    await egit('init', '-q', '.');
+    await egit('symbolic-ref', 'HEAD', 'refs/heads/main');
+    await egit('config', 'user.email', 'fixture@example.com');
+    await egit('config', 'user.name', 'fixture');
+    await egit('config', 'core.autocrlf', 'false');
+    await egit('add', '-A');
+    await egit('commit', '-qm', 'engine at its first revision');
+  }
+
   const git = (...args) => run('git', args, { cwd: repoDir });
   await git('init', '-q', '.');
   // See this function's own header: the name is `baseBranch`, exactly, on
@@ -206,7 +236,7 @@ async function fixture({
       {
         contract_version: contractVersion,
         verify: {
-          scope_globs: ['*.ts'],
+          scope_globs: scopeGlobs,
           lint,
           lint_no_fix: NOOP,
           test,
@@ -283,6 +313,14 @@ async function fixture({
 
   writeFileSync(join(repoDir, '.claude/state/phase'), phase);
   writeFileSync(join(repoDir, '.claude/state/gate_attempts'), gateAttempts);
+  if (phaseOwner) writeFileSync(join(repoDir, '.claude/state/phase.session'), phaseOwner);
+
+  // Before `headSha` below, because committing moves it — and the history a
+  // case seeds has to name the commit the gate will actually judge.
+  if (commitPhase) {
+    await git('add', '-f', '--', '.claude/state/phase');
+    await git('commit', '-qm', 'a phase this repository committed');
+  }
   // Seeds gate-history.log, for the cases about what a PREVIOUS invocation
   // left behind. A function is called with this fixture's real HEAD sha: the
   // gate asks whether any line names the CURRENT commit, so a case that seeds
@@ -307,9 +345,14 @@ async function fixture({
  * nor the repo, to make sure nothing about the hook depends on being invoked
  * from either.
  */
-async function runGate({ engineDir, repoDir }) {
+async function runGate({ engineDir, repoDir }, sessionId = undefined) {
   const env = { ...process.env, CLAUDE_PROJECT_DIR: repoDir };
-  const res = await run('node', [join(engineDir, 'hooks/gate.mjs')], { cwd: tmpdir(), input: '{}', env });
+  // `{}` unless a case is about ownership: a payload with no `session_id` is
+  // the shape every hook has to keep arming on, so it stays the default here
+  // too — a fixture that always supplied one could not tell the fail-closed
+  // path from the sealed one.
+  const input = JSON.stringify(sessionId === undefined ? {} : { session_id: sessionId });
+  const res = await run('node', [join(engineDir, 'hooks/gate.mjs')], { cwd: tmpdir(), input, env });
   const histPath = join(repoDir, '.claude/state/gate-history.log');
   const failPath = join(repoDir, '.claude/state/gate-failure.log');
   const lintArgvPath = join(repoDir, '.claude/state/lint-argv.log');
@@ -362,7 +405,7 @@ const judgedHistory = (sha) =>
 async function withFixture(opts, assert) {
   const { engineDir, repoDir } = await fixture(opts);
   try {
-    return assert(await runGate({ engineDir, repoDir }), repoDir);
+    return assert(await runGate({ engineDir, repoDir }, opts.sessionId), repoDir);
   } finally {
     rmSync(engineDir, { recursive: true, force: true });
     rmSync(repoDir, { recursive: true, force: true });
@@ -949,6 +992,140 @@ await Promise.all([
       return null;
     }),
   ),
+
+  // ---- the empty scope nobody wrote on purpose ----------------------------
+  //
+  // The third door to an empty scope, and the one a correctly branched repo
+  // with a resolvable base still walks through. `scope_globs` are handed to
+  // git as PATHSPECS, where `*` already crosses `/` — so `*.ts` matches at
+  // every depth, and `**/*.ts`, the form anyone who has written an npm config
+  // reaches for, matches only files at least one directory deep. `b.ts` sits
+  // in the repo root.
+  //
+  // Measured before the fix, on this exact fixture: the gate reported
+  // `PASSED — (l -, t 0)` over a linter that exits 1, because a scope of zero
+  // files means `verify.lint` is never invoked and `lint=-` is what an honest
+  // milestone records too. `init` writes the right form and REFERENCE
+  // documents it; this bites the contract written by hand, or completed by a
+  // model where `init` left a MISSING line.
+  check('a scope_globs spelled the npm way is refused by the contract, not read as a clean milestone', () =>
+    withFixture({ specTrace: 'green', scopeGlobs: ['**/*.ts'], lint: RED }, (r) => {
+      if (!r.blocked) {
+        return `a linter that exits 1 was never invoked and the gate allowed the stop: the scope matched nothing and read as "this milestone touched nothing". history: ${r.history}`;
+      }
+      if (/result=pass/.test(r.history)) return `recorded a pass over a linter that never ran: ${r.history}`;
+      if (!/result=fail:contract/.test(r.history)) return `expected fail:contract, got: ${r.history}`;
+      // The reason, not the raw stdout: a quoted glob comes back JSON-escaped
+      // there, so `"*.ts"` would never match what the human actually reads.
+      const reason = r.payload?.reason ?? '';
+      if (!/scope_globs/.test(reason)) return `the block never names the field that has to change: ${reason}`;
+      if (!/"\*\.ts"/.test(reason)) return `the block does not spell out the form that works: ${reason}`;
+      return null;
+    }),
+  ),
+
+  // The half the contract cannot see. `nope/*.ts` is a legal pathspec of the
+  // right shape; it simply matches nothing this repo has ever tracked, which a
+  // renamed directory or an extension the project does not use produces just
+  // as easily as a typo. Same consequence — `verify.lint` never runs, for any
+  // milestone — so the same refusal, and it has to come from the gate, where
+  // the repo's files can actually be looked at.
+  check('a scope that matches nothing the repo tracks is refused, not read as a clean milestone', () =>
+    withFixture({ specTrace: 'green', scopeGlobs: ['nope/*.ts'], lint: RED }, (r) => {
+      if (!r.blocked) return `an inert scope passed the milestone with the linter never invoked. history: ${r.history}`;
+      if (!/result=fail:scope/.test(r.history)) return `expected fail:scope, got: ${r.history}`;
+      if (!/files=0\b/.test(r.history)) return `expected files=0, got: ${r.history}`;
+      if (!/scope_globs/.test(r.stdout)) return `the block never names the field that has to change: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ---- the trust boundary: whose state is this? --------------------------
+  //
+  // Nothing in this engine ever commits the phase file, so one under version
+  // control did not come from a run — it came with the repository, and it arms
+  // the gate on arrival for every session that opens it. What the gate then
+  // runs is `verify.lint` and `verify.test` out of that same repository's
+  // `.spec-flow/config.json`, on the Stop event, with nothing typed.
+  // `session-start` does not rescue it: a fresh checkout's mtime is seconds
+  // old, so the staleness reset never fires. See ADR-017.
+  //
+  // Measured before the fix, in a throwaway clone: both declared commands ran
+  // and wrote outside the repo, and the gate reported PASSED. Here RED stands
+  // in for both — a gate that armed at all could not have allowed this stop.
+  check('a phase the repository COMMITTED arms nothing', () =>
+    withFixture({ specTrace: 'green', commitPhase: true, lint: RED, test: RED }, (r) => {
+      if (r.blocked) return `a committed phase armed the gate: ${JSON.stringify(r.payload)}`;
+      if (r.history !== '') {
+        return `the gate ran against a phase the repo committed — it should be transparent, leaving no line at all. history: ${r.history}`;
+      }
+      return null;
+    }),
+  ),
+
+  // The other half of the same seal. Two Claude Code sessions in one repo — an
+  // IDE one and a terminal one — share every file under `.claude/state/`, so
+  // without an owner the second session arms the first's gate, runs its suite
+  // and moves the attempt counter that decides when a human is called.
+  check("a phase sealed to another session is not this session's business", () =>
+    withFixture(
+      { specTrace: 'green', phaseOwner: 'session-a', sessionId: 'session-b', lint: RED, test: RED },
+      (r) => {
+        if (r.blocked) return `session B was blocked by session A's run: ${JSON.stringify(r.payload)}`;
+        if (r.history !== '') return `session B judged session A's milestone. history: ${r.history}`;
+        return null;
+      },
+    ),
+  ),
+
+  // And the case that keeps the one above from being a disarmed gate: the
+  // session that owns the phase is still judged by it, and so is a payload
+  // that names no session at all — the fail-closed default every hook keeps.
+  check('the session that owns the phase is still judged, and an unidentified one still arms', () =>
+    withFixture({ specTrace: 'green', phaseOwner: 'session-a', sessionId: 'session-a', lint: RED }, async (r) => {
+      if (!r.blocked) return `the owning session's own red lint was not caught: ${r.history}`;
+      if (!/result=fail:lint\/trace/.test(r.history)) return `expected fail:lint/trace for the owner, got: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  check('a payload with no session id arms a sealed phase rather than standing down', () =>
+    withFixture({ specTrace: 'green', phaseOwner: 'session-a', lint: RED }, (r) => {
+      if (!r.blocked) {
+        return `an absent session_id disarmed the gate — the seal must fail CLOSED, or a harness that stops sending the field silently turns every gate off. history: ${r.history}`;
+      }
+      return null;
+    }),
+  ),
+
+  // ---- engine=, as something two builds cannot both answer ---------------
+  //
+  // The field records which engine judged a milestone. It read `0.1.0` on
+  // every line ever written, because it came from `package.json`'s version,
+  // which has moved once — at extraction. That is the failure ADR-003 removed
+  // from `plugin.json`, surviving in the file the gate actually reads. See
+  // ADR-018.
+  check('engine= names a revision, and moves when the engine does', async () => {
+    const built = await fixture({ specTrace: 'green', engineIsCheckout: true, lint: RED });
+    try {
+      const first = await runGate(built);
+      await run('git', ['commit', '--allow-empty', '-qm', 'a second engine revision'], { cwd: built.engineDir });
+      const second = await runGate(built);
+
+      const engines = [...second.history.matchAll(/ engine=(\S+)/g)].map((m) => m[1]);
+      if (engines.length !== 2) return `expected two history lines, got ${engines.length}: ${second.history}`;
+      if (!engines.every((e) => /^[0-9a-f]{7,40}$/.test(e))) {
+        return `engine= is not a revision: ${engines.join(', ')} — a value that cannot differ between two builds records nothing. first stdout: ${first.stdout}`;
+      }
+      if (engines[0] === engines[1]) {
+        return `two different engine commits recorded the same engine=${engines[0]}, which is the frozen version number wearing a new name.`;
+      }
+      return null;
+    } finally {
+      rmSync(built.engineDir, { recursive: true, force: true });
+      rmSync(built.repoDir, { recursive: true, force: true });
+    }
+  }),
 
   // ---- the new routing: a red test on attempt 1 goes to the implementer, not to REPLAN ----
   check('a red test on attempt 1 routes to the implementer directly — no REPLAN yet', () =>

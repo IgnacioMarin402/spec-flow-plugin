@@ -36,7 +36,7 @@
  */
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readPayload, readFileOrDefault, readLinesDeduped, appendLine, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, appendLine, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 
@@ -122,12 +122,17 @@ function recordUnreadableWrite(root, cmd) {
 
 await run(async () => {
   const root = projectDir();
-  const phaseFile = phasePath(root);
-  const phase = readFileOrDefault(phaseFile, 'idle');
-
-  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown -> transparent
-
   const payload = await readPayload();
+
+  // `readPhase`, never `readOwnedPhase` — this is the hook that ASSIGNS
+  // ownership (ADR-017). Reading a foreign session's phase as absent here would
+  // stand it down on exactly the write that transfers the phase to this
+  // session: the write would go through unguarded, and the seal would keep
+  // naming a session that no longer decides anything. The tracked half still
+  // applies, because half two below runs the repo's own unscoped checks.
+  const phase = readPhase(root);
+  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown/committed -> transparent
+
   const input = payload.tool_input ?? {};
 
   let written = null;
@@ -160,7 +165,16 @@ await run(async () => {
     process.exit(2); // PreToolUse denial protocol
   }
 
-  if (written !== 'done') return; // a known phase that disarms nothing on its own
+  // Past half one, so this write is going through: the session making it is
+  // the one driving the phase from here, and every hook that arms reads the
+  // seal to tell its own run's state from a second session's (ADR-017).
+  // Claimed only for a write that is ALLOWED — a denied one changes nothing,
+  // so transferring the phase on it would seal a transition that never
+  // happened.
+  if (written !== 'done') {
+    claimPhase(root, payload.session_id);
+    return; // a known phase that disarms nothing on its own
+  }
 
   // ---- half two: is `done` earned? ----------------------------------------
   const failures = [];
@@ -190,7 +204,10 @@ await run(async () => {
     }
   }
 
-  if (failures.length === 0) return;
+  if (failures.length === 0) {
+    claimPhase(root, payload.session_id);
+    return;
+  }
 
   process.stderr.write(
     `[spec-flow] Denied: writing 'done' into .claude/state/phase, and the run is not ` +

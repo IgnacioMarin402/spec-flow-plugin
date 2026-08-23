@@ -26,7 +26,7 @@
  */
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readPhase, releasePhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 
 const STALE_HOURS = 6;
 
@@ -39,7 +39,14 @@ await run(async () => {
 
   const attFile = join(stateDir(root), 'gate_attempts');
 
-  const phase = readFileOrDefault(phaseFile, '');
+  // `readPhase`, never `readOwnedPhase`: this hook's subject is a phase whose
+  // OWNER is gone, so reading a previous session's phase as absent would stand
+  // it down on precisely the file it exists to reset. What it does buy is the
+  // other half of ADR-017 — a phase the repo COMMITTED reads as none, and is
+  // left alone. There is nothing to reset there (no hook honours it) and
+  // writing `idle` over it would dirty a tracked file in every repository the
+  // user opens.
+  const phase = readPhase(root);
   // Every phase that arms anything — see this file's header for why `spec`,
   // `plan` and `review` stopped being exempt. `idle`, `done` and an
   // unrecognized value arm nothing, so there is nothing to reset.
@@ -50,6 +57,10 @@ await run(async () => {
 
   writeFile(phaseFile, 'idle');
   writeFile(attFile, '0');
+  // The seal names the session that was driving the run this just declared
+  // abandoned. Left behind, it would stand every later session down over an
+  // owner that is never coming back — the fail-closed rule reversed.
+  releasePhase(root);
 
   // `current-milestone` is deliberately NOT cleared. Disarming a stale run and
   // forgetting where it was are separate acts: the phase arms hooks, the

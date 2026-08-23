@@ -21,7 +21,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readFileOrDefault, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 function appendUnique(path, line) {
@@ -117,8 +117,9 @@ await run(async () => {
   const root = projectDir();
   // Phase first, through a path that creates nothing: this hook fires on
   // almost every tool call, and standing down must leave no directory behind
-  // in a repo that never adopted the flow.
-  const phase = readFileOrDefault(phasePath(root), '');
+  // in a repo that never adopted the flow. `readPhase` adds the repo that
+  // committed one, which never started a run to trace (ADR-017).
+  const phase = readPhase(root);
   if (['', 'idle', 'done'].includes(phase)) return;
 
   const state = stateDir(root);
