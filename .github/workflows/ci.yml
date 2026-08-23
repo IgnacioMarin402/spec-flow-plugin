@@ -17,14 +17,31 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · unit · coupling · scan-reach · models · routing · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
-    runs-on: ubuntu-latest
+    name: node ${{ matrix.node }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # Two axes, and each one closed a gap between what this repo CLAIMS and
+    # what it ran.
+    #
+    # `engines.node` declares `>=20` and `preflight` DENIES a run below it. A
+    # single job on 22 meant the floor the engine imposes was the one version
+    # never executed — the check was armed against a number nothing had tried.
+    #
+    # The README calls for macOS or Linux and says Windows is untested rather
+    # than unsupported. It was measured passing there, so the honest move is to
+    # measure it every time instead of hedging in prose; `hooks.json` paths,
+    # `spawnSync` without a shell and every `\`-vs-`/` assumption in the
+    # fixtures live exactly where a POSIX-only matrix cannot see them.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install
@@ -48,7 +65,13 @@ jobs:
       # `["eslint", "."]` resolving to `"."` — costs one line to state here and
       # a repo, a git history and a full generator run to reach anywhere else.
       # It also covers the shim branch that production only reaches on the
-      # platform this workflow does not run (ADR-011).
+      # platform this workflow runs as half its matrix (ADR-011).
+      #
+      # `node --test` with no path argument, because every other spelling
+      # depends on something the matrix varies. `test/*.test.mjs` is expanded
+      # by the SHELL on ubuntu and by node itself only from 21 on, so on
+      # windows + node 20 — a cell this matrix now has — it reaches node as a
+      # literal string and finds no file. Discovery has no such seam.
       - name: Unit tests
         run: npm run unit:check
 

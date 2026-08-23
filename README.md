@@ -26,11 +26,14 @@ Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
   Nothing refuses to run on another stack, and a contract filled in by hand may
   well work there; it is simply not tested or supported.
   [Why the scope is Node, and what was refused](decisions/007-the-supported-scope-is-node.md)
-- Node 20+ — enforced: a run refuses to start below it
-- **A POSIX machine** — macOS or Linux. Nothing refuses to run on Windows, and
-  the contract `init` writes there is the same file it writes anywhere; it is
-  simply not what CI exercises or the fixtures assume.
-  [Why the contract is platform-neutral and the engine is not](decisions/011-the-contract-is-platform-neutral.md)
+- Node 20+ — enforced: a run refuses to start below it, and every check here
+  runs on 20, 22 and 24
+- **Linux or Windows** — both exercised by CI, on each of those Node versions.
+  macOS is not, and nothing refuses to run there: the contract `init` writes is
+  the same file on every platform, and this engine has no platform check at
+  all.
+  [Why the contract is platform-neutral](decisions/011-the-contract-is-platform-neutral.md) ·
+  [ADR-019 — why the matrix covers the floor and the platform](decisions/019-ci-runs-the-floor-it-imposes.md)
 - A linter and a test runner you can invoke from the command line
 
 ## What is yours and what is the engine's
