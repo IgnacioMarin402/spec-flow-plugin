@@ -1,10 +1,10 @@
-# ADR-013 — a project routes tiers, and the budget counts roles
+# ADR-014 — a project routes tiers, and the budget counts roles
 
-**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `hooks/model-route.mjs`, `hooks/lib/routing.mjs`, `hooks/opus-budget.mjs` · **Extends:** ADR-012
+**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `hooks/model-route.mjs`, `hooks/lib/routing.mjs`, `hooks/opus-budget.mjs` · **Extends:** ADR-013
 
 ## The question
 
-ADR-012 made every agent name a tier instead of a version. The tiers it names
+ADR-013 made every agent name a tier instead of a version. The tiers it names
 are still this plugin's opinion, chosen for a generic repo: the reviewer is
 cheapest because a checklist pass usually is, the planner is deepest because a
 milestone map usually earns it. A project with a different cost ceiling, or a
@@ -104,7 +104,7 @@ installed — the same line ADR-004 draws for the Node floor.
 
 The routing is now stated in four places that no single check binds together:
 the frontmatter, the agent's `description`, the agent's body, and the line
-each command restates. ADR-012 left the last two open for whoever added
+each command restates. ADR-013 left the last two open for whoever added
 routing. They were resolved by DELETING the claim rather than checking it —
 the bodies and the command steps no longer name a tier at all, because under
 routing they cannot know one, and the role words they already used ("the

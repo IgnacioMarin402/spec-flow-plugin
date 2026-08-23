@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * PreToolUse on subagent spawn — applies the consuming project's model
- * routing by rewriting the spawn's `model`. See ADR-013.
+ * routing by rewriting the spawn's `model`. See ADR-014.
  *
  * A hook rather than an instruction to the orchestrator, for the reason
  * `opus-budget.mjs` is one: routing the model remembers to pass is routing

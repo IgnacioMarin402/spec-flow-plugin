@@ -6,12 +6,12 @@
  * remembering to count is not a budget.
  *
  * **It counts roles, not models, and that survived model routing on purpose.**
- * Once a project can re-route any agent (ADR-013) the name of this file and
+ * Once a project can re-route any agent (ADR-014) the name of this file and
  * its config key describe a proxy rather than the thing: what runs away is the
  * escalation LOOP — implementer stuck, architect consulted, plan revised,
  * round again — and that loop is bounded by how often the deep roles are
  * consulted whatever tier they sit on. An implementer a project deliberately
- * routes to opus runs once per milestone, bounded by the plan. See ADR-013 for
+ * routes to opus runs once per milestone, bounded by the plan. See ADR-014 for
  * the resolved-tier version of this hook and why it was refused.
  *
  * SendMessage counts too, and has to — a follow-up into an existing planner
@@ -27,7 +27,7 @@
  * not in `.spec-flow/config.json`: it is a run-scoped number, not an
  * architectural fact about the repo. Counted only while a run is in progress,
  * so a one-off question to the architect outside the flow is never charged.
- * The key keeps its name after ADR-013 for one reason: nothing validates that
+ * The key keeps its name after ADR-014 for one reason: nothing validates that
  * file, so a rename would read a repo's configured cap as absent and hand it
  * the default instead — a silent change to the one number a human set
  * deliberately.

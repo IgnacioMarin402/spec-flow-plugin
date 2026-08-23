@@ -138,7 +138,7 @@ check('decisions/ is exempt, so a record can name what it removed', () => {
   const { code, out } = scan({ 'decisions/012-a-record.md': `We removed ${PINNED_ID} on this date.\n` });
   return code === 0
     ? ''
-    : `a record naming the id it retired was reported. A record claims a moment, and ADR-012 cannot say what changed without naming it.\n--- output ---\n${out}`;
+    : `a record naming the id it retired was reported. A record claims a moment, and ADR-013 cannot say what changed without naming it.\n--- output ---\n${out}`;
 });
 
 // ---- the ban is not wider than the fix ------------------------------------
@@ -149,7 +149,7 @@ check('a bare tier alias is not reported', () => {
   const { code, out } = scan({
     'commands/route.md': 'Routing: reviewer = haiku; implementer = sonnet; planner = opus. The Opus budget counts the last one.\n',
   });
-  return code === 0 ? '' : `the bare aliases and tier words were reported, which forbids exactly what ADR-012 requires.\n--- output ---\n${out}`;
+  return code === 0 ? '' : `the bare aliases and tier words were reported, which forbids exactly what ADR-013 requires.\n--- output ---\n${out}`;
 });
 
 // ---- the routing assertions -----------------------------------------------

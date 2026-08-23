@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Every agent routes to a model TIER, and nothing this plugin ships names a
- * model VERSION. See ADR-012.
+ * model VERSION. See ADR-013.
  *
  *   node scripts/model-pins.mjs
  *
@@ -20,7 +20,7 @@
  *      whole one.
  *
  * `decisions/` is not scanned, deliberately: a record claims a moment, and
- * ADR-012 has to name the dated id it removed in order to say what changed.
+ * ADR-013 has to name the dated id it removed in order to say what changed.
  * The same exemption `decisions/README.md` already grants every record.
  *
  * Excludes itself, the way `no-repo-refs.mjs` does — a checker necessarily
@@ -43,7 +43,7 @@ import { ALIASES, EFFORT_LEVELS } from '../hooks/lib/routing.mjs';
  *
  * An agent missing from here AND declaring no effort fails, because that is
  * indistinguishable from nobody having considered it — which is exactly how
- * every agent came to inherit silently in the first place (ADR-014).
+ * every agent came to inherit silently in the first place (ADR-015).
  */
 const INHERITS_EFFORT = {
   implementer:
@@ -67,7 +67,7 @@ const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 const VERSIONED = [
   // A full model id. Anchored on the vendor prefix so the bare alias, which is
-  // the whole point of ADR-012, never matches.
+  // the whole point of ADR-013, never matches.
   { pattern: /\bclaude-(opus|sonnet|haiku|fable)[\w.-]*/i, label: 'a pinned model id' },
   // A tier with a number after it: "Opus 5", "Haiku 4.5", "Sonnet-5". The
   // lookbehind keeps this off the tail of a full id, which the pattern above
@@ -131,12 +131,12 @@ for (const file of agents) {
   if (!ALIASES.includes(declared)) {
     problems.push(
       `agents/${file} routes to \`${declared}\`, which is not one of the tier aliases (${ALIASES.join(', ')}). ` +
-        `A pinned id freezes this agent on one model as the tiers move past it — see ADR-012.`,
+        `A pinned id freezes this agent on one model as the tiers move past it — see ADR-013.`,
     );
     continue;
   }
 
-  // The claim ADR-012 makes about the prose, checked rather than asserted: an
+  // The claim ADR-013 makes about the prose, checked rather than asserted: an
   // agent re-routed in the frontmatter alone leaves a description that tells
   // the orchestrator the wrong cost. Naming ANOTHER agent's tier as well is
   // ordinary — the reviewer's description names the Opus planner it escalates
@@ -159,7 +159,7 @@ for (const file of agents) {
     problems.push(
       `agents/${file} declares \`effort: ${effort}\`, which is not one of ${EFFORT_LEVELS.join(', ')}. ` +
         `Nothing downstream will complain: a spawn discards an effort it cannot read, so a typo here is a ` +
-        `setting that looks applied and is not — see ADR-014.`,
+        `setting that looks applied and is not — see ADR-015.`,
     );
     continue;
   }
@@ -207,7 +207,7 @@ if (problems.length > 0) {
   for (const p of problems) console.error(`  - ${p}`);
   console.error(
     '\nAn agent names the tier its job needs and lets the harness resolve the current model of that tier. ' +
-      'A version belongs in decisions/, where a record claims a moment. See ADR-012.',
+      'A version belongs in decisions/, where a record claims a moment. See ADR-013.',
   );
   process.exit(1);
 }

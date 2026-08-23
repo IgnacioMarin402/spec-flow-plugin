@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Which model tier an agent runs on: the plugin's default, and the consuming
- * project's override of it. See ADR-013.
+ * project's override of it. See ADR-014.
  *
  * One copy, for the reason `agent-name.mjs` is one copy — `model-route.mjs`
  * applies the routing and `scripts/model-pins.mjs` holds the plugin's own
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
  * as a schema error on the tool call, so a contract accepting one would fail
  * at the spawn rather than at the config. Pinning a version is therefore
  * session-wide (`ANTHROPIC_DEFAULT_*_MODEL`) and not something this engine can
- * offer per agent — see ADR-013.
+ * offer per agent — see ADR-014.
  */
 export const ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 
@@ -34,7 +34,7 @@ export const ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
  *
  * Here for the same one-home reason as `ALIASES`, and with a warning attached:
  * **nothing in this file applies it.** A spawn silently discards an `effort`
- * key — measured, with a positive control, in ADR-014 — so this list exists to
+ * key — measured, with a positive control, in ADR-015 — so this list exists to
  * VALIDATE what the shipped frontmatter says and to REPORT it, never to route
  * it. Anything that starts sending effort through a hook is building on a
  * field the tool call throws away.

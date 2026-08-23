@@ -330,14 +330,14 @@ versioned, so a cost knob there would move `contract_version` for everyone.
 When it runs out the spawn is denied and the orchestrator is told to summarize
 for a human — which is what the budget is for. The counter is
 `.claude/state/opus_calls`. It counts those two ROLES whatever tier they are
-routed to: what runs away is the escalation loop, not one model (ADR-013).
+routed to: what runs away is the escalation loop, not one model (ADR-014).
 
 **`agents`** re-routes an agent to a different model tier. Optional, and
 absent means the routing each agent's own frontmatter ships. The value is one
 of `opus`, `sonnet`, `haiku`, `fable` — a **tier**, never a version. A spawn
 accepts nothing else, so pinning a concrete version is session-wide through
-`ANTHROPIC_DEFAULT_*_MODEL` and is not something this engine wraps (ADR-012,
-ADR-013).
+`ANTHROPIC_DEFAULT_*_MODEL` and is not something this engine wraps (ADR-013,
+ADR-014).
 
 `hooks/model-route.mjs` applies it by rewriting the spawn, so the orchestrator
 never passes a model itself and cannot forget to. A re-route leaves one line
@@ -361,7 +361,7 @@ values, the schema complained about `isolation`, the one it knows, and dropped
 the rest without a word. A contract offering it would validate, write, transmit
 and do nothing. Three agents declare their own effort in the frontmatter this
 plugin ships; the other two take the session's, which `effortLevel` in the
-project's own settings sets. See ADR-013 and ADR-014.
+project's own settings sets. See ADR-014 and ADR-015.
 
 ---
 
@@ -498,7 +498,7 @@ form disambiguates.
 | `/spec-flow <requirement>` | Full pipeline: spec, plan, review, implement, fold |
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
 | `/spec-flow:models` | Show which tier each agent will run on and which layer decided it. `<agent> <tier>` sets one, `<agent> default` clears it |
-| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — what this plugin ships, before any project override. `spec-writer` and `implementer` take the session's effort on purpose (ADR-014) |
+| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — what this plugin ships, before any project override. `spec-writer` and `implementer` take the session's effort on purpose (ADR-015) |
 
 ---
 

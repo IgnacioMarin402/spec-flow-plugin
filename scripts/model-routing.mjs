@@ -10,14 +10,14 @@
  * in `.claude/spec-flow.config.json`, what the harness resolves the tier to —
  * which `ANTHROPIC_DEFAULT_*_MODEL` can pin — and the effort, which comes
  * either from the agent's frontmatter or from the session and from nowhere in
- * between (ADR-014). Reading any one of them and concluding is how you get a
+ * between (ADR-015). Reading any one of them and concluding is how you get a
  * confident wrong answer, so this reads all four and names the source of every
  * value it prints.
  *
  * **It refuses to guess the third layer.** Nothing here can know what Claude
  * Code currently resolves `opus` to; only an explicit pin is knowable, and
  * naming a likely model anyway — in the one report whose subject is which
- * model runs — would be the exact rot ADR-012 removed, reintroduced by the
+ * model runs — would be the exact rot ADR-013 removed, reintroduced by the
  * file explaining it. Unpinned prints as unpinned. `model-pins.mjs` caught
  * this header doing it.
  *
@@ -81,7 +81,7 @@ function envPins() {
  *
  * This is the ONLY effort lever a project has. An agent that declares no
  * effort of its own gets this; there is no per-agent override to report,
- * because a spawn discards the field (ADR-014).
+ * because a spawn discards the field (ADR-015).
  */
 function sessionEffort() {
   let found = null;

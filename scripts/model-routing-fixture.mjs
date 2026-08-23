@@ -11,7 +11,7 @@
  * that restating the default is not, and that each layer is credited to the
  * file it came from.
  *
- * One case exists purely to stop the report re-introducing what ADR-012
+ * One case exists purely to stop the report re-introducing what ADR-013
  * removed: with nothing pinned, the output must name NO model. Guessing which
  * model a tier resolves to would be the version rot returning inside the
  * report about version rot.
@@ -93,10 +93,10 @@ check('with nothing pinned, no agent row names a model', () => {
   const named = ['architect', 'implementer', 'planner', 'reviewer', 'spec-writer']
     .map((a) => row(out, a))
     .filter((r) => r?.includes(VENDOR));
-  // The rot ADR-012 removed, re-entering through the report about it.
+  // The rot ADR-013 removed, re-entering through the report about it.
   return named.length === 0
     ? ''
-    : `named a concrete model for a tier nothing pinned. It cannot know which one that is, and inventing it is exactly what ADR-012 took out of the agents:\n    ${named.join('\n    ')}`;
+    : `named a concrete model for a tier nothing pinned. It cannot know which one that is, and inventing it is exactly what ADR-013 took out of the agents:\n    ${named.join('\n    ')}`;
 });
 
 check('a re-route is attributed to the project, and says what it replaced', () => {

@@ -614,7 +614,7 @@ t('lint-on-write is transparent outside implement', (repo) => {
 
 // ---- model-route: the project's routing, applied without the orchestrator --
 //
-// The measurements this hook rests on are in ADR-013; what these cases hold is
+// The measurements this hook rests on are in ADR-014; what these cases hold is
 // the half that lives here — that a routing block is applied when it is right,
 // and refused LOUDLY when it is not. A typo'd agent name is this repo's whole
 // subject in miniature: the config reads as though it routes something and

@@ -1,10 +1,10 @@
-# ADR-014 — effort is declared where the role is emphatic, and inherited on purpose everywhere else
+# ADR-015 — effort is declared where the role is emphatic, and inherited on purpose everywhere else
 
-**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `agents/`, `scripts/model-pins.mjs`, `scripts/model-routing.mjs` · **Extends:** ADR-013
+**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `agents/`, `scripts/model-pins.mjs`, `scripts/model-routing.mjs` · **Extends:** ADR-014
 
 ## The question
 
-ADR-012 and ADR-013 made the MODEL each agent runs on deliberate: a tier in the
+ADR-013 and ADR-014 made the MODEL each agent runs on deliberate: a tier in the
 frontmatter, an optional project override, a hook that applies it. The second
 axis was never decided at all. No agent declared `effort`, so every one of them
 inherited whatever the human's session was set to.
@@ -22,7 +22,7 @@ whatever was lying around.
 with `effort`, `effortLevel`, `thinking`, `maxTurns` and `isolation`, every one
 of them holding a deliberately invalid value. The schema rejected exactly one —
 `isolation`, the only key on that list it knows. The other four were discarded
-without a word. That is the positive control ADR-013's `effort` finding was
+without a word. That is the positive control ADR-014's `effort` finding was
 missing: the schema is a real allowlist that complains about bad values for
 keys it has, so silence about `effort` means the key is not there.
 

@@ -138,7 +138,7 @@ some plugins](REFERENCE.md#staying-current).
 **Those are tiers, not versions.** Each agent's frontmatter names `opus`,
 `sonnet` or `haiku`, and Claude Code resolves that to the current model of the
 tier — so an agent follows its tier forward instead of freezing on the model
-that was best the day it was written ([ADR-012](decisions/012-an-agent-names-a-tier-not-a-version.md)).
+that was best the day it was written ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
 
 ### Changing one
 
@@ -208,7 +208,7 @@ other keys with deliberately invalid values, the schema complained about
 `isolation` — the one it knows — and dropped the rest without a word. An
 `effort` entry in the routing block would validate, write, transmit and do
 nothing, which is the single failure this engine exists to refuse, so it is
-not offered ([ADR-014](decisions/014-effort-is-declared-where-the-role-is-emphatic.md)).
+not offered ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md)).
 
 Changing the three declared values is a change to the engine's defaults rather
 than to your config — open an issue. `spec-flow models` marks every row
