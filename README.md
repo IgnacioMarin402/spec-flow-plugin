@@ -10,7 +10,7 @@ review pass, and an implementation loop gated by lint, tests and requirement
 traceability running **outside the model**.
 
 Two commands — `/spec-flow` for a feature, `/spec-fix` for a defect — drive
-five subagents, each pinned to the model its job needs. **It supports Node
+five subagents, each on the model tier its job needs. **It supports Node
 projects.** Inside that scope it has no opinion about your framework or your
 architecture, because **it reads no source code**: it runs the commands your
 repo declares in one file, `.spec-flow/config.json`, and reads their output.
@@ -61,6 +61,7 @@ claude plugin install spec-flow@spec-flow-marketplace
 npm install --save-dev spec-flow-plugin
 npx spec-flow init      # writes .spec-flow/config.json
 npx spec-flow check     # green here means green at the gate
+npx spec-flow models    # which model tier each agent will run on, and who decided
 ```
 
 **The package is `spec-flow-plugin` and the command is `spec-flow`** — the
@@ -124,6 +125,104 @@ Staying current is something you do, not something that happens: run
 `/plugin marketplace update`. [Why that command works here and does nothing on
 some plugins](REFERENCE.md#staying-current).
 
+## The five subagents, and what they run on
+
+| agent | what it does | ships on |
+|---|---|---|
+| `spec-writer` | Turns the requirement into a spec, triages a defect, folds a shipped change back into `specs/` | Sonnet |
+| `planner` | Turns the approved spec into milestones, and is the escalation consultant | Opus |
+| `reviewer` | Reads the plan against the spec once, before an implementer is spent | Haiku |
+| `implementer` | Implements exactly one milestone | Sonnet |
+| `architect` | Consulted on demand when the implementer hits something design-sensitive | Opus |
+
+**Those are tiers, not versions.** Each agent's frontmatter names `opus`,
+`sonnet` or `haiku`, and Claude Code resolves that to the current model of the
+tier — so an agent follows its tier forward instead of freezing on the model
+that was best the day it was written ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
+
+### Changing one
+
+```json
+{
+  "max_opus_calls": 6,
+  "agents": { "reviewer": "sonnet", "architect": "sonnet" }
+}
+```
+
+That is `.claude/spec-flow.config.json` in **your** repo — not the engine's
+contract, which holds architectural facts rather than preferences. A
+`PreToolUse` hook applies it when the spawn happens, so the orchestrator is
+never asked to pass a model and cannot forget to. An entry naming an agent that
+does not exist, or anything that is not a tier, **denies the spawn** and says
+which entry is wrong: a routing block that reads as though it works and routes
+nothing is the failure this engine exists to close.
+
+```bash
+npx spec-flow models
+```
+
+prints what each agent will actually run on and **which layer decided it** —
+the plugin's default, your override, or a version pin. Three layers decide it
+and no single file shows more than one, so this is the only honest answer.
+
+### Pinning an actual version
+
+A tier is per agent; a version is per session, and it is Claude Code's setting
+rather than this engine's. In your repo's `.claude/settings.json`:
+
+```json
+{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "<a full model id>" } }
+```
+
+The id is whatever `/model` lists. It is deliberately not spelled out here:
+an example naming one would be stale within a release, which is the rot this
+repo's own check refuses — and that check caught this very line while it was
+being written.
+
+That changes what `opus` means everywhere in the session, including for your
+own turns. `spec-flow models` reports the pin and names the file it came from.
+
+### Effort
+
+Effort is the second axis, and it does **not** work like the tier. Three of the
+agents declare their own; the other two follow your session:
+
+| agent | effort |
+|---|---|
+| `reviewer` | `low` — its prompt already says it is the cheapest pass, and escalating is its escape hatch rather than thinking harder |
+| `planner` | `high` — it writes the artifact every later pass is judged against |
+| `architect` | `high` — it is reached only once a cheaper agent failed to decide safely |
+| `implementer` | your session's — the milestone decides the work, and its difficulty is the plan's claim |
+| `spec-writer` | your session's — it asks you when unsure instead of thinking harder alone |
+
+So the two that follow your session are the lever you have, in
+`.claude/settings.json`:
+
+```json
+{ "effortLevel": "high" }
+```
+
+**A project cannot set effort per agent, and that is measured rather than
+assumed.** A spawn silently discards an `effort` key: sent one alongside four
+other keys with deliberately invalid values, the schema complained about
+`isolation` — the one it knows — and dropped the rest without a word. An
+`effort` entry in the routing block would validate, write, transmit and do
+nothing, which is the single failure this engine exists to refuse, so it is
+not offered ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md)).
+
+Changing the three declared values is a change to the engine's defaults rather
+than to your config — open an issue. `spec-flow models` marks every row
+`(agent)` or `(session)` so you can always see which of the two you are
+looking at.
+
+### None of it resets
+
+Every value above lives in a file the engine reads fresh: the routing on each
+spawn, the settings at session start. Opening a new conversation does not
+restore defaults. What *does* reset is anything you set only for the current
+session — `/model` switched with `s` in the picker, or an `/effort` level that
+applies to the session only. Put it in a file and it survives.
+
 ## Your first run
 
 ```
@@ -175,7 +274,7 @@ ends, and a `Stop` hook runs the checks outside the model and either allows the
 stop or blocks with the instruction for what to do next.
 
 - **The orchestrator never writes code.** It routes. Everything that produces an
-  artifact is a subagent pinned to the model its job needs.
+  artifact is a subagent on the model tier its job needs.
 - **The gate is not a step in the pipeline** — it is what happens when the
   pipeline stops. Its block message *is* the next instruction.
 - **The first pass on a commit blocks too**, on the same channel a failure

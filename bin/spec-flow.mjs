@@ -23,6 +23,11 @@ const commands = {
   check: '../scripts/check-changed.mjs',
   trace: '../scripts/spec-trace.mjs',
   stats: '../scripts/specflow-stats.mjs',
+  // Reachable from a terminal and not only through `/spec-flow:models`,
+  // because the question it answers — what will this agent actually run on —
+  // is one you ask while editing the config, which is not a moment you are
+  // necessarily inside Claude Code.
+  models: '../scripts/model-routing.mjs',
   // The orchestrator runs this one twice per run — `--mark` at intake and
   // `<SLUG>` at DONE. It was reachable through neither this dispatcher nor a
   // documented path for a while, which is a quiet way to lose every run's

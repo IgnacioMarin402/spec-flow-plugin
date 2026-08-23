@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Smoke test for the 9 hooks `gate-fixture.mjs` does not cover.
+ * Smoke test for the hooks `gate-fixture.mjs` does not cover.
  *
  * `gate.mjs` earns a fixture of its own because it is the hook every other
- * guarantee depends on. The other nine were, for a while, verified by
+ * guarantee depends on. The others were, for a while, verified by
  * nothing at all — read carefully and shipped, which is exactly the standard
  * this engine refuses to accept from the code it gates.
  *
@@ -256,13 +256,13 @@ t('opus-budget denies past the cap', (repo) => {
   return null;
 });
 
-t('opus-budget does not count a Sonnet spawn', (repo) => {
+t('opus-budget does not count a non-escalation spawn', (repo) => {
   writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 6 }));
   const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'implementer' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
   const f = join(repo, '.claude/state/opus_calls');
   if (existsSync(f) && readFileSync(f, 'utf8') !== '0' && readFileSync(f, 'utf8') !== '') {
-    return `opus_calls became "${readFileSync(f, 'utf8')}" for a non-Opus spawn`;
+    return `opus_calls became "${readFileSync(f, 'utf8')}" for a spawn that is not an escalation`;
   }
   return null;
 });
@@ -609,6 +609,124 @@ t('lint-on-write is transparent outside implement', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   const r = runHook('lint-on-write.mjs', { tool_input: { file_path: 'example/thing.ts' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0`;
+  return null;
+});
+
+// ---- model-route: the project's routing, applied without the orchestrator --
+//
+// The measurements this hook rests on are in ADR-014; what these cases hold is
+// the half that lives here — that a routing block is applied when it is right,
+// and refused LOUDLY when it is not. A typo'd agent name is this repo's whole
+// subject in miniature: the config reads as though it routes something and
+// routes nothing, forever.
+
+/** The routing hook's rewritten input, or null when it emitted nothing. */
+function routed(r) {
+  if (!r.stdout.trim()) return null;
+  try {
+    return JSON.parse(r.stdout).hookSpecificOutput?.updatedInput ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function withRouting(repo, agents) {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 6, agents }));
+}
+
+t('model-route is transparent when the project declares no routing', (repo) => {
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}, expected 0. stderr: ${r.stderr.slice(0, 200)}`;
+  if (r.stdout.trim()) return `emitted output for a repo that configured nothing: ${r.stdout.slice(0, 200)}`;
+  return null;
+});
+
+t('model-route rewrites the spawn the project re-routed', (repo) => {
+  withRouting(repo, { reviewer: 'sonnet' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer', prompt: 'x' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
+  const input = routed(r);
+  if (!input) return `emitted no updatedInput, so the routing was configured and never applied. stdout: ${r.stdout.slice(0, 200)}`;
+  if (input.model !== 'sonnet') return `rewrote model to "${input.model}", expected "sonnet"`;
+  if (input.prompt !== 'x') return 'the rewrite dropped the rest of the spawn input';
+  return null;
+});
+
+t('model-route leaves an agent the project did not re-route alone', (repo) => {
+  withRouting(repo, { reviewer: 'sonnet' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}`;
+  if (r.stdout.trim()) return `rewrote a spawn nobody re-routed: ${r.stdout.slice(0, 200)}`;
+  return null;
+});
+
+t('model-route treats restating the shipped default as no re-route', (repo) => {
+  withRouting(repo, { planner: 'opus' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}`;
+  if (r.stdout.trim()) return `reported a change nobody made: ${r.stdout.slice(0, 200)}`;
+  return null;
+});
+
+t('model-route denies a routing block naming an agent that does not exist', (repo) => {
+  withRouting(repo, { reviwer: 'sonnet' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+  if (r.status !== 2) {
+    return `exit ${r.status}, expected 2 (deny) — a name nothing matches routes nothing, and reads exactly like a routing that works`;
+  }
+  if (!r.stderr.includes('reviwer')) return 'denied without naming the entry that is wrong';
+  if (!r.stderr.includes('reviewer')) return 'denied without naming the agents that do exist, which is what makes the message actionable';
+  return null;
+});
+
+t('model-route denies a full model id, where the tool call would have', (repo) => {
+  withRouting(repo, { reviewer: ['claude', 'haiku', '4-5'].join('-') });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+  if (r.status !== 2) {
+    return `exit ${r.status}, expected 2 — a pinned id fails the spawn's own schema, a long way from the file that caused it`;
+  }
+  return null;
+});
+
+t('model-route passes through an agent this plugin does not ship', (repo) => {
+  withRouting(repo, { reviewer: 'sonnet' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}, expected 0 — an unrelated agent must never be touched`;
+  if (r.stdout.trim()) return 'rewrote a spawn that is none of this plugin’s business';
+  return null;
+});
+
+t('model-route does not block unrelated work over its own broken config', (repo) => {
+  withRouting(repo, { reviwer: 'sonnet' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose' } }, repo);
+  if (r.status !== 0) {
+    return `exit ${r.status}: a broken spec-flow routing block blocked unrelated work in a repo that merely has the plugin installed`;
+  }
+  return null;
+});
+
+t('model-route applies outside a run, unlike the budget', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+  withRouting(repo, { architect: 'sonnet' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'architect' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}`;
+  if (routed(r)?.model !== 'sonnet') {
+    return 'a one-off question to the architect ignored the routing. A budget counts what a run spends and stands down outside one; routing is the project’s standing answer to what an agent runs on.';
+  }
+  return null;
+});
+
+t('model-route leaves a deduped trace of what it re-routed', (repo) => {
+  withRouting(repo, { reviewer: 'sonnet' });
+  runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+  runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+  const log = join(repo, '.claude/state/model-routes.log');
+  if (!existsSync(log)) {
+    return 'a re-route left no trace: the spawn looks ordinary in the transcript and the frontmatter still says otherwise';
+  }
+  const lines = readFileSync(log, 'utf8').split('\n').filter(Boolean);
+  if (lines.length !== 1) return `${lines.length} line(s) for two identical spawns; the log is deduped so a run leaves one line per re-route`;
+  if (!lines[0].includes('reviewer -> sonnet')) return `the trace does not say what changed: ${lines[0]}`;
   return null;
 });
 

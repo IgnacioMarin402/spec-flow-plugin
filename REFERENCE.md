@@ -313,15 +313,55 @@ branch, a fork's upstream, or a shallow CI checkout that fetched no other ref.
 
 ## The second config file
 
-One setting lives outside the contract, at `.claude/spec-flow.config.json`:
+Two settings live outside the contract, at `.claude/spec-flow.config.json`:
 
 ```json
-{ "max_opus_calls": 6 }
+{
+  "max_opus_calls": 6,
+  "agents": { "reviewer": "sonnet" }
+}
 ```
 
-It caps planner + architect calls per run and defaults to 6. When it runs out
-the spawn is denied and the orchestrator is told to summarize for a human —
-which is what the budget is for. The counter is `.claude/state/opus_calls`.
+Neither is an architectural fact about the repo, which is what
+`.spec-flow/config.json` holds and why these are not in it. That file is also
+versioned, so a cost knob there would move `contract_version` for everyone.
+
+**`max_opus_calls`** caps planner + architect calls per run and defaults to 6.
+When it runs out the spawn is denied and the orchestrator is told to summarize
+for a human — which is what the budget is for. The counter is
+`.claude/state/opus_calls`. It counts those two ROLES whatever tier they are
+routed to: what runs away is the escalation loop, not one model (ADR-014).
+
+**`agents`** re-routes an agent to a different model tier. Optional, and
+absent means the routing each agent's own frontmatter ships. The value is one
+of `opus`, `sonnet`, `haiku`, `fable` — a **tier**, never a version. A spawn
+accepts nothing else, so pinning a concrete version is session-wide through
+`ANTHROPIC_DEFAULT_*_MODEL` and is not something this engine wraps (ADR-013,
+ADR-014).
+
+`hooks/model-route.mjs` applies it by rewriting the spawn, so the orchestrator
+never passes a model itself and cannot forget to. A re-route leaves one line
+per agent in `.claude/state/model-routes.log`, because otherwise a spawn on a
+different model is indistinguishable from an ordinary one.
+
+An entry naming an agent that does not exist, or a tier that is not one of the
+four, **denies the spawn** and says which entry is wrong. A routing block that
+reads as though it works and routes nothing is the failure this engine exists
+to close. The denial reaches only spawns of this plugin's own agents, so it
+cannot block unrelated work in a repo that merely has the plugin installed.
+
+`spec-flow models` prints the resolved answer with the source of every value,
+and is the only place all three layers appear at once. Run it after editing
+this file: it reads the result back through the same code the spawn hook uses,
+so "I wrote it" and "it applies" stop being two separate claims.
+
+There is no `effort` here, and that is measured rather than assumed: a spawn
+silently discards the field — sent alongside four other keys holding invalid
+values, the schema complained about `isolation`, the one it knows, and dropped
+the rest without a word. A contract offering it would validate, write, transmit
+and do nothing. Three agents declare their own effort in the frontmatter this
+plugin ships; the other two take the session's, which `effortLevel` in the
+project's own settings sets. See ADR-014 and ADR-015.
 
 ---
 
@@ -457,7 +497,8 @@ form disambiguates.
 |---|---|
 | `/spec-flow <requirement>` | Full pipeline: spec, plan, review, implement, fold |
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
-| agents | `spec-writer` (Sonnet), `planner` (Opus), `reviewer` (Haiku), `implementer` (Sonnet), `architect` (Opus) |
+| `/spec-flow:models` | Show which tier each agent will run on and which layer decided it. `<agent> <tier>` sets one, `<agent> default` clears it |
+| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — what this plugin ships, before any project override. `spec-writer` and `implementer` take the session's effort on purpose (ADR-015) |
 
 ---
 
@@ -469,6 +510,7 @@ form disambiguates.
 | `spec-flow check` | Lint changed files + full suite + unscoped checks. `--no-fix` to report only |
 | `spec-flow trace` | `spec-trace` alone: the requirement/proof binding |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
+| `spec-flow models` | Which tier each agent will run on here, and which layer decided it. Non-zero when the routing block is unusable |
 | `spec-flow telemetry --mark` | Record the telemetry offset at the start of a run |
 | `spec-flow telemetry <SLUG>` | Archive this run's slice into the change folder |
 
@@ -506,6 +548,7 @@ to a commit if you would rather CI not pick up whatever has landed.
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, and an unearned `done` |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
+| `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing by rewriting the spawn's model |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written, while it is still in context |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types so `opus-budget` can charge a `SendMessage` |
@@ -514,8 +557,12 @@ to a commit if you would rather CI not pick up whatever has landed.
 
 Only `gate`, `lint-on-write` and `no-gate-cmds` are armed exclusively by the
 `implement` phase. `preflight`, `opus-budget`, `arm-gate` and `phase-guard`
-stand down only outside a run. `register-agent`, `run-trace` and
-`session-start` never enforce anything.
+stand down only outside a run. `model-route` is the one enforcement hook with
+no phase at all: a budget counts what a run spends and has to stand down
+outside one, while routing is the project's standing answer to what an agent
+runs on, so a one-off question to the architect reaches the model the project
+chose. `register-agent`, `run-trace` and `session-start` never enforce
+anything.
 
 `preflight` runs first among the spawn hooks on purpose: it is the earliest
 point at which a run can be refused, and refusing there costs nothing. It is
@@ -577,6 +624,7 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | `phase` | The current phase. The spine of the run |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
 | `opus_calls` | Planner + architect calls this run |
+| `model-routes.log` | One line per agent the project re-routed, deduped |
 | `agent-registry` | Session id → agent type |
 | `run-offset` | Telemetry line counts at intake, set by `telemetry --mark` |
 | `gate-history.log` | One line per gate invocation. `running` while it judges, replaced by the outcome; a surviving `running` means that invocation was killed |
@@ -639,7 +687,7 @@ ends, and a `Stop` hook runs the checks outside the model and either allows
 the stop or blocks with the instruction for what to do next.
 
 - **The orchestrator never writes code.** It routes. Everything that produces
-  an artifact is a subagent pinned to the model its job needs.
+  an artifact is a subagent on the model tier its job needs.
 - **The gate is not a step in the pipeline** — it is what happens when the
   pipeline stops. Its block message *is* the next instruction.
 
@@ -647,18 +695,18 @@ the stop or blocks with the instruction for what to do next.
 
 ```mermaid
 flowchart TD
-    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet 5 <br/> writes spec.md and proposal.md"]
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet <br/> writes spec.md and proposal.md"]
     B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
     Q -->|"answers"| B
     B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
     S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
-    S -->|"yes"| P["PLAN — planner, Opus 5 <br/> plan.md plus one file per milestone"]
-    P --> R["REVIEW — reviewer, Haiku 4.5 <br/> reads the spec and every milestone file"]
+    S -->|"yes"| P["PLAN — planner, Opus <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer, Haiku <br/> reads the spec and every milestone file"]
     R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
     CON --> R
     R -->|"CHANGES_REQUESTED"| P
-    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet 5 <br/> one fresh session per milestone"]
-    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus 5"]
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus"]
     ARCH --> I
     I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
     RE --> I
@@ -669,7 +717,7 @@ flowchart TD
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
     G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet 5 <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
     G2 -->|"gap in the specs' wording"| F
     G2 -->|"gap in code or tests"| RE
@@ -690,7 +738,7 @@ not planning — which is why this flow drops the planner and the reviewer.
 
 ```mermaid
 flowchart TD
-    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet 5 <br/> phase spec, gate disarmed"]
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet <br/> phase spec, gate disarmed"]
     T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
     T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
     T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
@@ -704,7 +752,7 @@ flowchart TD
     C2 --> W
     C4 --> W
     W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
-    W --> I["FIX — implementer, Sonnet 5"]
+    W --> I["FIX — implementer, Sonnet"]
     I --> CM["commit, push, end the turn"]
     CM --> G{{"the same GATE"}}
     G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I

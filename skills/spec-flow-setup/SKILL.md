@@ -115,6 +115,27 @@ If the check is not green, say that plainly and say what is failing. A setup
 reported as finished over a red check is the exact failure this engine exists
 to close, arriving through the door meant to prevent it.
 
+## Model routing is a different file, and not your job here
+
+`.claude/spec-flow.config.json` holds preferences rather than facts: the
+escalation cap `max_opus_calls`, and an optional `agents` block re-routing an
+agent to a different model tier. `init` does not write it and a repo needs none
+of it to run, so **do not set one during setup**. You have no evidence about
+what this repo's work should cost, and the rule at the top of this file governs
+a preference exactly as it governs a field — a plausible guess is worse than an
+absent value.
+
+Do run it once, and say what it printed in your step 5 report:
+
+```bash
+npx spec-flow models
+```
+
+It names the tier each agent will run on and which layer decided it, and it
+exits non-zero when a routing block is already present and unusable. That last
+case is worth catching at setup: until it is fixed every spec-flow spawn is
+denied, and the first symptom otherwise is a run that will not start.
+
 ## What this skill must never contain
 
 **No runner names, no flags, no per-ecosystem tables.** There is exactly one
