@@ -125,6 +125,93 @@ Staying current is something you do, not something that happens: run
 `/plugin marketplace update`. [Why that command works here and does nothing on
 some plugins](REFERENCE.md#staying-current).
 
+## The five subagents, and what they run on
+
+| agent | what it does | ships on |
+|---|---|---|
+| `spec-writer` | Turns the requirement into a spec, triages a defect, folds a shipped change back into `specs/` | Sonnet |
+| `planner` | Turns the approved spec into milestones, and is the escalation consultant | Opus |
+| `reviewer` | Reads the plan against the spec once, before an implementer is spent | Haiku |
+| `implementer` | Implements exactly one milestone | Sonnet |
+| `architect` | Consulted on demand when the implementer hits something design-sensitive | Opus |
+
+**Those are tiers, not versions.** Each agent's frontmatter names `opus`,
+`sonnet` or `haiku`, and Claude Code resolves that to the current model of the
+tier — so an agent follows its tier forward instead of freezing on the model
+that was best the day it was written ([ADR-012](decisions/012-an-agent-names-a-tier-not-a-version.md)).
+
+### Changing one
+
+```json
+{
+  "max_opus_calls": 6,
+  "agents": { "reviewer": "sonnet", "architect": "sonnet" }
+}
+```
+
+That is `.claude/spec-flow.config.json` in **your** repo — not the engine's
+contract, which holds architectural facts rather than preferences. A
+`PreToolUse` hook applies it when the spawn happens, so the orchestrator is
+never asked to pass a model and cannot forget to. An entry naming an agent that
+does not exist, or anything that is not a tier, **denies the spawn** and says
+which entry is wrong: a routing block that reads as though it works and routes
+nothing is the failure this engine exists to close.
+
+```bash
+npx spec-flow models
+```
+
+prints what each agent will actually run on and **which layer decided it** —
+the plugin's default, your override, or a version pin. Three layers decide it
+and no single file shows more than one, so this is the only honest answer.
+
+### Pinning an actual version
+
+A tier is per agent; a version is per session, and it is Claude Code's setting
+rather than this engine's. In your repo's `.claude/settings.json`:
+
+```json
+{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "<a full model id>" } }
+```
+
+The id is whatever `/model` lists. It is deliberately not spelled out here:
+an example naming one would be stale within a release, which is the rot this
+repo's own check refuses — and that check caught this very line while it was
+being written.
+
+That changes what `opus` means everywhere in the session, including for your
+own turns. `spec-flow models` reports the pin and names the file it came from.
+
+### Effort
+
+**There is no per-agent effort setting a project can reach, and that was
+measured rather than assumed.** `effort` is a real subagent frontmatter field,
+but a spawn silently discards it — an invented key and a bogus `effort` value
+behave identically, while a bogus `model` is rejected loudly. So an `effort`
+entry in the routing block would validate, write, transmit and do nothing,
+which is the one failure this engine refuses to ship. It is left out on
+purpose ([ADR-013](decisions/013-a-project-routes-tiers-not-versions.md)).
+
+What a project *can* set is the ceiling for the whole session, in
+`.claude/settings.json`:
+
+```json
+{ "effortLevel": "high" }
+```
+
+Per-agent effort exists only in the frontmatter this plugin ships, which no
+adopter can edit without forking. If you want the reviewer cheaper or the
+planner deeper than the tiers alone give you, open an issue — that is a change
+to the engine's defaults, not to your config.
+
+### None of it resets
+
+Every value above lives in a file the engine reads fresh: the routing on each
+spawn, the settings at session start. Opening a new conversation does not
+restore defaults. What *does* reset is anything you set only for the current
+session — `/model` switched with `s` in the picker, or an `/effort` level that
+applies to the session only. Put it in a file and it survives.
+
 ## Your first run
 
 ```
