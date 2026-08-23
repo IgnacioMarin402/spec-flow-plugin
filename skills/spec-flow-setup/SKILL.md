@@ -128,7 +128,7 @@ absent value.
 Do run it once, and say what it printed in your step 5 report:
 
 ```bash
-npx spec-flow models
+node ${CLAUDE_PLUGIN_ROOT}/scripts/model-routing.mjs
 ```
 
 It names the tier each agent will run on and which layer decided it, and it
