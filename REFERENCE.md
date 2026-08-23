@@ -350,6 +350,11 @@ reads as though it works and routes nothing is the failure this engine exists
 to close. The denial reaches only spawns of this plugin's own agents, so it
 cannot block unrelated work in a repo that merely has the plugin installed.
 
+`spec-flow models` prints the resolved answer with the source of every value,
+and is the only place all three layers appear at once. Run it after editing
+this file: it reads the result back through the same code the spawn hook uses,
+so "I wrote it" and "it applies" stop being two separate claims.
+
 There is no `effort` here, and that is measured rather than assumed: a spawn
 silently discards the field, so a contract offering it would validate, write,
 transmit, and do nothing. A project's effort ceiling is `effortLevel` in its
@@ -489,7 +494,8 @@ form disambiguates.
 |---|---|
 | `/spec-flow <requirement>` | Full pipeline: spec, plan, review, implement, fold |
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
-| agents | `spec-writer` (Sonnet), `planner` (Opus), `reviewer` (Haiku), `implementer` (Sonnet), `architect` (Opus) |
+| `/spec-flow:models` | Show which tier each agent will run on and which layer decided it. `<agent> <tier>` sets one, `<agent> default` clears it |
+| agents | `spec-writer` (Sonnet), `planner` (Opus), `reviewer` (Haiku), `implementer` (Sonnet), `architect` (Opus) — the tiers this plugin ships, before any project override |
 
 ---
 
@@ -501,6 +507,7 @@ form disambiguates.
 | `spec-flow check` | Lint changed files + full suite + unscoped checks. `--no-fix` to report only |
 | `spec-flow trace` | `spec-trace` alone: the requirement/proof binding |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
+| `spec-flow models` | Which tier each agent will run on here, and which layer decided it. Non-zero when the routing block is unusable |
 | `spec-flow telemetry --mark` | Record the telemetry offset at the start of a run |
 | `spec-flow telemetry <SLUG>` | Archive this run's slice into the change folder |
 

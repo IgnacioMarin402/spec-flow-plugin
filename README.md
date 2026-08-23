@@ -61,6 +61,7 @@ claude plugin install spec-flow@spec-flow-marketplace
 npm install --save-dev spec-flow-plugin
 npx spec-flow init      # writes .spec-flow/config.json
 npx spec-flow check     # green here means green at the gate
+npx spec-flow models    # which model tier each agent will run on, and who decided
 ```
 
 **The package is `spec-flow-plugin` and the command is `spec-flow`** — the

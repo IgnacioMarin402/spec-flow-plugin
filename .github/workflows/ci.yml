@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: lint · typecheck · unit · coupling · scan-reach · models · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
+    name: lint · typecheck · unit · coupling · scan-reach · models · routing · init · paths · decisions · agents · skill · gate · trace · hooks · cold-start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +78,16 @@ jobs:
       # reason the coupling scan needs its own step.
       - name: Model-pin scan reaches its surfaces
         run: npm run models:reach
+
+      # `spec-flow models` answers "what will this agent actually run on", and
+      # its failure mode is not crashing — it is five tidy rows saying "plugin
+      # default" because the run never found the project's config, which is
+      # indistinguishable from a repo that configured nothing. These cases are
+      # about attribution, plus one holding the report to naming no model for a
+      # tier nothing pinned: guessing there is ADR-012's rot returning inside
+      # the report about it.
+      - name: Routing report attributes every layer
+        run: npm run routing:check
 
       # `init` generates a consuming repo's contract, which is what a worked
       # example file used to do worse: an example is a static artifact nothing
