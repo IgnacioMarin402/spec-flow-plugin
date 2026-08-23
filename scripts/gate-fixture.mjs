@@ -283,8 +283,18 @@ async function fixture({
 
   writeFileSync(join(repoDir, '.claude/state/phase'), phase);
   writeFileSync(join(repoDir, '.claude/state/gate_attempts'), gateAttempts);
-  // Seeds gate-history.log, for the cases about what a PREVIOUS invocation left behind.
-  if (history !== null) writeFileSync(join(repoDir, '.claude/state/gate-history.log'), history);
+  // Seeds gate-history.log, for the cases about what a PREVIOUS invocation
+  // left behind. A function is called with this fixture's real HEAD sha: the
+  // gate asks whether any line names the CURRENT commit, so a case that seeds
+  // a literal sha is describing some other tree — and every case about an
+  // already-judged commit would silently become a case about an unjudged one.
+  const headSha = (await git('rev-parse', '--short', 'HEAD')).stdout.trim();
+  if (history !== null) {
+    writeFileSync(
+      join(repoDir, '.claude/state/gate-history.log'),
+      typeof history === 'function' ? history(headSha) : history,
+    );
+  }
 
   return { engineDir, repoDir };
 }
@@ -330,13 +340,24 @@ async function runGate({ engineDir, repoDir }) {
  */
 const MAX_DIRTY_SKIPS = 10;
 
-/** A history whose last `n` lines are consecutive skips, the shape a stuck run leaves. */
-const skipDirtyHistory = (n) =>
+/**
+ * A history whose last `n` lines are consecutive skips, the shape a stuck run
+ * leaves — on the fixture's own HEAD, which is what makes them a streak the
+ * gate can see at all. Seeded with a literal sha they describe some other
+ * tree, and the gate reads that as a commit nothing has ever judged: both
+ * streak cases would then assert the threshold while actually exercising the
+ * once-per-commit wake.
+ */
+const skipDirtyHistory = (n) => (sha) =>
   `${Array.from(
     { length: n },
     (_, i) =>
-      `2026-08-01T00:00:${String(i).padStart(2, '0')}Z abc1234 phase=implement attempt=0 result=skip-dirty lint=- test=- unscoped=- files=1`,
+      `2026-08-01T00:00:${String(i).padStart(2, '0')}Z ${sha} phase=implement attempt=0 result=skip-dirty lint=- test=- unscoped=- files=1`,
   ).join('\n')}\n`;
+
+/** One verdict on the fixture's own HEAD: this commit has been judged already. */
+const judgedHistory = (sha) =>
+  `2026-08-01T00:00:00Z ${sha} phase=implement attempt=0 result=pass lint=0 test=0 unscoped=0 files=1\n`;
 
 async function withFixture(opts, assert) {
   const { engineDir, repoDir } = await fixture(opts);
@@ -624,8 +645,8 @@ await Promise.all([
     ),
   ),
 
-  check('a dirty tree is skipped, not judged, and says nothing', () =>
-    withFixture({ specTrace: 'red', dirty: true }, (r) => {
+  check('a dirty tree on a commit already judged is skipped, not judged, and says nothing', () =>
+    withFixture({ specTrace: 'red', dirty: true, history: judgedHistory }, (r) => {
       if (r.blocked) return 'a dirty tree was judged; an implementer mid-write would be reported as a failure';
       if (!/result=skip-dirty/.test(r.history)) return `expected skip-dirty, got: ${r.history}`;
       // Stop fires every time the orchestrator's turn ends, including many
@@ -633,6 +654,38 @@ await Promise.all([
       // notice here would be noise on a run that has decided nothing, and
       // noise is how a real notice stops being read.
       if (r.stdout.trim()) return `the gate spoke about a tree it deliberately did not judge: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ---- but a commit NOTHING has judged is a run waiting for a verdict -----
+  //
+  // The streak below counts STOPS, and the case it cannot reach is the one
+  // where no further stop ever comes: the orchestrator commits, ends its turn
+  // expecting the gate, the tree is dirty for an unrelated reason, the skip
+  // ALLOWS the stop and the session goes idle. Seen once in a real run — a
+  // fold whose `git mv` staged the rename and left the SHIPPED stamp on top of
+  // it uncommitted — where it cost twelve silent minutes and hid a spec-trace
+  // that was red on exactly that missing stamp.
+  check('a dirty tree on a commit nothing has judged wakes the run', () =>
+    withFixture({ specTrace: 'green', dirty: true }, (r) => {
+      if (!r.blocked) {
+        return `the gate skipped a commit nothing has ever judged and said nothing — the run is now waiting for a verdict that will never come. history: ${r.history}`;
+      }
+      const reason = r.payload?.reason ?? '';
+      if (!/dirty/i.test(reason)) return `the block does not say what is wrong: ${reason}`;
+      if (!/result=skip-dirty/.test(r.history)) return `expected the skip still recorded, got: ${r.history}`;
+      return null;
+    }),
+  ),
+
+  // The guard, isolated — the same shape as `alreadyWoke` for a green pass,
+  // and the same failure if it goes: an implementer writing across many stops
+  // on one commit would be reported at every single one of them.
+  check('the wake fires once per commit, not on every stop the tree is dirty', () =>
+    withFixture({ specTrace: 'green', dirty: true, history: skipDirtyHistory(1) }, (r) => {
+      if (r.blocked) return `the same unjudged commit was reported twice: ${r.payload?.reason ?? ''}`;
+      if (r.stdout.trim()) return `the gate spoke twice about the same commit: ${r.stdout}`;
       return null;
     }),
   ),
