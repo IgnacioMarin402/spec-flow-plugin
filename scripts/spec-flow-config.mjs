@@ -130,6 +130,11 @@ function merge(base, override) {
  *
  * Runs on EVERY load, including a missing file: "no contract yet" has no safe
  * generic answer for fields that name a tool or a layer.
+ *
+ * `scope_globs` is the one field whose CONTENT is judged, and the rule above
+ * is what says why it may be: a wrong command fails loudly the first time it
+ * runs, while a scope that matches nothing fails silently every time, by
+ * disarming the only check scoped to it. See the branch itself.
  */
 function validate(config, source) {
   const problems = [];
@@ -144,6 +149,35 @@ function validate(config, source) {
   }
   if (!nonEmptyArray(config.verify.scope_globs)) {
     problems.push('verify.scope_globs must be a non-empty array, e.g. ["*.ts", "*.tsx"].');
+  } else {
+    // The one place this file judges CONTENT rather than shape, and the
+    // exception is earned: these strings are handed to git as pathspecs, and
+    // git's `*` already crosses `/`. So `*.ts` matches a file one directory
+    // down as well as one in the root, while the form every JS developer
+    // reaches for — `**/*.ts` — demands at least one directory and silently
+    // drops the root; a `<dir>/**/*.ts` demands two and misses `<dir>/a.ts`
+    // entirely. Both measured against a real repo before this was written.
+    //
+    // That is not "a wrong command, caught the first time the gate runs it",
+    // which is the reasoning the rest of this function rests on. Nothing runs
+    // wrongly: the scope comes back empty, `verify.lint` is never invoked, and
+    // the history records `lint=-`, which is exactly what an honest milestone
+    // that touched nothing in scope records. A green that means nothing is the
+    // one failure this engine exists to close, so the shape that manufactures
+    // it does not get to be a matter of taste.
+    for (const [i, glob] of config.verify.scope_globs.entries()) {
+      if (typeof glob !== 'string' || glob.length === 0) {
+        problems.push(`verify.scope_globs[${i}] must be a non-empty string — got ${JSON.stringify(glob)}.`);
+        continue;
+      }
+      if (glob.includes('**')) {
+        problems.push(
+          `verify.scope_globs[${i}] is ${JSON.stringify(glob)}, and \`**\` does not mean here what it means in npm, in a bundler config or in .gitignore. ` +
+            `These are git PATHSPECS, where \`*\` already crosses \`/\`: write ${JSON.stringify(glob.replace(/\*\*\//g, '').replace(/\*\*/g, '*'))} and it matches at every depth. ` +
+            `Left as written it matches only files at least one directory deep, so every file in the repo root falls out of scope — and an empty scope is not a failure anywhere: the linter is simply never invoked, and the gate records \`lint=-\`, which reads exactly like a milestone that honestly changed nothing in scope.`,
+        );
+      }
+    }
   }
   if (!nonEmptyString(config.verify.test_name)) {
     problems.push('verify.test_name must name the test runner, e.g. "vitest" — it labels the gate\'s log sections.');

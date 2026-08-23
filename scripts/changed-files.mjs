@@ -138,6 +138,29 @@ export function changedFiles(root, scopeGlobs, base) {
   return [...files].sort();
 }
 
+/**
+ * Whether `scopeGlobs` matches NOTHING this repo tracks.
+ *
+ * The question only has to be asked when `changedFiles` came back empty, and
+ * it is what separates the two ways that happens. A milestone that touched no
+ * file in scope is a fact about the diff and must pass; a scope that cannot
+ * match anything at all, in any commit, is a contract whose `verify.lint` was
+ * never going to run — for this milestone, and for every one after it.
+ *
+ * `loadConfig` already rejects the shape that produces this most often (`**`
+ * in a git pathspec), and this is the half that shape cannot cover: a
+ * directory that was renamed, an extension the repo does not use, a typo. Both
+ * are needed because they catch different halves — `**\/*.ts` still matches
+ * the files below the root, so it narrows the scope without emptying it.
+ *
+ * A git that cannot be asked answers `false`. This decides whether a gate
+ * REFUSES, and "I could not tell" must never be the reason one does.
+ */
+export function scopeMatchesNothing(root, scopeGlobs) {
+  const res = git(root, ['ls-files', '--', ...scopeGlobs]);
+  return res.status === 0 && res.stdout.trim() === '';
+}
+
 // ---- CLI, mirroring the old shell entrypoints ------------------------------
 //   node scripts/changed-files.mjs          # the changed files, one per line
 //   node scripts/changed-files.mjs --base   # just the ref they are compared against
