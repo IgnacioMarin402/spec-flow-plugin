@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 /**
- * The CLI half of "two manifests, one source".
- * `${CLAUDE_PLUGIN_ROOT}/hooks/*.mjs` is how Claude Code itself
- * reaches this engine; this is how everything else does — a human's
- * terminal, and CI, neither of which has `${CLAUDE_PLUGIN_ROOT}` or Claude
- * Code installed. A consuming repo's package.json aliases through it:
+ * How everything outside Claude Code reaches this engine — a human's terminal,
+ * and CI, neither of which has `${CLAUDE_PLUGIN_ROOT}` or Claude Code
+ * installed. A consuming repo's package.json aliases through it:
  *
  *   "check":      "spec-flow check"
  *   "spec:check": "spec-flow trace"
  *   "flow:stats": "spec-flow stats"
  *
- * so the hook and these aliases resolve to and run the SAME file — which is
- * what keeps "same files, same commands, same result" structural instead of
- * a promise kept by two copies that happen to agree today.
+ * The hooks reach the engine through `${CLAUDE_PLUGIN_ROOT}` and these aliases
+ * reach it through `node_modules`, so they are two copies on disk, not one
+ * file. What keeps them the same ENGINE is that both come from this repository
+ * and nothing is published anywhere else: the plugin resolves to a commit SHA
+ * (ADR-003) and the dependency is a git spec against the same repo (ADR-016).
+ * Install the second from a registry and the two acquire independent version
+ * axes, which is the drift ADR-016 exists to refuse.
  */
 import { fileURLToPath } from 'node:url';
 

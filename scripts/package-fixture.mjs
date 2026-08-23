@@ -1,22 +1,27 @@
 #!/usr/bin/env node
 /**
- * The published package works, checked by publishing it.
+ * The distribution works, checked by installing it the way it ships.
  *
- * `npm pack` is the only place the `files` allowlist in package.json is
- * evaluated, and everything else here runs against the working tree, where
- * every file is present whether or not it ships. So a module dropped from the
- * allowlist breaks nothing in this repo, passes every other check, and fails
- * on the first `npx spec-flow init` in somebody's project — the failure this
- * whole engine is organised against, moved into the distribution.
+ * This repository is the only distribution unit (ADR-016): nothing is
+ * published to a registry, and a consuming repo's terminal and CI reach the
+ * engine through a git spec — `npm install --save-dev github:<owner>/<repo>`.
+ * npm clones that repo and packs it, and packing is the only place the `files`
+ * allowlist in package.json is evaluated. Everything else here runs against
+ * the working tree, where every file is present whether or not it ships. So a
+ * module dropped from the allowlist breaks nothing in this repo, passes every
+ * other check, and fails on the first `spec-flow init` in somebody's project —
+ * the failure this whole engine is organised against, moved into the
+ * distribution.
  *
- * So: pack the tarball, install it into a throwaway repo as a real
- * devDependency, and drive the documented CLI route through the installed bin.
+ * So: clone this repo, install the clone into a throwaway repo through a git
+ * spec, and drive the documented CLI route through the installed bin.
  * `spec-flow` is the name of the binary, not of the package (that name is taken
  * on npm by an unrelated project), and this is where that distinction is
  * exercised rather than assumed.
  *
- * Needs the network for `npm install`. It is the one check here that does, and
- * it is unavoidable: an install that resolved nothing would not be an install.
+ * A clone carries what is COMMITTED and nothing else, which is exactly what a
+ * git install can reach. A file that exists in your working tree but not in
+ * HEAD failing here is this check working, not a false alarm.
  *
  *   node scripts/package-fixture.mjs
  */
@@ -24,7 +29,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveLocalBin } from './argv.mjs';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -109,13 +114,18 @@ const work = mkdtempSync(join(tmpdir(), 'spec-flow-pack-'));
  * line number in this file.
  */
 async function run() {
-  // ---- pack ---------------------------------------------------------------
-  const packed = npm(['pack', '--pack-destination', work], { cwd: ENGINE, encoding: 'utf8' });
-  check('npm pack succeeds', packed.status === 0 ? null : `npm pack failed:\n${why(packed)}`);
+  // ---- the engine, as the git source a consumer installs from --------------
+  // `--no-hardlinks` because the clone is deleted at the end of this run and
+  // its objects would otherwise be shared with this repository's own.
+  const clone = join(work, 'engine.git');
+  const cloned = git(work, 'clone', '--quiet', '--no-hardlinks', ENGINE, clone);
+  check('the engine clones', cloned.status === 0 ? null : `git clone of the engine failed:\n${why(cloned)}`);
+  if (cloned.status !== 0) return;
 
-  const tarball = readdirSync(work).find((f) => f.endsWith('.tgz'));
-  check('a tarball was produced', tarball ? null : `no .tgz in ${work}: ${readdirSync(work).join(', ')}`);
-  if (!tarball) return;
+  // `pathToFileURL` rather than string concatenation: a Windows path is not a
+  // URL, and npm reads the `C:` of a hand-spelled `git+file://C:\...` as a
+  // host. This is the one conversion that holds on both platforms.
+  const spec = `git+${pathToFileURL(clone).href}`;
 
   // ---- a repo that consumes it --------------------------------------------
   const repo = join(work, 'consumer');
@@ -150,24 +160,29 @@ async function run() {
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'baseline');
 
-  const install = npm(['install', '--no-audit', '--no-fund', '--save-dev', join(work, tarball)], {
+  const install = npm(['install', '--no-audit', '--no-fund', '--save-dev', spec], {
     cwd: repo,
     encoding: 'utf8',
   });
   check(
-    'the tarball installs as a devDependency',
-    install.status === 0 ? null : `npm install of the packed tarball failed:\n${why(install)}`,
+    'the engine installs as a devDependency from a git spec',
+    install.status === 0 ? null : `npm install from ${spec} failed:\n${why(install)}`,
   );
 
   // The bin name and the package name differ on purpose. If this is ever
   // missing, `npx spec-flow` in a consuming repo reaches PAST the install to
   // an unrelated package of that name on the registry, which is a far worse
   // failure than a missing file — it runs somebody else's code.
+  // The listing is guarded because the directory is absent, not empty, when
+  // the install failed outright — and a `readdirSync` throwing here would exit
+  // non-zero through a stack trace, which this file's `run` exists to avoid:
+  // the install's own message is already in `failures` and would never print.
+  const bin = join(repo, 'node_modules', '.bin');
   check(
     'the package installs a `spec-flow` binary',
-    existsSync(join(repo, 'node_modules', '.bin', 'spec-flow'))
+    existsSync(join(bin, 'spec-flow'))
       ? null
-      : `no spec-flow bin was linked: ${readdirSync(join(repo, 'node_modules', '.bin')).join(', ')}`,
+      : `no spec-flow bin was linked: ${existsSync(bin) ? readdirSync(bin).join(', ') : 'node_modules/.bin does not exist'}`,
   );
 
   // ---- the documented route, through the installed bin ---------------------
@@ -244,5 +259,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  'package-fixture: OK — the packed tarball installs, links a spec-flow binary, and takes a repo to a green check from node_modules.',
+  'package-fixture: OK — a git spec installs, links a spec-flow binary, and takes a repo to a green check from node_modules.',
 );
