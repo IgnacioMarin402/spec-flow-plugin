@@ -58,16 +58,16 @@ Run it from your repo's root, on a branch off your base branch:
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 
-npm install --save-dev spec-flow-plugin
+npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
 npx spec-flow init      # writes .spec-flow/config.json
 npx spec-flow check     # green here means green at the gate
 npx spec-flow models    # which model tier each agent will run on, and who decided
 ```
 
-**The package is `spec-flow-plugin` and the command is `spec-flow`** — the
-shorter name belongs to an unrelated package on npm. Install first: `npx
-spec-flow` in a repo that has not installed it reaches the registry and runs
-that one instead.
+**The command is `spec-flow` and this engine is not on npm at all** — that name
+belongs to an unrelated package there, and `spec-flow-plugin` is published
+nowhere. Install first, from the line above: `npx spec-flow` in a repo that has
+not installed it reaches the registry and runs a stranger's code.
 
 **No code is yours to write, and on a conventional project no configuration
 either.** `init` reads your test and lint commands off `package.json`, adds
@@ -78,12 +78,15 @@ read when one does not do what you expected.
 **1. The plugin** brings the commands, the agents and the hooks. Nothing else
 in this list is Claude-Code-specific.
 
-**2. The engine as a devDependency**, because the same checks have to run
-outside a session. The hooks reach the engine through `${CLAUDE_PLUGIN_ROOT}`,
-which exists only inside Claude Code, and your terminal and CI need the same
-file — not a second copy free to drift from it. It has **no runtime
-dependencies** of its own, and every command runs from your repo's root with no
-arguments and no environment variables.
+**2. The engine as a devDependency, from this same repository**, because the
+same checks have to run outside a session — your terminal and CI have no
+`${CLAUDE_PLUGIN_ROOT}` and no Claude Code. The dependency is a git spec rather
+than a registry name on purpose: **nothing here is published to npm**, so the
+plugin and the dependency are one repository and cannot drift into two
+versions ([ADR-016](decisions/016-one-repository-one-distribution.md)). Append
+`#<commit-or-tag>` to pin CI to a commit rather than following `main`. It has
+**no runtime dependencies** of its own, and every command runs from your repo's
+root with no arguments and no environment variables.
 [The commands, and the by-path route for a repo that cannot take the dependency](REFERENCE.md#cli).
 
 **3. The contract.** `init` reads what your repo already declares — your `test`
@@ -121,9 +124,12 @@ thing it does is run step 4, and step 4 goes red when the report does not land.
 suite, and runs the traceability check — the same commands the gate will run,
 through the same file.
 
-Staying current is something you do, not something that happens: run
-`/plugin marketplace update`. [Why that command works here and does nothing on
-some plugins](REFERENCE.md#staying-current).
+Staying current is one command — `/plugin marketplace update` — or none, if you
+turn on Claude Code's background auto-update for this marketplace. Step 2 does
+not follow on its own: it is a git spec, so it moves when you move it, and
+nothing warns you that the two halves are on different commits. [Both routes,
+and why the update lands here and does nothing on some
+plugins](REFERENCE.md#staying-current).
 
 ## The five subagents, and what they run on
 
@@ -302,14 +308,15 @@ npm run stats:check   # the telemetry report's session-reuse numbers
 npm run hooks:check   # the other nine hooks
 npm run agents:check  # the planner and the reviewer agree about the milestone
 npm run skill:check   # the setup skill and the engine agree about the contract
-npm run pack:check    # the published tarball installs and works from node_modules
-npm run cold:check    # a repo that is not an npm package, from zero to green
+npm run pack:check    # a git spec installs and works from node_modules
+npm run cold:check    # a Node repo, from zero to green, installing nothing
 ```
 
-All of these run in CI on every push and PR. The last one is the only check
-that fails when *adoption* breaks rather than a piece of the engine: it takes
-a repo with no `package.json`, in a language this engine has no code for,
-through the install route above and asserts a green check at the end.
+All of these run in CI on every push and PR, and none of them needs the
+network. The last one is the only check that fails when *adoption* breaks
+rather than a piece of the engine: it takes a Node repo from nothing to a green
+`spec-flow check` through the route documented above, running the scripts by
+path so that the claim it proves is `init`'s and not an install's.
 
 ---
 

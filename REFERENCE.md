@@ -409,9 +409,43 @@ shipped that way for the plugin's first nine PRs and nobody bumped it once, so
 every install stayed pinned to `0.1.0` regardless of what landed. See ADR-003
 for why that field is not coming back.
 
-No install is ever updated FOR you, either way — `/plugin marketplace update`
-is something you run, on whatever cadence you want the changes on this page
-to reach your repo.
+**Claude Code can also fetch it for you, and by default does not.** Background
+auto-update is on for Anthropic's own marketplaces and off for every
+third-party one, this included. Turn it on per install under `/plugin` →
+**Marketplaces**, or for everyone who opens a repository by declaring the
+marketplace in its `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "spec-flow-marketplace": {
+      "source": { "source": "github", "repo": "IgnacioMarin402/spec-flow-plugin" },
+      "autoUpdate": true
+    }
+  }
+}
+```
+
+Claude Code then refreshes shortly after a session starts and says when a
+plugin changed, so the update lands on the next launch or on `/reload-plugins`.
+
+Three caveats, and the first is the one that surprises:
+
+- **The entry needs THIS folder trusted**, not a parent. Trusting a parent
+  offers no dialog for it, and a `claude -p` or SDK session never uses a
+  repository's entry at all — so a headless run gets no marketplace from here.
+- **It registers the marketplace; it does not install the plugin.** Naming it
+  in `enabledPlugins` does not either, for a plugin from an external source.
+  The first `claude plugin install` is still each person's to run, and Claude
+  Code prints the command.
+- **The name is a key, and the highest-precedence file wins it whole.** A
+  second file defining the same marketplace name replaces the entry rather
+  than merging fields into it.
+
+**The second half does not follow.** The devDependency is a git spec, so it
+moves when its `#<commit>` moves or, unpinned, when the lockfile is refreshed.
+Updating the plugin and leaving the dependency behind is how the two halves end
+up on different commits (ADR-016), and nothing detects it for you.
 
 ---
 
@@ -517,13 +551,18 @@ form disambiguates.
 The orchestrator runs `telemetry` itself at intake and at DONE. Without it the
 logs stay in gitignored state and `stats` has nothing to read.
 
-**Two routes, one file.** `spec-flow <command>` exists once the engine is
-installed — `npm install --save-dev spec-flow-plugin`, where the package is
-`spec-flow-plugin` and the binary it links is `spec-flow`; the shorter name on
-npm is an unrelated project, so a repo that has not installed this one and runs
-`npx spec-flow` gets that instead. A repo that cannot take the dependency runs
-the same scripts by path out of a clone — nothing is installed either way,
-because the engine has no runtime dependencies:
+**Two routes, one repository.** `spec-flow <command>` exists once the engine is
+installed — `npm install --save-dev github:IgnacioMarin402/spec-flow-plugin`,
+which links a binary named `spec-flow`. **Nothing is published to a registry**
+(see ADR-016): the git spec is what keeps this dependency and the plugin on one
+version axis instead of two. `spec-flow` on npm is an unrelated project, so a
+repo that has not installed this one and runs `npx spec-flow` gets that
+instead. Append `#<commit-or-tag>` to the spec to pin CI rather than follow
+`main`.
+
+A repo that cannot take the dependency runs the same scripts by path out of a
+clone — nothing is installed either way, because the engine has no runtime
+dependencies:
 
 | `spec-flow …` | by path, from your repo's root |
 |---|---|
