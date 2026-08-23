@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECK = join(HERE, 'model-pins.mjs');
+const ROUTING = join(HERE, '..', 'hooks', 'lib', 'routing.mjs');
 const failures = [];
 
 // Assembled, never spelled — see the header.
@@ -55,6 +56,11 @@ function scan(files, { baseline = true } = {}) {
   try {
     mkdirSync(join(root, 'scripts'), { recursive: true });
     copyFileSync(CHECK, join(root, 'scripts', 'model-pins.mjs'));
+    // The check imports the tier list from the hook that applies it, so the
+    // throwaway tree needs that module too. It lands inside `hooks/`, which is
+    // one of the scanned directories — hence the `+ 2` in the count case.
+    mkdirSync(join(root, 'hooks', 'lib'), { recursive: true });
+    copyFileSync(ROUTING, join(root, 'hooks', 'lib', 'routing.mjs'));
     if (baseline) {
       mkdirSync(join(root, 'agents'), { recursive: true });
       writeFileSync(join(root, 'agents', 'base.md'), agent('base'));
@@ -199,9 +205,10 @@ check('the count reports the files actually read, so a dropped surface is visibl
   const { code, out } = scan(files);
   if (code !== 0) return `a clean tree was reported as pinned.\n--- output ---\n${out}`;
 
-  // One per surface, plus the baseline agent. The check under test is at
-  // scripts/model-pins.mjs and excludes itself.
-  const expected = SCANNED_DIRS.length + SCANNED_FILES.length + 1;
+  // One per surface, plus the baseline agent and the routing module the check
+  // imports. The check under test is at scripts/model-pins.mjs and excludes
+  // itself.
+  const expected = SCANNED_DIRS.length + SCANNED_FILES.length + 2;
   const actual = scannedCount(out);
   return actual === expected
     ? ''

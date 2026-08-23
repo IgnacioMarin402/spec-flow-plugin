@@ -16,7 +16,7 @@ Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `
 
 Before your first subagent, a `preflight` hook checks two things and **denies the spawn** if either fails: that `.spec-flow/config.json` loads, and that the base branch resolves in this clone. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
 
-## 1. SPEC  (subagent: spec-writer · Sonnet) + HITL
+## 1. SPEC  (subagent: spec-writer) + HITL
 - Invoke `spec-writer`, passing the requirement text.
 - If it returns `STATUS: NEEDS_INPUT`: **ask the human directly in this chat** — post the `OPEN_QUESTIONS` as a plain message (use the `AskUserQuestion` tool if your client provides one; otherwise just write the questions) and **stop your turn to wait for their reply**. This is safe: phase is `spec`, so the lint/test gate does not run. When the human answers, re-invoke `spec-writer` passing those answers. Repeat until `STATUS: SPEC_READY`.
 - The spec-writer returns **two** paths: `specflow/<SLUG>/spec.md` (what changes — deltas, stories, constraints) and `specflow/<SLUG>/proposal.md` (why — the HITL record, the context, the Decision with its rejected alternatives).
@@ -32,22 +32,22 @@ Before your first subagent, a `preflight` hook checks two things and **denies th
 
 If they instead want a different shape rather than nothing at all, that is not a rejection: re-invoke `spec-writer` with their feedback and stay in the loop.
 
-## 2. PLAN  (subagent: planner · Opus)
+## 2. PLAN  (subagent: planner)
 - Write `plan` to `.claude/state/phase`.
 - Invoke `planner` in `MODE=PLAN` with the spec path. Expect `STATUS: PLAN_READY`, `specflow/<SLUG>/plan.md` (shared approach + milestone index) and one `specflow/<SLUG>/milestones/Mk.md` per milestone.
 
-## 3. REVIEW THE PLAN  (subagent: reviewer · Haiku, escalates to Opus)
+## 3. REVIEW THE PLAN  (subagent: reviewer, escalates to the planner)
 - Write `review` to `.claude/state/phase`.
 - Invoke `reviewer` in `MODE=REVIEW_PLAN` with the spec, `plan.md` **and the `milestones/*.md` files** — `plan.md` is only an index, so a review without the milestone files approves a table of names.
   - `STATUS: ESCALATE` -> invoke `planner` in `MODE=CONSULT` with the questions, then re-invoke `reviewer` with the answers.
   - `STATUS: CHANGES_REQUESTED` -> invoke `planner` in `MODE=PLAN` to revise, then review again.
   - `STATUS: APPROVED` -> continue.
 
-## 4. IMPLEMENT PER MILESTONE  (subagent: implementer · Sonnet) + GATE LOOP
+## 4. IMPLEMENT PER MILESTONE  (subagent: implementer) + GATE LOOP
 For each milestone `Mk` (M1 -> Mn) in `plan.md`, in order:
   1. Write `implement` to `.claude/state/phase`.
   2. Invoke `implementer` for milestone `Mk` with a **new** `Agent` call, passing it `specflow/<SLUG>/plan.md` and `specflow/<SLUG>/milestones/Mk.md` (only those two — not the other milestones, not the spec). Remember the id/name it returns as `IMPL_SESSION`. Every further call for this same milestone — architect guidance, lint-fix retries, post-REPLAN re-implementation — goes back to `IMPL_SESSION` via `SendMessage`, never a fresh `Agent` call. A fresh session starts from a clean context: it re-reads the plan, `CLAUDE.md` and every touched file from scratch, and writes a cold prompt cache instead of hitting a warm one. That repeated re-reading across gate retries is most of where a run's token cost goes. Start a **new** `IMPL_SESSION` only when you move to the next milestone.
-     - If `STATUS: NEEDS_ARCHITECT` -> invoke the `architect` (Opus, new `Agent`) with the questions + milestone context, then `SendMessage` to `IMPL_SESSION` with the `ARCHITECT_GUIDANCE`. If the architect's `IF_PLAN_WRONG` is not "none", route a `planner` `MODE=REPLAN` for `Mk` first, then resume `IMPL_SESSION`.
+     - If `STATUS: NEEDS_ARCHITECT` -> invoke the `architect` (new `Agent`) with the questions + milestone context, then `SendMessage` to `IMPL_SESSION` with the `ARCHITECT_GUIDANCE`. If the architect's `IF_PLAN_WRONG` is not "none", route a `planner` `MODE=REPLAN` for `Mk` first, then resume `IMPL_SESSION`.
      - If `STATUS: BLOCKED` -> invoke `planner` (`MODE=REPLAN`, milestone `Mk`) then `SendMessage` to `IMPL_SESSION` to retry.
   3. **Wait for the implementer's completion notification, then commit AND push the milestone, then end your turn** so the external gate hook runs the project's own lint command over the files this branch changed, and its test command over the whole suite.
      - **The hook — not you — runs the commands. Never run lint/test yourself.**
@@ -56,11 +56,11 @@ For each milestone `Mk` (M1 -> Mn) in `plan.md`, in order:
      - If the gate's reason starts with `GATE FAILED`, **read it and follow it exactly** — it triages the failure and the route depends on the class:
        - *before routing anything*: `.claude/state/gate-failure.log` can be a snapshot of a tree that has since moved on (a background implementer kept writing while the gate ran). Re-check the flagged files' current state first — `git status`, and a look at the exact lines the log complains about. If the files have changed since the log was written, commit and end your turn so the gate re-judges the real state, instead of relaying a stale failure.
        - *lint only, attempts 1-2*: `SendMessage` to `IMPL_SESSION` with the lint output to fix those violations. Do NOT re-plan and do NOT touch `.claude/state/phase`. Remind it in the message: fix and report back only — the implementer never runs lint or tests itself; the gate re-judges on your next stop with a clean tree.
-       - *a red test, attempt 1*: `SendMessage` to `IMPL_SESSION` with the failure and have it fix the code. Do NOT re-plan yet and do NOT touch the phase — the first red suite after a milestone is overwhelmingly a bug in what was just written, not a flaw in the plan, and spending an Opus re-plan before anyone has tried a direct fix is the expensive-first mistake. The gate's own message says the same thing; this bullet is here so you recognize it.
+       - *a red test, attempt 1*: `SendMessage` to `IMPL_SESSION` with the failure and have it fix the code. Do NOT re-plan yet and do NOT touch the phase — the first red suite after a milestone is overwhelmingly a bug in what was just written, not a flaw in the plan, and spending a re-plan before anyone has tried a direct fix is the expensive-first mistake. The gate's own message says the same thing; this bullet is here so you recognize it.
        - *a red test that survives that direct fix, or lint-only from the third attempt*: loop back to PLAN (`MODE=REPLAN`) with `.claude/state/gate-failure.log`, then `SendMessage` to `IMPL_SESSION` to re-implement per the revised `milestones/Mk.md`, end your turn again.
        - *attempt cap reached*: the gate has already written `blocked` into the phase, so stopping is allowed. Summarize the blocker for the human and end your turn. When they answer, write `implement` back into `.claude/state/phase`, `SendMessage` to `IMPL_SESSION` with their guidance, and re-enter the loop.
 
-## 5. FOLD  (subagent: spec-writer · Sonnet)
+## 5. FOLD  (subagent: spec-writer)
 The change spec in `specflow/<SLUG>/spec.md` describes a **delta**, and by now the milestones have already written it into `specs/<capability>.md` — each milestone edits the spec and the tagged test in the same pass, because `spec-trace` runs at every gate and fails on an id that exists on only one side. What is left is closing the change: verifying nothing was missed, stamping the outcome, archiving the folder. Without this step `specflow/` accumulates into a directory of stale plans with no recorded outcome.
 
 - Keep the phase at `implement` (the gate must still be armed — the fold may touch `specs/` wording, and that edit deserves the same check as any other).
@@ -74,9 +74,9 @@ The change spec in `specflow/<SLUG>/spec.md` describes a **delta**, and by now t
 - Summarize for the user: milestones shipped, files changed, requirements added/changed/removed in `specs/`, notes. Offer to open a PR / commit.
 
 ### Rules
-- Respect model routing: reviewer = Haiku; spec-writer + implementer = Sonnet; planner + architect = Opus. Never do their work inline.
+- Respect model routing, and do not pass a model yourself. The default is reviewer = Haiku; spec-writer + implementer = Sonnet; planner + architect = Opus. A project can re-route any of them in `.claude/spec-flow.config.json`, and a `PreToolUse` hook applies that to the spawn — so what an agent actually runs on is not always what this line says, and it is never your call. Never do their work inline.
 - `specs/` is the source of truth for behaviour; `specflow/<SLUG>/spec.md` is a delta against it. The milestones fold the delta in as they ship; a run is not finished until step 5 has verified that, stamped the outcome and archived the change — shipped code with an unarchived change spec is an unfinished run, not a finished one.
-- The Opus agents are budgeted (a `max_opus_calls` value the project sets, enforced by a `PreToolUse` hook). If a spawn is denied because the budget ran out, do not work around it — stop and summarize for the human, which is exactly what the budget is for.
+- The two escalation agents, `planner` and `architect`, are budgeted (a `max_opus_calls` value the project sets, enforced by a `PreToolUse` hook). The cap counts those two roles whatever tier they are routed to — what runs away is the escalation loop, not one model. If a spawn is denied because the budget ran out, do not work around it — stop and summarize for the human, which is exactly what the budget is for.
 - The gate is external and authoritative. On gate failure you re-plan and re-implement, not hand-patch until green.
 - Keep the human informed at the two HITL points: spec doubts and spec sign-off.
 - Within a milestone, reuse subagent sessions (`SendMessage` to the existing id) across gate retries instead of spawning new ones — see step 4. Only start a fresh session when the task itself is new (a new milestone, a one-off architect/reviewer consult).

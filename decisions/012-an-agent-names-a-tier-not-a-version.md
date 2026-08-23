@@ -1,6 +1,6 @@
 # ADR-012 — an agent names a tier, not a version
 
-**Date:** 2026-08-22 · **Status:** accepted · **Governs:** `agents/`, `scripts/model-pins.mjs`
+**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `agents/`, `scripts/model-pins.mjs`
 
 ## The question
 

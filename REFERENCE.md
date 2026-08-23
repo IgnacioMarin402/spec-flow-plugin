@@ -313,15 +313,47 @@ branch, a fork's upstream, or a shallow CI checkout that fetched no other ref.
 
 ## The second config file
 
-One setting lives outside the contract, at `.claude/spec-flow.config.json`:
+Two settings live outside the contract, at `.claude/spec-flow.config.json`:
 
 ```json
-{ "max_opus_calls": 6 }
+{
+  "max_opus_calls": 6,
+  "agents": { "reviewer": "sonnet" }
+}
 ```
 
-It caps planner + architect calls per run and defaults to 6. When it runs out
-the spawn is denied and the orchestrator is told to summarize for a human —
-which is what the budget is for. The counter is `.claude/state/opus_calls`.
+Neither is an architectural fact about the repo, which is what
+`.spec-flow/config.json` holds and why these are not in it. That file is also
+versioned, so a cost knob there would move `contract_version` for everyone.
+
+**`max_opus_calls`** caps planner + architect calls per run and defaults to 6.
+When it runs out the spawn is denied and the orchestrator is told to summarize
+for a human — which is what the budget is for. The counter is
+`.claude/state/opus_calls`. It counts those two ROLES whatever tier they are
+routed to: what runs away is the escalation loop, not one model (ADR-013).
+
+**`agents`** re-routes an agent to a different model tier. Optional, and
+absent means the routing each agent's own frontmatter ships. The value is one
+of `opus`, `sonnet`, `haiku`, `fable` — a **tier**, never a version. A spawn
+accepts nothing else, so pinning a concrete version is session-wide through
+`ANTHROPIC_DEFAULT_*_MODEL` and is not something this engine wraps (ADR-012,
+ADR-013).
+
+`hooks/model-route.mjs` applies it by rewriting the spawn, so the orchestrator
+never passes a model itself and cannot forget to. A re-route leaves one line
+per agent in `.claude/state/model-routes.log`, because otherwise a spawn on a
+different model is indistinguishable from an ordinary one.
+
+An entry naming an agent that does not exist, or a tier that is not one of the
+four, **denies the spawn** and says which entry is wrong. A routing block that
+reads as though it works and routes nothing is the failure this engine exists
+to close. The denial reaches only spawns of this plugin's own agents, so it
+cannot block unrelated work in a repo that merely has the plugin installed.
+
+There is no `effort` here, and that is measured rather than assumed: a spawn
+silently discards the field, so a contract offering it would validate, write,
+transmit, and do nothing. A project's effort ceiling is `effortLevel` in its
+own settings, which applies to the whole session. See ADR-013.
 
 ---
 
@@ -506,6 +538,7 @@ to a commit if you would rather CI not pick up whatever has landed.
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, and an unearned `done` |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
+| `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing by rewriting the spawn's model |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written, while it is still in context |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types so `opus-budget` can charge a `SendMessage` |
@@ -514,8 +547,12 @@ to a commit if you would rather CI not pick up whatever has landed.
 
 Only `gate`, `lint-on-write` and `no-gate-cmds` are armed exclusively by the
 `implement` phase. `preflight`, `opus-budget`, `arm-gate` and `phase-guard`
-stand down only outside a run. `register-agent`, `run-trace` and
-`session-start` never enforce anything.
+stand down only outside a run. `model-route` is the one enforcement hook with
+no phase at all: a budget counts what a run spends and has to stand down
+outside one, while routing is the project's standing answer to what an agent
+runs on, so a one-off question to the architect reaches the model the project
+chose. `register-agent`, `run-trace` and `session-start` never enforce
+anything.
 
 `preflight` runs first among the spawn hooks on purpose: it is the earliest
 point at which a run can be refused, and refusing there costs nothing. It is
@@ -577,6 +614,7 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | `phase` | The current phase. The spine of the run |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
 | `opus_calls` | Planner + architect calls this run |
+| `model-routes.log` | One line per agent the project re-routed, deduped |
 | `agent-registry` | Session id → agent type |
 | `run-offset` | Telemetry line counts at intake, set by `telemetry --mark` |
 | `gate-history.log` | One line per gate invocation. `running` while it judges, replaced by the outcome; a surviving `running` means that invocation was killed |

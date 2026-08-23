@@ -29,12 +29,15 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The valid tiers have one home, and it is the file that applies them at spawn
+// time. A second list here would let this check bless a tier the routing hook
+// then refuses — the contract accepted in one place and rejected in the other,
+// which is the drift this import exists to refuse. Same shape as
+// spec-flow-config.mjs importing its report formats from the reader.
+import { ALIASES } from '../hooks/lib/routing.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
-
-/** What Claude Code resolves to the current model of a tier. Not a list this repo chooses — it is the harness's. */
-const ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 
 // Where routing is described. `hooks` and `scripts` are here even though they
 // route nothing: a version reaches prose through whichever file nobody thought

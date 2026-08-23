@@ -1,9 +1,18 @@
 #!/usr/bin/env node
 /**
  * PreToolUse hook on subagent spawn AND SendMessage — hard budget for the
- * Opus agents (`planner`, `architect`). A hook, not an instruction to the
- * orchestrator: a budget that depends on the model remembering to count is
- * not a budget.
+ * flow's two ESCALATION agents, `planner` and `architect`. A hook, not an
+ * instruction to the orchestrator: a budget that depends on the model
+ * remembering to count is not a budget.
+ *
+ * **It counts roles, not models, and that survived model routing on purpose.**
+ * Once a project can re-route any agent (ADR-013) the name of this file and
+ * its config key describe a proxy rather than the thing: what runs away is the
+ * escalation LOOP — implementer stuck, architect consulted, plan revised,
+ * round again — and that loop is bounded by how often the deep roles are
+ * consulted whatever tier they sit on. An implementer a project deliberately
+ * routes to opus runs once per milestone, bounded by the plan. See ADR-013 for
+ * the resolved-tier version of this hook and why it was refused.
  *
  * SendMessage counts too, and has to — a follow-up into an existing planner
  * session costs the same tokens as a fresh spawn. Identifying the recipient
@@ -18,6 +27,10 @@
  * not in `.spec-flow/config.json`: it is a run-scoped number, not an
  * architectural fact about the repo. Counted only while a run is in progress,
  * so a one-off question to the architect outside the flow is never charged.
+ * The key keeps its name after ADR-013 for one reason: nothing validates that
+ * file, so a rename would read a repo's configured cap as absent and hand it
+ * the default instead — a silent change to the one number a human set
+ * deliberately.
  *
  * Two inaccuracies are accepted rather than fixed, because both err small
  * against a default budget of 6 and neither can silently disarm it:
@@ -115,10 +128,10 @@ await run(async () => {
 
   if (used >= max) {
     process.stderr.write(
-      `[spec-flow] Opus budget exhausted: ${used}/${max} calls to planner+architect this run.\n\n` +
+      `[spec-flow] escalation budget exhausted: ${used}/${max} calls to planner+architect this run.\n\n` +
         `Stop the loop. Do NOT spawn another planner or architect. Summarize for the ` +
         `human (HITL): which milestone is stuck, what the gate reported, and what you ` +
-        `would ask Opus if you could. Then wait.\n\n` +
+        `would ask the planner or the architect if you could. Then wait.\n\n` +
         `If the run legitimately needs more, the human can raise max_opus_calls in ` +
         `.claude/spec-flow.config.json or reset the counter:\n` +
         `  printf '0' > .claude/state/opus_calls\n`,
