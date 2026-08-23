@@ -66,20 +66,19 @@ const CONFIG = {
     lint_name: 'fixture-lint',
     lint_config_hint: 'fixture.config',
   },
-  // `executed_tests` names the one requirement `spec()` declares, so every
-  // case that is not ABOUT proof keeps reading the way it did when a walk
-  // found `tests/user.test.ts`. Cases that assert an absence of proof override
-  // it with `ran()` — an empty report — which is now the honest way to say
-  // "nothing ran" rather than deleting a file and hoping the walk missed it.
+  // `executed_tests` names the one requirement `spec()` declares, so a case
+  // that is not ABOUT proof gets a proven requirement without saying so.
+  // A case that asserts an ABSENCE of proof overrides it with `ran()` — an
+  // empty report, the only honest way to say "nothing ran". Expressing that by
+  // omitting a test file instead would assert nothing: no file is read.
   trace: {
     specs_dir: 'specs',
     proof_dir: 'tests',
     proof_suffix: '.test.ts',
     executed_tests: ['node', '-e', 'console.log("tests/user.test.ts::REQ-USER-001 the user can do the thing")'],
     // Present and null, exactly as the loader defaults it, so `reportContract`
-    // below can assign to it. Omitting it left the inferred type without the
-    // property, which is the one thing `npm run typecheck` had to say about
-    // this engine and it said it on every run.
+    // below can assign to it. Omit it and the inferred type has no such
+    // property, which `npm run typecheck` reports on every run.
     report: null,
     not_a_capability: ['README.md'],
   },
@@ -108,8 +107,8 @@ const ran = (...lines) => ['node', '-e', `console.log(${JSON.stringify(lines.joi
  * The default contract with a different report: the tests this run executed.
  *
  * `contract()` with no lines is a suite that ran and reported nothing, which
- * is how a case says "no proof" now. Deleting a test FILE no longer says it —
- * files stopped being what proof is made of.
+ * is how a case says "no proof". Deleting a test FILE does not say it: files
+ * are not what proof is made of.
  */
 const contract = (...lines) =>
   JSON.stringify({ ...CONFIG, trace: { ...CONFIG.trace, executed_tests: ran(...lines) } }, null, 2);
@@ -531,11 +530,11 @@ await Promise.all([
     ),
   ),
 
-  // A change that shipped without claiming a requirement asserts nothing
-  // about specs/. `/spec-fix` case 4 (INFRA) and any wiring-only change do
-  // exactly that, by contract — and the first one in a repo used to block
-  // every gate afterwards, with no way out but writing a capability spec the
-  // change never needed.
+  // A change that shipped without claiming a requirement asserts nothing about
+  // specs/. `/spec-fix` case 4 (INFRA) and any wiring-only change do exactly
+  // that, by contract, so the grace has to survive one: a repo whose first
+  // SHIPPED change is wiring-only would otherwise lose the grace to a change
+  // that made no claim, with no way back but a capability spec nobody needed.
   check('a SHIPPED change with no requirement deltas keeps the grace', () =>
     withRepo(
       {
@@ -553,18 +552,15 @@ await Promise.all([
     ),
   ),
 
-  // ---- build output is not proof, and now it cannot be by construction ----
+  // ---- build output is not proof, and cannot be by construction ----
   //
-  // The old failure: a compiled or copied test under `dist/` matched the same
-  // suffix as its source, so it registered as proof of the requirement its
-  // title named — and kept registering after the SOURCE test was deleted,
-  // leaving the requirement proven by an artifact nobody runs. It needed a
-  // hardcoded skip list to defend against, which then had to stay current with
-  // every ecosystem's build directory and did not.
-  //
-  // Nothing defends against it now. A stale artifact cannot be reported as
-  // having run when it did not run, so the case that used to need a list needs
-  // nothing.
+  // A compiled or copied test under a build directory carries its source's
+  // title, so anything matching on titles counts it as proof — and keeps
+  // counting after the SOURCE test is deleted, leaving a requirement proven by
+  // an artifact nobody runs. Nothing here defends against that, and nothing
+  // needs to: a stale artifact cannot be REPORTED as having run. The defence
+  // that is NOT wanted back is a skip list of build directories, which has to
+  // stay current with every ecosystem that has one.
   check('a stale test surviving only in build output does not prove a requirement', () =>
     withRepo(
       {
@@ -582,18 +578,14 @@ await Promise.all([
     ),
   ),
 
-  // ---- and the reverse: where a test LIVES stopped being a question ----
-  //
-  // Two cases used to live here — one asserting a test outside `proof_dir` was
-  // not proof, one asserting a contract declaring `proof_dir: "dist"` beat the
-  // engine's skip list. Both existed because location was the only signal
-  // available for telling a real test from a string that resembled one.
+  // ---- and the reverse: where a test LIVES is not a question ----
   //
   // "The runner executed it" is a strictly stronger claim than "it sits in the
-  // right directory", so location is not consulted at all. That is a behaviour
-  // change worth a case of its own rather than a silent deletion: a repo whose
-  // tests live somewhere this engine would never have guessed is now correct
-  // by default instead of needing to declare its way out.
+  // right directory", so location is not consulted at all — which is what
+  // makes a repo whose tests live somewhere this engine would never guess
+  // correct by default, rather than having to declare its way out. The case
+  // states that as a property, so reintroducing a location check to tell a
+  // real test from a string that resembles one turns it red.
   check('a reported test proves its requirement wherever it lives', () =>
     withRepo(
       {
@@ -602,7 +594,7 @@ await Promise.all([
       },
       (r) =>
         r.status !== 0
-          ? `a test the runner reported was rejected for living outside proof_dir, which no longer decides anything: ${r.out}`
+          ? `a test the runner reported was rejected for living outside proof_dir, which does not decide anything: ${r.out}`
           : null,
     ),
   ),
@@ -621,10 +613,9 @@ await Promise.all([
     ),
   ),
 
-  // The adoption grace covers the requirement BINDING and nothing else. It
-  // used to exit(0) before the problem report, which discarded everything
-  // else this file had already found — during adoption, which is exactly when
-  // those habits are forming.
+  // The adoption grace covers the requirement BINDING and nothing else. An
+  // early exit on the grace path discards every other problem already found,
+  // during adoption — exactly when those habits are forming.
   check('the empty-specs grace does not swallow the other checks', () =>
     withRepo(
       {
@@ -831,11 +822,10 @@ await Promise.all([
 
   // ---- parameterised tests: the runner reports the names it expanded ----
   //
-  // The old matcher had to recognise `it.each(table)('title')` as a shape, and
-  // documented its own failure at `it.each([foo(1)])('...')` — a nested paren
-  // it could not span. There is nothing to recognise now: a table-driven test
-  // reports one line per case, already expanded, so this works for the form
-  // that used to be a known limitation.
+  // There is no call shape to recognise here. A table-driven test reports one
+  // line per case, already expanded, so the forms that defeat a matcher —
+  // `it.each([foo(1)])('...')` and any other nested paren — reach this check
+  // as ordinary reported names.
   check('a parameterised test proves through its expanded names', () =>
     withRepo(
       {
@@ -852,14 +842,12 @@ await Promise.all([
 
   // ---- an id in SOURCE is not proof, whatever it is sitting in ----
   //
-  // This case survives its own mechanism. It used to guard one specific
-  // parser bug: the curried branch was a bare `)(` followed by a string, so an
-  // ordinary curried call mentioning an id registered as proof. The property
-  // it was protecting was always the broader one — a requirement is proven by
-  // a test that RUNS, not by its id appearing somewhere — and that property is
-  // now structural rather than defended by anchoring. Nothing reads the file
-  // at all; the id can sit in a test declaration, a comment or a helper string
-  // and none of them reaches this check.
+  // A requirement is proven by a test that RUNS, not by its id appearing
+  // somewhere, and that holds structurally rather than by anchoring: no source
+  // file is read at all, so the id can sit in a test declaration, a comment or
+  // a helper string and none of them reaches this check. The case is worth
+  // keeping precisely because it no longer guards a parser — it states the
+  // property any future shortcut back to reading source would have to break.
   check('an id present in source but absent from the report is not proof', () =>
     withRepo(
       {
@@ -885,13 +873,11 @@ await Promise.all([
 
   // ---- a test that did not run proves nothing, in any language ----
   //
-  // This used to be four cases — `it.skip`, `xit`, `it.todo`, `it.skip.each` —
-  // one per spelling the matcher had to know, and it covered exactly the
-  // spellings someone had thought of. It is one case now, and a stronger one:
-  // whatever the language calls skipping, a skipped test is absent from a
-  // report of what executed. `@pytest.mark.skip`, `@Disabled`, `#[ignore]` and
-  // a runtime `t.Skip()` need no support here, which is what "no opinion about
-  // your language" has to mean to be worth claiming.
+  // One case, not one per spelling: whatever the language calls skipping, a
+  // skipped test is absent from a report of what executed. `it.skip`, `xit`,
+  // `it.todo`, `@pytest.mark.skip`, `@Disabled`, `#[ignore]` and a runtime
+  // `t.Skip()` all need no support here — a list of spellings covers exactly
+  // the ones someone thought of, which is what makes it the wrong mechanism.
   //
   // It matters more than it looks, because the gate's attempt-1 route hands a
   // red suite straight back to an implementer, and skipping is the cheapest
@@ -1198,11 +1184,11 @@ await Promise.all([
 
   // ---- no dependency tree is read, because no tree is read at all ----
   //
-  // This used to assert that one hardcoded name was skipped. It now asserts
-  // the general property that replaced the list: a dependency's own tests
-  // cannot become this repo's problem, whatever its directory is called —
-  // which is what the `venv` case at the top of this file proves from the
-  // other side.
+  // The property, not a directory name: a dependency's own tests cannot become
+  // this repo's problem whatever its directory is called, which is what the
+  // `venv` case at the top of this file proves from the other side. Asserting
+  // that one known name is skipped would pass under a hardcoded list, which is
+  // the mechanism this replaced.
   check("a dependency's own tests are never judged as this repo's", () =>
     withRepo(
       {

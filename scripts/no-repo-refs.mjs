@@ -48,7 +48,13 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // skill is where runner knowledge would land if anyone put it in a file — and
 // a shipped skill that is not scanned is the "path of least resistance" this
 // file's header names, one directory over. See ADR-006.
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills', 'skills'];
+// `decisions/` is scanned on the same terms as every other surface, and needs
+// no notion of "record prose may name what it measured": under ADR-007 the
+// line is one repo's vocabulary, not one ecosystem's, so ADR-005 naming four
+// runners it tested was never at risk from this list. Widening BANNED back to
+// stack vocabulary would put a record in tension with a check — which is a
+// reason to reopen ADR-007, not to exempt a directory.
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills', 'skills', 'decisions'];
 const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 // The prose docs are scanned too, and deliberately: they are the most public

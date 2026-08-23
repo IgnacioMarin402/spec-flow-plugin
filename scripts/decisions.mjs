@@ -30,10 +30,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DECISIONS = join(ROOT, 'decisions');
 const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 
-// Where a citation may appear. The same surfaces the coupling check scans,
-// plus the prose docs — a decision is as worth citing from REFERENCE as from a
-// hook, and `decisions/` itself is excluded so cross-references between records
-// do not count as being reached from the code.
+// Where a citation may appear: the code surfaces plus the prose docs — a
+// decision is as worth citing from REFERENCE as from a hook.
+//
+// `decisions/` is deliberately absent, and it is the one entry where this list
+// and the coupling check's SCAN_DIRS differ on purpose. The two ask different
+// questions of the same directory: that check reads records because prose
+// carries coupling wherever it sits, while a record citing another record is a
+// cross-reference, not the code reaching for the decision that governs it.
+// Adding it here would let a record keep itself alive.
 // `skills` (plugin root) alongside `.claude/skills` (this repo's own): a
 // shipped skill is instruction a model acts on, so it both carries citations
 // and is a place someone will look for one.
