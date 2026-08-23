@@ -776,7 +776,9 @@ flowchart TD
     P -->|"yes"| CFG{"contract readable?"}
     CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
     CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
-    DIRTY -->|"dirty"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing <br/> (10 in a row wakes the run once)"]
+    DIRTY -->|"dirty"| JUDGED{"has any gate <br/> judged this commit?"}
+    JUDGED -->|"no"| WAKE["skip-dirty, then BLOCK — <br/> nothing is coming to judge this commit <br/> (once per commit)"]
+    JUDGED -->|"yes"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing <br/> (10 in a row wakes the run once)"]
     DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
@@ -791,11 +793,15 @@ flowchart TD
     CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
 ```
 
-- **A dirty tree is not judged.** Implementers run in the background, so a
-  `Stop` can fire mid-write; judging that snapshot manufactures failures. A
-  tree that stays dirty for ten stops in a row is not that, and wakes the run
-  once: nothing has been judged for the milestone, and a skip is not a
-  failure, so without it the only trace is a log nobody opens.
+- **A dirty tree is not judged, and does not always pass in silence** (ADR-012).
+  Implementers run in the background, so a `Stop` can fire mid-write; judging
+  that snapshot manufactures failures. Two shapes are not that, and each wakes
+  the run once. A tree still dirty on a commit **no gate has ever judged**
+  means the orchestrator committed, ended its turn expecting a verdict, and the
+  leftover dirt is what stops one being reached — no further `Stop` is coming,
+  so counting them would wait forever. A tree that stays dirty for ten stops in
+  a row is the other. Both exist because a skip is not a failure, so without
+  them the only trace is a log nobody opens.
 - **spec-trace runs after the suite, and that ordering is load-bearing.** It
   establishes which requirements are proven by asking your contract's
   `trace.executed_tests` what actually ran, so it has to judge *this*
