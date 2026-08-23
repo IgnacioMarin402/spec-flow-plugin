@@ -14,6 +14,9 @@
  *   snapshot produces false failures. A STREAK of them is a different thing
  *   and wakes the run once: a tree that never clears is a milestone nothing
  *   ever judged.
+ *   So is a dirty tree on a commit no gate has judged: the orchestrator has
+ *   committed since the last verdict and is waiting for one that nothing will
+ *   deliver. That wakes the run once per commit.
  * - Writes `running` to `state/gate-history.log` before judging and replaces
  *   it with the outcome. A surviving `running` line is proof its invocation
  *   was killed, and the next armed gate reports it as `fail:killed`. That line
@@ -228,6 +231,35 @@ await run(
       : '';
     if (dirty.trim()) {
       hist('skip-dirty', '-', '-', histDashes(config), dirty.trim().split('\n').length);
+
+      // A dirty tree on a commit NO gate has ever judged is not an implementer
+      // mid-write — see ADR-012, which has the run this came from. The
+      // orchestrator has committed since the last verdict, so it
+      // is waiting for one — and the leftover dirt is precisely what stops this
+      // commit being judged. The streak below cannot reach that case: it counts
+      // stops, and no further stop arrives. This skip ALLOWS the stop, the
+      // session goes idle, and the run ends there having decided nothing.
+      //
+      // `previous` was read before this invocation appended anything, so "no
+      // line names this sha" is the whole condition — and the skip line written
+      // just above is what makes this fire ONCE per commit instead of on every
+      // stop, the same shape and the same reason as `alreadyWoke` in
+      // `passAndExit`.
+      //
+      // A sha of `-` means git itself failed, and it does NOT wake: unknown
+      // reads as "cannot tell", and a rule that cannot tell would block on
+      // every stop, which is the thrash ADR-010 exists to prevent. The streak
+      // guard still covers that tree.
+      const sha = shortSha(root);
+      if (sha !== '-' && !previous.some((l) => l.split(' ')[1] === sha)) {
+        emitBlock(
+          `GATE SKIPPED — the working tree is dirty on ${sha}, a commit no gate has ever judged: nothing was linted, tested or traced for it, and this stop was ALLOWED, because a dirty tree is not a failure. ` +
+            `Uncommitted paths: ${dirty.trim().split('\n').length}. If an implementer is still writing, that is what the skip is for — say so and end your turn again; this is reported once per commit, not on every stop. ` +
+            `If none is running, you are waiting for a verdict that will never arrive: run \`git status\`, commit what is left to this milestone's branch, and end your turn so the gate judges a clean tree. ` +
+            `A \`git mv\` stages a rename carrying the file's OLD content, so a file edited and then moved needs an explicit \`git add\` — a plain \`git commit\` drops the edit and leaves exactly this. Do not change the phase.`,
+        );
+        return;
+      }
 
       // Skipping is right for one stop and wrong forever. A run that leaves
       // the tree dirty and ends is a milestone NOTHING ever judged, and the

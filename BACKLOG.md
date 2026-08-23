@@ -434,6 +434,57 @@ No regression test, and none is possible: this changes no behaviour. What it
 is held to instead is the full suite staying green across a diff that touches
 five fixture files, which it did.
 
+### B21 — the gate's one silent outcome was the one that meant nothing had been judged — `PENDING` (ADR-012)
+
+A `/spec-flow` run on a consuming repo shipped four milestones, folded the
+change, committed and ended its turn expecting the gate. Nothing happened for
+twelve minutes, until a human asked why. `gate-history.log` holds the whole
+incident in three lines:
+
+```
+05:17:31  68110ee  result=pass
+05:18:17  4a437c9  result=skip-dirty  files=1
+05:30:39  8de111d  result=pass          <- after the human asked
+```
+
+Two defects, and the second is why nobody learned about the first.
+
+**The fold produces a half-staged tree by construction.** `MODE=FOLD` stamps
+`**Status:** SHIPPED` on the change spec and then moves the folder. `git mv`
+moves the file's INDEX entry, which still holds the pre-stamp blob, so the
+staged rename carries the unstamped file and the stamp stays in the working
+tree — `RM` in `git status`. The orchestrator's `git commit` landed `7 files
+changed, 0 insertions(+), 0 deletions(-)` under a message reading "Stamps
+SHIPPED and archives"; the evidence was on screen at commit time and nothing
+was looking at it. Reproduced from an empty repo in six commands. No file in
+`agents/` or `commands/` contained the string `git add` or `git commit` at
+all — how to commit a fold had never been said. Both now say it, and the
+spec-writer stages after both edits rather than before one of them.
+
+**`skip-dirty` is the only gate outcome silent to both parties, and it is the
+one that means nothing was judged.** The streak guard counts stops and needs
+ten. This produced one: the skip ALLOWS the stop, the session went idle, and
+an idle session fires no further `Stop` — the counter was waiting on events
+that had stopped happening. What the silence covered was real. `spec-trace.mjs`
+against `4a437c9` in a clone exits 1 on `specflow/archive/trainer-module/
+spec.md: no status`, which is the missing stamp, which is the dirt.
+
+The discriminator was already in the log. A skip is legitimate while an
+implementer writes, and there HEAD is a commit the gate has already passed —
+the flow judges a milestone before the next one starts. In the stall the
+orchestrator had just committed, so the tree was dirty on a commit nothing had
+ever judged: the streak message's own words, "a milestone NOTHING ever judged",
+reached in one stop instead of ten. The gate now blocks once per such commit,
+guarded the same way ADR-010 guards the green pass and needing no new state.
+
+Done: `a dirty tree on a commit nothing has judged wakes the run` in
+`gate-fixture.mjs` — red against the pre-fix engine, green after, and **the
+only case that moved**, which is what says the re-specified silence case and
+both streak cases still test what they always tested. Those three now seed
+history on the fixture's own HEAD: seeded with a literal sha they describe some
+other tree, which the gate now reads as a commit nothing has judged, and all
+three would have quietly changed meaning.
+
 ### B6 — the coupling check could not see the file that proved it was needed — `98477a5`
 
 `ci.yml` pointed at a `conformance/` directory and a design document, neither
