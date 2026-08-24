@@ -159,5 +159,21 @@ await run(async () => {
   }
 
   if (!line) return;
-  appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase} ${line}\n`);
+
+  // Attribution, and the single question it answers: a path read twice inside
+  // one milestone is context churn if ONE session read it twice, and the
+  // cold-start cost the session-reuse rule exists to avoid if two did. The
+  // pair of lines is identical either way, so without this field the two
+  // opposite findings are the same observation. `specflow-stats.mjs` reads it.
+  //
+  // Absent rather than empty when the payload names no session: an empty
+  // field would read as "one session" and turn an unanswered question into a
+  // measurement. Only a `k=v`-safe value is written at all — this log is read
+  // back by a whitespace split.
+  //
+  // On an `agent type=` line the id belongs to the SPAWNER, not to the agent
+  // being spawned: a payload carries the session that made the tool call.
+  const id = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && /^[\w-]+$/.test(v));
+
+  appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''} ${line}\n`);
 });

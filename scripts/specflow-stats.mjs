@@ -340,23 +340,35 @@ if (segments.length === 0) {
   say('  no run trace yet — run-trace.mjs writes it during a live run.');
 } else {
   const rereadTally = new Map();
+  const coldTally = new Map();
 
   for (const segment of segments) {
     const spawns = segment.events.filter((e) => e.type && e.status);
     const implementers = spawns.filter((e) => e.type === 'implementer').length;
 
+    // Per file: how often it was read, and by how many DISTINCT sessions.
+    // The second number is the one a caching decision turns on — a repeat
+    // inside one session is context the model already had and re-read, and a
+    // repeat across two is a fresh context paying for what the previous one
+    // already knew. Only the second is a cost any cache could remove.
     const seen = new Map();
     for (const e of segment.events) {
       if (!e.raw?.includes(' read file=') || !e.file) continue;
-      seen.set(e.file, (seen.get(e.file) ?? 0) + 1);
+      const entry = seen.get(e.file) ?? { n: 0, sessions: new Set() };
+      entry.n += 1;
+      if (e.session) entry.sessions.add(e.session);
+      seen.set(e.file, entry);
     }
-    const repeated = [...seen].filter(([, n]) => n > 1);
-    const extra = repeated.reduce((sum, [, n]) => sum + n - 1, 0);
-    for (const [file, n] of repeated) rereadTally.set(file, (rereadTally.get(file) ?? 0) + n - 1);
+    const repeated = [...seen].filter(([, v]) => v.n > 1);
+    const extra = repeated.reduce((sum, [, v]) => sum + v.n - 1, 0);
+    const cold = repeated.filter(([, v]) => v.sessions.size > 1);
+    for (const [file, v] of repeated) rereadTally.set(file, (rereadTally.get(file) ?? 0) + v.n - 1);
+    for (const [file] of cold) coldTally.set(file, (coldTally.get(file) ?? 0) + 1);
 
     const where = runs.length > 1 ? `[${segment.run}] ` : '';
     const open = segment.closed ? '' : ' (never reached a PASS)';
-    const reads = repeated.length === 0 ? 'no file read twice' : `${repeated.length} file(s) re-read, ${extra} extra read(s)`;
+    const across = cold.length > 0 ? `, ${cold.length} across sessions` : '';
+    const reads = repeated.length === 0 ? 'no file read twice' : `${repeated.length} file(s) re-read, ${extra} extra read(s)${across}`;
     say(`  ${where}milestone ${segment.index}${open}: ${implementers} implementer session(s), ${reads}`);
 
     if (implementers > 1) {
@@ -370,6 +382,43 @@ if (segments.length === 0) {
   if (ranked.length > 0) {
     say(`  most re-read: ${ranked.map(([f, n]) => `${baseOf(f)} +${n}`).join(', ')}`);
   }
+
+  const coldRanked = [...coldTally].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (coldRanked.length > 0) {
+    say(`  re-read across sessions: ${coldRanked.map(([f, n]) => `${baseOf(f)} x${n}`).join(', ')}`);
+    warn.push(
+      `${coldTally.size} file(s) were read by more than one session inside a single milestone. That is the only re-read a cache could remove — a repeat within one session is context the model already had.`,
+    );
+  }
+
+  // Whether the split above measured anything, said out loud. "0 across
+  // sessions" over a trace carrying no session id is right and answers
+  // nothing, which is this engine's own failure mode wearing a number.
+  //
+  // The one-id case is not a formatting nicety. `hooks/lib/io.mjs` records
+  // that whether a subagent's payload carries its own session id or its
+  // parent's is undocumented and free to change; a trace with several spawns
+  // and a single id is what the second of those looks like from here, and it
+  // means no split can ever see a fresh session. Nothing downstream should be
+  // built on this attribution until a real run has answered it.
+  const attributed = reads.filter((r) => r.session);
+  const ids = new Set(attributed.map((r) => r.session));
+  const spawned = trace.filter((e) => e.type && e.status).length;
+
+  if (reads.length === 0) {
+    /* section 4 already said there are no reads */
+  } else if (attributed.length === 0) {
+    say('  attribution: UNAVAILABLE — no read carries a session id, so "across sessions" above measured nothing.');
+    say('  Either this trace predates the field or the payloads name no session.');
+  } else if (ids.size === 1 && spawned > 1) {
+    say(`  attribution: ONE session id across ${spawned} subagent spawn(s) — reads are landing under the spawner.`);
+    warn.push(
+      `every read in this trace carries the same session id while ${spawned} subagent(s) were spawned. A subagent's reads are being attributed to whoever spawned it, so the across-session split cannot see a fresh session's cold start — treat those numbers as unmeasured, not as zero.`,
+    );
+  } else {
+    say(`  attribution: ${attributed.length}/${reads.length} read(s) carry a session id, across ${ids.size} session(s).`);
+  }
+
   say('  Both numbers are proxies: the trace carries no milestone id, so a milestone here is');
   say('  whatever happened between two gate PASSes.');
 }

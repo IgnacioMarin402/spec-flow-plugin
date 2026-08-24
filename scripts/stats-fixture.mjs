@@ -55,8 +55,10 @@ const CONTRACT = JSON.stringify({
 
 /** `at` is minutes past a fixed origin, so a case reads as an ordering. */
 const stamp = (minute) => new Date(Date.UTC(2026, 7, 21, 10, minute)).toISOString().replace(/\.\d+Z$/, 'Z');
-const read = (minute, file) => `${stamp(minute)} phase=implement read file=${file}`;
-const agent = (minute, type) => `${stamp(minute)} phase=implement agent type=${type} status=DONE`;
+const read = (minute, file, session) =>
+  `${stamp(minute)} phase=implement${session ? ` session=${session}` : ''} read file=${file}`;
+const agent = (minute, type, session) =>
+  `${stamp(minute)} phase=implement${session ? ` session=${session}` : ''} agent type=${type} status=DONE`;
 const pass = (minute) =>
   `${stamp(minute)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=pass lint=0 test=0 unscoped=ok files=1`;
 
@@ -92,6 +94,14 @@ function check(name, fn) {
 }
 
 const contains = (out, text) => (out.includes(text) ? '' : `expected the report to contain "${text}".\n--- report ---\n${out}`);
+
+/**
+ * Whether the report CLAIMS a cross-session split, as opposed to explaining
+ * that it could not make one. A bare substring match catches the disclaimer
+ * itself, which would fail the two cases asserting that the disclaimer is
+ * exactly what gets printed.
+ */
+const claimsSplit = (out) => /\d+ across sessions/.test(out) || /re-read across sessions:/.test(out);
 
 // ---- the cases ------------------------------------------------------------
 
@@ -145,6 +155,62 @@ check('work after the last PASS is still a milestone, marked as unfinished', () 
     gate: [pass(3)],
   });
   return contains(out, 'milestone 2 (never reached a PASS): 1 implementer session(s)');
+});
+
+// ---- attribution: which SESSION did the re-reading -------------------------
+//
+// The four cases below are one question — is a repeated read context churn or
+// a cold start — and the report has to be able to say it does not know. Two
+// of them assert exactly that, because the number is identical in all four
+// and only the session ids tell them apart.
+
+check('a file re-read by two sessions inside one milestone is the cold-start cost', () => {
+  const { out } = report({
+    trace: [agent(1, 'implementer', 's1'), read(2, 'x/one.ts', 's1'), agent(3, 'implementer', 's1'), read(4, 'x/one.ts', 's2')],
+    gate: [pass(5)],
+  });
+  return (
+    contains(out, '1 across sessions') ||
+    contains(out, 're-read across sessions: one.ts x1') ||
+    contains(out, 'the only re-read a cache could remove')
+  );
+});
+
+check('the same session re-reading its own file is not counted across sessions', () => {
+  const { out } = report({
+    trace: [agent(1, 'implementer', 's1'), read(2, 'x/one.ts', 's1'), read(3, 'x/one.ts', 's1')],
+    gate: [pass(4)],
+  });
+  return (
+    contains(out, '1 file(s) re-read, 1 extra read(s)') ||
+    (claimsSplit(out) ? `one session's own re-read was reported as a cold start.\n--- report ---\n${out}` : '')
+  );
+});
+
+check('a trace with no session ids reports attribution as unavailable, not as zero', () => {
+  const { out } = report({
+    trace: [agent(1, 'implementer'), read(2, 'x/one.ts'), read(3, 'x/one.ts')],
+    gate: [pass(4)],
+  });
+  return (
+    contains(out, 'attribution: UNAVAILABLE') ||
+    (claimsSplit(out) ? `claimed a split over a trace that carries no session id.\n--- report ---\n${out}` : '')
+  );
+});
+
+check('one session id across several spawns is reported as unmeasured, not as reuse', () => {
+  // `hooks/lib/io.mjs` records that whether a subagent's payload carries its
+  // own session id or its parent's is undocumented. This is what the second
+  // looks like from the report, and reading it as perfect session reuse is
+  // the wrong conclusion drawn from a real trace.
+  const { out } = report({
+    trace: [agent(1, 'implementer', 's1'), read(2, 'x/one.ts', 's1'), agent(3, 'architect', 's1'), read(4, 'x/one.ts', 's1')],
+    gate: [pass(5)],
+  });
+  return (
+    contains(out, 'attribution: ONE session id across 2 subagent spawn(s)') ||
+    contains(out, 'treat those numbers as unmeasured, not as zero')
+  );
 });
 
 check('no telemetry at all says so, and still exits 0', () => {
