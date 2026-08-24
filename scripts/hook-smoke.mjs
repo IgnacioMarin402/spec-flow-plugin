@@ -381,6 +381,33 @@ t('run-trace logs a read path', (repo) => {
   return null;
 });
 
+t('run-trace records which session read a file', (repo) => {
+  // Without this field a path read twice inside one milestone is one
+  // observation with two opposite readings — one session re-reading its own
+  // context, or a second session paying the cold start the flow's
+  // session-reuse rule exists to avoid.
+  const r = runHook(
+    'run-trace.mjs',
+    { session_id: 'abc123def456', tool_name: 'Read', tool_input: { file_path: 'specs/user.md' } },
+    repo,
+  );
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const log = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  if (!/session=abc123def456/.test(log)) return `the read was recorded with no session to attribute it to: ${log}`;
+  if (!log.includes('read file=specs/user.md')) return `the path was lost: ${log}`;
+  return null;
+});
+
+t('run-trace writes no session field when the payload names none', (repo) => {
+  // Absent, not empty. An empty field reads as one session downstream, which
+  // turns an unanswered question into a measurement of zero.
+  const r = runHook('run-trace.mjs', { tool_name: 'Read', tool_input: { file_path: 'specs/user.md' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}`;
+  const log = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  if (/session=/.test(log)) return `a session field was written over a payload that named none: ${log}`;
+  return null;
+});
+
 t('run-trace is silent outside a run', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   const r = runHook('run-trace.mjs', { tool_name: 'Write', tool_input: { file_path: 'example/thing.ts' } }, repo);

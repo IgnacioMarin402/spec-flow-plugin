@@ -717,7 +717,7 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | `agent-registry` | Session id → agent type |
 | `run-offset` | Telemetry line counts at intake, set by `telemetry --mark` |
 | `gate-history.log` | One line per gate invocation. `running` while it judges, replaced by the outcome; a surviving `running` means that invocation was killed |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, each tagged with the session that produced it |
 | `gate-failure.log` | Last failure, truncated — what the planner reads |
 | `gate-failure.full.log` | Same, untruncated — what a human reads |
 | `lint-on-write-unmatched.log` | Linter invocations that failed to spawn |
