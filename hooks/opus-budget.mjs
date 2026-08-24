@@ -43,7 +43,7 @@
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readOwnedPhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 
 function readRegistry(path) {
@@ -72,15 +72,20 @@ await run(async () => {
   const root = projectDir();
   const configPath = join(root, '.claude', 'spec-flow.config.json');
 
-  // Read through a path that creates nothing — outside a run this hook is
-  // transparent, and transparent should mean on disk too.
-  const phase = readFileOrDefault(phasePath(root), 'idle');
+  // The payload first, for its session id alone: a budget is a property of ONE
+  // run, and `readOwnedPhase` is what keeps a second session from spending it
+  // (ADR-017). Safe to ask here — this fires on a subagent SPAWN, which only an
+  // orchestrating session performs, so the id is the one that sealed the phase.
+  // Reading it creates nothing either, which is the property the phase read has
+  // always had: outside a run this hook is transparent, and transparent should
+  // mean on disk too.
+  const payload = await readPayload();
+  const phase = readOwnedPhase(root, payload.session_id);
   if (phase === '' || phase === 'idle' || phase === 'done') return;
 
   const state = stateDir(root);
   const countFile = join(state, 'opus_calls');
 
-  const payload = await readPayload();
   const input = payload.tool_input ?? {};
   const nameish = nameishFields(input);
 

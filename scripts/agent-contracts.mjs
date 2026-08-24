@@ -21,15 +21,20 @@
  * and the planner never writes is noise in a prompt; a field the planner
  * writes and nobody checks is the bug above.
  *
+ * The second half is the same rule applied to the frontmatter every agent
+ * carries: a `tools:` list that nobody wrote is not a blank, it is the widest
+ * grant the harness offers, and it looks identical to a deliberate one.
+ *
  *   node scripts/agent-contracts.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const planner = readFileSync(join(ROOT, 'agents', 'planner.md'), 'utf8');
-const reviewer = readFileSync(join(ROOT, 'agents', 'reviewer.md'), 'utf8');
+const AGENTS = join(ROOT, 'agents');
+const planner = readFileSync(join(AGENTS, 'planner.md'), 'utf8');
+const reviewer = readFileSync(join(AGENTS, 'reviewer.md'), 'utf8');
 
 /**
  * Fields the reviewer deliberately does not check, each with the reason.
@@ -89,6 +94,41 @@ if (!fields || fields.length === 0) {
   }
 }
 
+// ---- every shipped agent says what it may use ----------------------------
+//
+// An agent with no `tools:` inherits every tool the harness offers, `Task`
+// included — so the omission is not "unspecified", it is the widest possible
+// grant, granted by saying nothing. Four of the five here were explicitly
+// scoped and one was not, and the difference had never been decided: it read
+// as an oversight and as a choice in exactly the same way, which is the shape
+// this whole file exists to refuse.
+//
+// The list's CONTENTS stay the author's business — this asks only that the
+// question was answered. A narrower rule would be this file having an opinion
+// about what a planner needs, which it is not entitled to have.
+const agentFiles = readdirSync(AGENTS)
+  .filter((f) => f.endsWith('.md'))
+  .sort();
+
+if (agentFiles.length === 0) {
+  problems.push(
+    'agents/ contains no .md files. A scan that finds nothing passes exactly as a clean directory does, so finding no agents is a failure here rather than a quiet OK.',
+  );
+}
+
+for (const file of agentFiles) {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(join(AGENTS, file), 'utf8'));
+  if (!frontmatter) {
+    problems.push(`agents/${file} has no YAML frontmatter, so the harness reads neither its name nor its model.`);
+    continue;
+  }
+  if (!/^tools:[ \t]*\S/m.test(frontmatter[1])) {
+    problems.push(
+      `agents/${file} declares no \`tools:\`, so it inherits every tool the harness offers — including Task, which lets it spawn agents of its own. Name the tools it actually uses. If inheriting everything IS the intent, that is a decision worth a line: say so in the frontmatter and this check still fails, because the field is what records it.`,
+    );
+  }
+}
+
 if (problems.length > 0) {
   console.error(`agent-contracts: ${problems.length} problem(s).\n`);
   for (const p of problems) console.error(`  - ${p}`);
@@ -98,5 +138,6 @@ if (problems.length > 0) {
 console.log(
   `agent-contracts: OK — ${fields.length} milestone field(s); ` +
     `${fields.length - Object.keys(NOT_REVIEWED).length} named in the reviewer's checklist, ` +
-    `${Object.keys(NOT_REVIEWED).length} exempt with a stated reason.`,
+    `${Object.keys(NOT_REVIEWED).length} exempt with a stated reason; ` +
+    `${agentFiles.length} agent(s), every one declaring its tools.`,
 );

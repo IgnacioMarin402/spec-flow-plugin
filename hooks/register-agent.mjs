@@ -21,7 +21,7 @@
  */
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readPayload, writeFile, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, writeFile, run } from './lib/io.mjs';
 import { matchAgent } from './lib/agent-name.mjs';
 
 const ID_RE = /^[0-9a-f]{16,32}$/; // observed ids: 17 hex chars
@@ -58,7 +58,12 @@ await run(async () => {
   // agent named "planner". The "spawned just before the phase flips" case
   // this hook exists for is unaffected: both commands write the phase at
   // intake, before any subagent is spawned.
-  if (!existsSync(phasePath(root))) return;
+  //
+  // `readPhase` rather than `existsSync`, so a phase file the REPOSITORY
+  // committed reads here the same as no file at all (ADR-017) — it names no run
+  // whose budget could consult this registry, which is the whole condition
+  // above.
+  if (!readPhase(root)) return;
 
   // Only now: this fires on every Task/Agent call in every session, and the
   // overwhelming majority are not Opus spawns. Resolving the state directory

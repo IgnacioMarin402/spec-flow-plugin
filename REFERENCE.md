@@ -38,7 +38,7 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 
 | key | required | what it is |
 |---|---|---|
-| `scope_globs` | yes | Which files count as in-scope, e.g. `["*.ts"]` |
+| `scope_globs` | yes | Which files count as in-scope, e.g. `["*.ts"]`. **git pathspecs, not npm globs** — see below |
 | `lint` | yes | argv that lints, autofix on. Receives changed file paths appended |
 | `lint_no_fix` | yes | Same, report only. Used by `spec-flow check --no-fix` |
 | `test` | yes | argv that runs the suite. Invoked with **no** extra arguments |
@@ -46,6 +46,20 @@ node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
 | `lint_name` | yes | Names the linter in log sections |
 | `lint_config_hint` | yes | Where your lint rules live, quoted back when a rule fires |
 | `base_ref` | no | The ref this branch is judged against. Omit to auto-resolve |
+
+**`scope_globs` are handed to git, and git's `*` already crosses `/`.** So
+`"*.ts"` matches a file at any depth, which is what you want and what `init`
+writes. `"**/*.ts"` — the form npm, bundler configs and `.gitignore` taught
+everyone — means something else here: at least one directory, so every file in
+the repo root falls out of scope. The contract **refuses** any pattern
+containing `**`, naming the form that works.
+
+The refusal exists because the failure is silent. An empty scope is not an
+error anywhere: `lint` is simply never invoked, and the gate records `lint=-`,
+which is exactly what a milestone that honestly changed nothing in scope
+records. The gate closes the other half — a pattern of the right shape that
+still matches nothing the repo tracks (a renamed directory, an extension the
+project does not use) blocks as `fail:scope`.
 
 ### `trace`
 
@@ -250,6 +264,14 @@ every run after the first — forever, silently. The gate filters that path out
 of its own dirty check as a second line of defense; gitignoring it is what
 keeps `git status` legible.
 
+Committing `phase` specifically does something else, and the engine now
+refuses it outright: a phase under version control arms every hook for every
+session that clones the repo, so ending a turn would run that repo's own
+`verify.lint` and `verify.test` with nothing typed. **A phase git tracks reads
+as no phase at all** — every hook is transparent, and `session-start` leaves
+the file alone rather than dirtying it.
+[ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)
+
 **Do not add `--passWithNoTests`** (or any equivalent) to `verify.test`. A
 flag that makes an empty run exit 0 makes *every* run that matches nothing
 exit 0 — a green gate over zero executed tests.
@@ -393,6 +415,14 @@ broke it is already in the record rather than reconstructed from memory.
 
 If you hit a version-dependent failure, `gate-history.log` is where the
 evidence to fix this section will come from.
+
+**The engine itself — a commit, recorded, not checked.** The same line carries
+`engine=<sha>`: the revision of the copy that judged that milestone, resolved
+from the plugin install's own git checkout. It reads `v<version>` on the rare
+copy with no revision to resolve, and the `v` is what tells you which you are
+looking at. It was `package.json`'s version until ADR-018, which is to say it
+read `0.1.0` on every line ever written — a field recording nothing.
+[ADR-018](decisions/018-the-engine-records-a-revision-not-a-version.md)
 
 ## Staying current
 
@@ -652,6 +682,25 @@ the phase file, or a `printf`/`echo` redirected into it. A command that merely
 mentions the file is allowed, because a guard that denies on a guess blocks
 real work to enforce a rule about a value nobody wrote.
 
+**A phase belongs to one session.** When `phase-guard` allows a phase write it
+records the writing session's id in `.claude/state/phase.session`. Two Claude
+Code sessions in one repo — an IDE one and a terminal one — otherwise share the
+phase, the attempt counter and the Opus budget, so the second judges the
+first's milestone and spends its budget.
+
+The seal is read by **the gate and the Opus budget only** — the two hooks that
+decide something, and the two that are certain to fire in the orchestrating
+session. The rest fire inside subagents too, where honouring a seal would risk
+standing the write-time linter down on every implementer write. So a second
+session in the same repo is still linted on write and still denied a whole-repo
+run; it just cannot render a verdict or spend a budget.
+
+Both checks fail **closed**: no seal, no session id in the payload, or a `git`
+that could not be asked all leave the phase armed. Only a seal naming a
+different, known session disarms anything — a hook that stood down because it
+was unsure would be the failure this engine exists to close.
+[ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)
+
 ---
 
 ## `.claude/state/`
@@ -661,6 +710,7 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | file | what it holds |
 |---|---|
 | `phase` | The current phase. The spine of the run |
+| `phase.session` | Which Claude Code session owns that phase. Delete it to let any session pick the run up |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
 | `opus_calls` | Planner + architect calls this run |
 | `model-routes.log` | One line per agent the project re-routed, deduped |
@@ -810,7 +860,7 @@ planner: a fix whose test will not go green is usually aimed at the wrong case.
 
 ```mermaid
 flowchart TD
-    S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement?"}
+    S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement, <br/> untracked, and this session's?"}
     P -->|"no"| ALLOW["allow the stop, record nothing"]
     P -->|"yes"| CFG{"contract readable?"}
     CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
@@ -821,7 +871,9 @@ flowchart TD
     DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
-    BASE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
+    BASE -->|"yes"| SCOPE{"can scope_globs match <br/> anything this repo tracks?"}
+    SCOPE -->|"no"| BLK3["BLOCK — a human fixes <br/> verify.scope_globs. <br/> lint could never run"]
+    SCOPE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
     RUN -->|"all green"| SEEN{"already reported <br/> this commit's sha?"}
     SEEN -->|"no, first time"| PASS["BLOCK — wake the orchestrator <br/> with what to do next. <br/> attempts reset to 0"]
     SEEN -->|"yes, repeat stop"| QUIET["allow the stop — no decision, <br/> print one notice for the human. <br/> attempts already at 0"]
@@ -852,6 +904,12 @@ flowchart TD
 - **Lint is scoped to the changed files, tests never are** — and an empty
   scope does not skip the suite either. `lint(file)` is a predicate about one
   file; a suite's outcome is a property of the system.
+- **An empty scope is checked for its cause, not accepted.** Three things
+  produce one, and only the first is a fact about the milestone: the diff
+  touched nothing in scope (passes), the base resolved to HEAD (`fail:base`),
+  or `scope_globs` cannot match anything the repo tracks (`fail:scope`). The
+  last two are permanent — `lint` would never run again, for any milestone —
+  while the history's `lint=-` reads the same in all three.
 - **An unresolvable base is a refusal, not an empty scope.** "Nothing changed"
   and "I could not tell" must never produce the same outcome, because one of
   them is a pass. A base that resolves *to HEAD* is refused for the same

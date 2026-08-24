@@ -33,12 +33,13 @@
  *   stopping to wait re-triggers this gate.
  */
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
+import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readOwnedPhase, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
 import { loadConfig, ensureReportDir } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
-import { resolveBase, changedFiles } from '../scripts/changed-files.mjs';
+import { resolveBase, changedFiles, scopeMatchesNothing } from '../scripts/changed-files.mjs';
+import { engineRevision } from '../scripts/engine-revision.mjs';
 
 const MAX_ATTEMPTS = 5;
 
@@ -65,21 +66,12 @@ function shortSha(root) {
 }
 
 /**
- * This engine copy's own version, for the history line.
- *
- * Read from the package.json two directories up — the one that ships with these
- * hooks — so what it reports is the copy that RAN, never whatever the consuming
- * repo happens to have installed. Reporting the other would invert the whole
- * point of recording it.
+ * This engine copy's own root — the directory two levels up from this hook,
+ * the one that ships with it. What `engineRevision` reports has to be the copy
+ * that RAN, never whatever the consuming repo happens to have installed, and
+ * that is decided here rather than inside the resolver.
  */
-function engineVersion() {
-  try {
-    const own = new URL('../package.json', import.meta.url);
-    return JSON.parse(readFileSync(own, 'utf8')).version || '?';
-  } catch {
-    return '?';
-  }
-}
+const ENGINE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 function truncate(text, max) {
   const lines = text.split('\n');
@@ -118,7 +110,12 @@ let armed = null;
 
 await run(
   async () => {
-    await readPayload(); // consumed, unused — this hook does not act on it
+    // The payload is read for one field: which session this Stop belongs to.
+    // `readOwnedPhase` needs it to tell a phase this session is driving from
+    // one another session sealed — see ADR-017. `Stop` fires for the
+    // ORCHESTRATING turn, which is what makes this one of the two hooks that
+    // may safely ask.
+    const payload = await readPayload();
 
     const root = projectDir();
 
@@ -126,7 +123,7 @@ await run(
     // and a gate that is not armed must leave no trace in a repo that does
     // not use this engine.
     const phaseFile = phasePath(root);
-    const phase = readFileOrDefault(phaseFile, '');
+    const phase = readOwnedPhase(root, payload.session_id);
     if (phase !== 'implement') return; // spec/plan/review/blocked/done -> allow the stop, nothing recorded
 
     const state = stateDir(root);
@@ -141,18 +138,17 @@ await run(
       // checked (ADR-004). `?` when the harness does not expose it: an absent
       // value must read as "not known here", never as a version.
       //
-      // `engine=` records WHICH COPY of this engine judged the milestone, and
-      // it stopped being a curiosity when the engine became an npm package.
-      // There are two copies in a configured repo by construction: the plugin's
-      // own, which these hooks import from, and the devDependency, which the
-      // terminal and CI reach through `spec-flow check`. The README's central
-      // promise — green in your terminal means green at the gate — is only true
-      // while those agree, and nothing makes them: the plugin follows a commit
-      // and the dependency follows a version range. Recorded, not enforced, for
-      // the same reason `cc=` is: a mismatch is a fact worth having in the log
-      // when a gate and a local run disagree, and blocking on it would refuse
-      // milestones over a patch bump nobody noticed.
-      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${process.env.CLAUDE_CODE_VERSION ?? '?'} engine=${engineVersion()} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
+      // `engine=` records WHICH REVISION of this engine judged the milestone.
+      // Recorded, not enforced, for the same reason `cc=` is (ADR-004): it is a
+      // fact worth having in a history read months later, and nothing here has
+      // an opinion about which revision should have run.
+      //
+      // A commit, not `package.json`'s version, and the difference is the whole
+      // value of the field — see ADR-018. One axis is what the two installs
+      // have (ADR-016), and the SHA is that axis; the version number is a
+      // second one that moved once and would keep reading `0.1.0` over every
+      // change this file will ever see.
+      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${process.env.CLAUDE_CODE_VERSION ?? '?'} engine=${engineRevision(ENGINE_ROOT)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
     /**
      * The one failure this file's own catch-all cannot reach: a `command`
@@ -390,6 +386,27 @@ await run(
         `GATE FAILED — the base resolved to HEAD itself, so the changed-file scope is empty by construction and ${config.verify.lint_name} was never invoked. ` +
           `Branch "${branch}" has no commit the base does not already have. Either this work is being done directly ON the base branch, in which case the scope will be empty for every milestone of this run, or this milestone committed nothing at all. ` +
           `Do not proceed and do not change the phase. Nothing was linted, so treat NOTHING as verified. A human fixes this by doing the run's work on its own branch, or by declaring the ref this work is judged against as "base_ref" under "verify" in .spec-flow/config.json.`,
+      );
+      return;
+    }
+
+    // ---- the scope that can never match --------------------------------------
+    // The base is fine and the diff is real; what is empty is the intersection,
+    // and this asks which of its two causes produced that. A milestone that
+    // changed no file in scope is a fact about the diff and passes below. A
+    // `scope_globs` matching nothing this repo TRACKS is a fact about the
+    // contract: `verify.lint` was never going to run, for this milestone or
+    // any other, while `lint=-` in the history reads identically to the
+    // honest case. Same refusal as `fail:base` above, arriving through the
+    // other door left open — `loadConfig` closes the `**` shape that causes
+    // this most often, and cannot see a renamed directory or an extension the
+    // repo does not use.
+    if (files.length === 0 && scopeMatchesNothing(root, config.verify.scope_globs)) {
+      hist('fail:scope', '-', '-', histDashes(config), 0);
+      emitBlock(
+        `GATE FAILED — verify.scope_globs (${config.verify.scope_globs.join(', ')}) matches no file this repository tracks, so the changed-file scope is empty by construction and ${config.verify.lint_name} was never invoked. ` +
+          `This is not a milestone that touched nothing in scope: nothing could ever be in scope, on any commit, so the history's \`lint=-\` would read as clean for the whole run. ` +
+          `Do not proceed and do not change the phase. Nothing was linted, so treat NOTHING as verified. A human fixes this in "scope_globs" under "verify" in .spec-flow/config.json — these are git pathspecs, where \`*\` already crosses \`/\`, so "*.ts" covers every depth and "**/*.ts" skips the repo root. \`spec-flow init\` regenerates the field from this repo.`,
       );
       return;
     }

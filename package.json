@@ -43,7 +43,7 @@
     "trace:check": "node scripts/spec-trace-fixture.mjs",
     "report:check": "node scripts/test-report-fixture.mjs",
     "stats:check": "node scripts/stats-fixture.mjs",
-    "unit:check": "node --test test/*.test.mjs",
+    "unit:check": "node --test",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "init:check": "node scripts/init-fixture.mjs"

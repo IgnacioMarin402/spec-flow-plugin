@@ -32,7 +32,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { projectDir, phasePath, readFileOrDefault, readPayload, run } from './lib/io.mjs';
+import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { resolveBase } from '../scripts/changed-files.mjs';
 
@@ -70,10 +70,12 @@ function nodeFloor() {
 await run(async () => {
   const root = projectDir();
 
-  // `phasePath`, not `stateDir`: this hook only ever reads, and it fires on
-  // every subagent spawn. Creating the directory here would drop
-  // `.claude/state/` into every repository the user opens.
-  const phase = readFileOrDefault(phasePath(root), 'idle');
+  // `readPhase` reads through `phasePath` rather than `stateDir`: this hook
+  // only ever reads, and it fires on every subagent spawn. Creating the
+  // directory here would drop `.claude/state/` into every repository the user
+  // opens. It also refuses a phase the repository committed, which is a repo
+  // announcing a run it never started (ADR-017).
+  const phase = readPhase(root);
   if (['', 'idle', 'done'].includes(phase)) return; // not a run -> not this hook's business
 
   await readPayload(); // consumed, unused — this hook judges the repo, not the call

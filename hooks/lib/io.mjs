@@ -7,7 +7,8 @@
  * a hook that cannot even read stdin has a different problem than a hook that
  * disagrees with the repo about which linter to run.
  */
-import { readFileSync, existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 /**
@@ -46,6 +47,119 @@ export function stateDir(root = projectDir()) {
  */
 export function phasePath(root = projectDir()) {
   return join(root, '.claude', 'state', 'phase');
+}
+
+/** Where the session driving the current phase is recorded. Creates nothing, like `phasePath`. */
+export function phaseOwnerPath(root = projectDir()) {
+  return join(root, '.claude', 'state', 'phase.session');
+}
+
+/**
+ * The phases that ARM something. Everything else — `idle`, `done`, an empty
+ * file, a value no hook recognises — stands every hook down on its own, so
+ * `readPhase` answers those without spawning anything.
+ */
+const ARMING = new Set(['spec', 'plan', 'review', 'implement', 'blocked']);
+
+/** The path as git spells it, for a pathspec: `join` would use `\` on Windows. */
+const PHASE_PATHSPEC = '.claude/state/phase';
+
+/**
+ * Whether the repo COMMITTED its phase file.
+ *
+ * Non-zero — no git, not a repo, not tracked — all mean "not tracked", which
+ * arms. That direction is deliberate: this answer decides whether hooks run,
+ * and a git that could not be asked must never be the reason one stands down.
+ */
+function phaseIsTracked(root) {
+  const res = spawnSync('git', ['ls-files', '--error-unmatch', '--', PHASE_PATHSPEC], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  return res.status === 0;
+}
+
+/**
+ * The phase this REPOSITORY is in, if a run put it there — `''` otherwise.
+ *
+ * Every hook that arms reads the phase through here rather than through
+ * `readFileOrDefault(phasePath(...))`, because one thing other than the value
+ * decides whether it counts, and it was previously invisible: see ADR-017.
+ *
+ * **A phase git tracks is not state, it is content.** Nothing in this engine
+ * ever commits that file; a repo that ships one is handing every session that
+ * opens it a gate armed on arrival, and the gate spawns the argv named in that
+ * same repo's `.spec-flow/config.json` when a turn ends. Verified before the
+ * fix: a clone with `implement` committed ran both declared commands on the
+ * first Stop, with nothing typed. `session-start` does not rescue it either —
+ * a fresh checkout's mtime is seconds old, so the staleness reset never fires.
+ *
+ * Fails CLOSED, and that is the property to preserve in any edit here: a git
+ * that could not be asked leaves the phase honoured. A hook that stood down
+ * because it was unsure would be this engine's own signature failure.
+ */
+export function readPhase(root = projectDir()) {
+  const phase = readFileOrDefault(phasePath(root), '');
+  if (!ARMING.has(phase)) return phase;
+  return phaseIsTracked(root) ? '' : phase;
+}
+
+/**
+ * The same, narrowed to a phase THIS session owns.
+ *
+ * `sessionId` comes from the hook payload; `phaseOwnerPath` holds whoever last
+ * drove a phase write past `phase-guard`. Two Claude Code sessions in one repo
+ * — an IDE one and a terminal one — otherwise share the phase file, so the
+ * second arms the first's gate, spends its Opus budget and moves the attempt
+ * counter that decides when a human is called.
+ *
+ * **Two hooks call this, and the rest deliberately do not.** A hook only gets
+ * the owner check when it is certain to fire in the session that SEALED the
+ * phase: `gate.mjs` on `Stop`, which fires for the orchestrating turn, and
+ * `opus-budget.mjs` on a subagent spawn, which only an orchestrator performs.
+ *
+ * The others fire inside subagents too — `lint-on-write` runs on the
+ * implementer's every write — and whether a subagent's payload carries its
+ * parent's `session_id` is the harness's business, undocumented and free to
+ * change. If it ever does not, an owner check there stands the write-time
+ * linter down on every write of every milestone, silently. That is a worse
+ * failure than the one being fixed, and it would be reached by an assumption
+ * rather than by a decision. So the narrow rule is not caution about today's
+ * behaviour; it is a refusal to depend on it. See ADR-017.
+ *
+ * Fails CLOSED like `readPhase`: no seal, or no session id in the payload,
+ * leaves the phase honoured. Only a seal naming a different, known session
+ * stands a hook down.
+ */
+export function readOwnedPhase(root = projectDir(), sessionId = '') {
+  const phase = readPhase(root);
+  if (!ARMING.has(phase)) return phase;
+  const owner = readFileOrDefault(phaseOwnerPath(root), '');
+  return owner && sessionId && owner !== sessionId ? '' : phase;
+}
+
+/**
+ * Records this session as the one driving the phase.
+ *
+ * Called where a phase write is OBSERVED — `phase-guard` sees the model's
+ * writes, `arm-gate` performs its own — because that is the only moment the
+ * engine can tell who is driving. A payload with no `session_id` claims
+ * nothing rather than writing an empty seal: an empty one reads as "unowned"
+ * to `readPhase`, which is the fail-closed answer already.
+ */
+export function claimPhase(root, sessionId) {
+  if (!sessionId) return;
+  stateDir(root);
+  writeFile(phaseOwnerPath(root), String(sessionId));
+}
+
+/** Drops the seal, so the next session to drive a phase may claim it. */
+export function releasePhase(root) {
+  try {
+    rmSync(phaseOwnerPath(root), { force: true });
+  } catch {
+    /* best-effort, like every writer here */
+  }
 }
 
 /**

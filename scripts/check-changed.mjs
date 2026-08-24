@@ -19,7 +19,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { loadConfig, ensureReportDir } from './spec-flow-config.mjs';
-import { resolveBase, changedFiles } from './changed-files.mjs';
+import { resolveBase, changedFiles, scopeMatchesNothing } from './changed-files.mjs';
 import { runUnscopedChecks, summary } from './unscoped-checks.mjs';
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -59,6 +59,15 @@ if (files.length === 0) {
   if (head.status === 0 && head.stdout.trim() === base) {
     console.log(
       `No changed files in scope: the base resolved to HEAD itself, so the diff is empty by construction — ${config.verify.lint_name} is not sitting this out because nothing changed. Work on a branch off your base, or declare verify.base_ref in .spec-flow/config.json. The gate blocks on this.`,
+    );
+    // And the third way an empty scope is not a fact about the diff. Same
+    // shape as the case above and the same reason it is worth a sentence of
+    // its own: a scope nothing can match reports "skipping lint" forever,
+    // which is what a clean milestone reports too. The gate refuses this
+    // (fail:scope); this command says so and keeps going, per the note above.
+  } else if (scopeMatchesNothing(root, config.verify.scope_globs)) {
+    console.log(
+      `No changed files in scope — and verify.scope_globs (${config.verify.scope_globs.join(', ')}) matches no file this repository tracks at all, so ${config.verify.lint_name} can never run on any commit. These are git pathspecs: \`*\` already crosses \`/\`, so "*.ts" covers every depth and "**/*.ts" skips the repo root. Fix "scope_globs" under "verify" in .spec-flow/config.json, or re-run \`spec-flow init\`. The gate blocks on this.`,
     );
   } else {
     console.log(`No changed files in scope vs ${base} — skipping lint.`);

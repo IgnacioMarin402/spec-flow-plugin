@@ -17,7 +17,7 @@
 import { existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readFileOrDefault, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readFileOrDefault, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { binaryOf, resolvableOnDisk } from '../scripts/argv.mjs';
 
@@ -31,7 +31,12 @@ function globMatch(glob, file) {
 
 await run(async () => {
   const root = projectDir();
-  const phase = readFileOrDefault(join(root, '.claude', 'state', 'phase'), '');
+
+  // `readPhase`, because this hook spawns the repo's own declared linter and a
+  // phase the repo COMMITTED is content rather than state (ADR-017). The path
+  // is `readPhase`'s to build now: composing it here is how this file and
+  // `no-gate-cmds` came to hold their own copies of it.
+  const phase = readPhase(root);
   if (phase !== 'implement') return;
 
   const payload = await readPayload();

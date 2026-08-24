@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process';
 const ENGINE = process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
 
-function makeRepo({ phase = 'implement', withContract = true, git = true } = {}) {
+function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
   mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
@@ -73,6 +73,13 @@ function makeRepo({ phase = 'implement', withContract = true, git = true } = {})
     g('config', 'user.email', 'smoke@example.com');
     g('config', 'user.name', 'smoke');
     g('commit', '-q', '--allow-empty', '-m', 'baseline');
+    // The shape a repository the user did not write can arrive in: the file
+    // every enforcement hook arms on, supplied by the repo rather than by a
+    // run. See ADR-017.
+    if (commitPhase) {
+      g('add', '-f', '--', '.claude/state/phase');
+      g('commit', '-q', '-m', 'a phase this repository committed');
+    }
   }
 
   return repo;
@@ -609,6 +616,186 @@ t('lint-on-write is transparent outside implement', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   const r = runHook('lint-on-write.mjs', { tool_input: { file_path: 'example/thing.ts' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0`;
+  return null;
+});
+
+// ---- ADR-017: whose state is this? ----------------------------------------
+//
+// `gate-fixture.mjs` holds the case that matters most — a committed phase made
+// the Stop hook run both of the repo's declared argv, measured. These are the
+// other nine, where the same file arms a deny, a spawn rewrite or a linter.
+// Shallow on purpose, per this file's header: what a regression here looks
+// like is a hook that fires when it should be transparent.
+
+t(
+  'a phase the repository committed does not arm the whole-repo deny',
+  (repo) => {
+    const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
+    if (r.status === 2) return `a committed phase denied a command in a repo running no flow: ${r.stderr}`;
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    return null;
+  },
+  { commitPhase: true },
+);
+
+t(
+  'a phase the repository committed does not arm the phase guard',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { tool_name: 'Write', tool_input: { file_path: '.claude/state/phase', content: 'triage' } },
+      repo,
+    );
+    if (r.status === 2) return `a committed phase denied a write in a repo running no flow: ${r.stderr}`;
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    return null;
+  },
+  { commitPhase: true },
+);
+
+t(
+  'a phase the repository committed does not arm the write-time linter',
+  (repo) => {
+    // The linter is made to leave EVIDENCE rather than to be silent. The
+    // fixture's default `lint_no_fix` exits 0 and prints nothing, so "the hook
+    // said nothing" is what a hook that ran the linter looks like too — and
+    // this case passed against the unfixed engine for exactly that reason
+    // before the marker was added. Running the repo's own argv is the whole
+    // thing being tested.
+    const cfgPath = join(repo, '.spec-flow/config.json');
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    cfg.verify.lint_no_fix = [
+      'node',
+      '-e',
+      "require('fs').writeFileSync(process.env.CLAUDE_PROJECT_DIR + '/LINTER-RAN', 'x')",
+    ];
+    writeFileSync(cfgPath, JSON.stringify(cfg));
+    writeFileSync(join(repo, 'thing.ts'), 'export const a = 1;\n');
+
+    const r = runHook('lint-on-write.mjs', { tool_input: { file_path: join(repo, 'thing.ts') } }, repo);
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    if (existsSync(join(repo, 'LINTER-RAN'))) {
+      return "the repository's own argv ran off a phase git tracks — that is the exec this boundary exists to stop";
+    }
+    return null;
+  },
+  { commitPhase: true },
+);
+
+// The same marker, with the phase arriving the way a run writes it: the case
+// above has to be able to fail, and a hook that never spawns anything would
+// satisfy it too.
+t('the write-time linter does run when the phase came from a run', (repo) => {
+  const cfgPath = join(repo, '.spec-flow/config.json');
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  cfg.verify.lint_no_fix = [
+    'node',
+    '-e',
+    "require('fs').writeFileSync(process.env.CLAUDE_PROJECT_DIR + '/LINTER-RAN', 'x')",
+  ];
+  writeFileSync(cfgPath, JSON.stringify(cfg));
+  writeFileSync(join(repo, 'thing.ts'), 'export const a = 1;\n');
+
+  const r = runHook('lint-on-write.mjs', { tool_input: { file_path: join(repo, 'thing.ts') } }, repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (!existsSync(join(repo, 'LINTER-RAN'))) {
+    return 'the linter never ran on an in-scope write mid-implement, so the case above proves nothing';
+  }
+  return null;
+});
+
+t(
+  'a phase the repository committed is not flipped to implement by arm-gate',
+  (repo) => {
+    const r = runHook('arm-gate.mjs', { tool_input: { subagent_type: 'implementer' } }, repo);
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    const phase = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+    if (phase !== 'plan') return `arm-gate rewrote a tracked file: phase is now "${phase}"`;
+    return null;
+  },
+  { phase: 'plan', commitPhase: true },
+);
+
+t(
+  'session-start leaves a committed phase alone rather than dirtying the repo',
+  (repo) => {
+    const pf = join(repo, '.claude/state/phase');
+    const old = new Date(Date.now() - 8 * 3600 * 1000);
+    utimesSync(pf, old, old);
+    const r = runHook('session-start.mjs', {}, repo);
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+    if (readFileSync(pf, 'utf8') !== 'implement') return 'session-start wrote over a file git tracks';
+    const status = spawnSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' });
+    if (/state[\\/]phase/.test(status.stdout)) return `the repo is dirty on a tracked file it did not touch:\n${status.stdout}`;
+    return null;
+  },
+  { commitPhase: true },
+);
+
+// The seal is asked about by two hooks only — `gate.mjs`, which
+// `gate-fixture.mjs` covers, and this one. Every other hook here reads the
+// phase WITHOUT it, deliberately: they fire inside subagents too, and standing
+// the write-time linter down over a subagent's session id would be a worse
+// failure than the one being fixed. See ADR-017.
+const OPUS_SPAWN = { tool_name: 'Task', tool_input: { subagent_type: 'planner' } };
+
+t("a phase sealed to another session does not spend that run's Opus budget", (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 2 }));
+  writeFileSync(join(repo, '.claude/state/opus_calls'), '1');
+  writeFileSync(join(repo, '.claude/state/phase.session'), 'session-a');
+
+  const r = runHook('opus-budget.mjs', { session_id: 'session-b', ...OPUS_SPAWN }, repo);
+  if (r.status !== 0) return `session B was denied against session A's budget: exit ${r.status}: ${r.stderr}`;
+  const n = readFileSync(join(repo, '.claude/state/opus_calls'), 'utf8');
+  if (n !== '1') return `session B charged session A's budget: opus_calls is now "${n}"`;
+  return null;
+});
+
+// The case that keeps the one above from being a disarmed hook. Both halves of
+// the fail-closed rule: the owner is still charged, and so is a payload that
+// names nobody.
+t('a phase sealed to this session still charges it, and so does one sealed to nobody', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 9 }));
+  writeFileSync(join(repo, '.claude/state/phase.session'), 'session-a');
+
+  const owner = runHook('opus-budget.mjs', { session_id: 'session-a', ...OPUS_SPAWN }, repo);
+  if (owner.status !== 0) return `exit ${owner.status}: ${owner.stderr}`;
+  if (readFileSync(join(repo, '.claude/state/opus_calls'), 'utf8') !== '1') {
+    return 'the owning session was not charged for its own spawn';
+  }
+
+  const anon = runHook('opus-budget.mjs', OPUS_SPAWN, repo);
+  if (anon.status !== 0) return `exit ${anon.status}: ${anon.stderr}`;
+  const n = readFileSync(join(repo, '.claude/state/opus_calls'), 'utf8');
+  if (n !== '2') {
+    return `a payload with no session_id was not charged (opus_calls "${n}") — the seal must fail CLOSED, or a harness that stops sending the field turns the budget off entirely`;
+  }
+  return null;
+});
+
+t('phase-guard seals the phase to the session whose write it allowed', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: '.claude/state/phase', content: 'implement' } },
+    repo,
+  );
+  if (r.status !== 0) return `a legitimate phase write was denied: exit ${r.status}: ${r.stderr}`;
+  const seal = join(repo, '.claude/state/phase.session');
+  if (!existsSync(seal)) return 'the write went through unsealed, so a second session shares this run\'s state';
+  if (readFileSync(seal, 'utf8') !== 'session-a') return `the seal names ${readFileSync(seal, 'utf8')}`;
+  return null;
+});
+
+t('phase-guard seals nothing when it denied the write', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: '.claude/state/phase', content: 'triage' } },
+    repo,
+  );
+  if (r.status !== 2) return `an invented phase was allowed: exit ${r.status}`;
+  if (existsSync(join(repo, '.claude/state/phase.session'))) {
+    return 'a denied write claimed the phase — nothing was written, so nothing transferred';
+  }
   return null;
 });
 

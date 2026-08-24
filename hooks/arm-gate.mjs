@@ -19,13 +19,16 @@
  * progress: outside one, spawning an implementer-shaped agent is a deliberate
  * human act, not a step the orchestrator forgot.
  */
-import { projectDir, phasePath, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, phasePath, readPhase, claimPhase, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 
 await run(async () => {
   const root = projectDir();
   const phaseFile = phasePath(root);
-  const phase = readFileOrDefault(phaseFile, 'idle');
+
+  // `readPhase`: a phase the REPOSITORY committed is not a run this hook may
+  // advance, and writing over it would dirty a tracked file (ADR-017).
+  const phase = readPhase(root) || 'idle';
   if (phase === 'implement') return; // already armed
   if (!['spec', 'plan', 'review', 'blocked'].includes(phase)) return; // idle/done/unknown -> not our business
 
@@ -35,6 +38,9 @@ await run(async () => {
   if (agent !== 'implementer') return;
 
   writeFile(phaseFile, 'implement');
+  // This hook performs the transition, so it is the one that knows who drove
+  // it — the same claim `phase-guard` makes for the writes it merely watches.
+  claimPhase(root, payload.session_id);
   process.stderr.write(
     `[spec-flow] Phase was '${phase}' while the implementer was being engaged; armed the gate (phase -> implement). ` +
       `The orchestrator should have written this itself — the hook is the backstop, not the protocol.\n`,
