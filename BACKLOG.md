@@ -593,18 +593,29 @@ work goes.
 
 **What this does not answer.** Two of seven failure classes have ever fired
 in real work. `fail:lint/trace`, `fail:contract`, `fail:scope`, `fail:killed`
-and `fail:hook-error` have not — all five are covered by
+and `fail:hook-error` have not — all five appear in
 `scripts/gate-fixture.mjs`, deterministically and in CI, which is the better
-place for them. The gap worth naming is `fail:lint/trace`: it is the branch
-that routes a failure to a cheap direct fix instead of an Opus REPLAN, and
-the one place a pure `spec-trace` failure lands. The nearest real run missed
-it by a hair — the trainer port failure had `spec=1`, but `test=1` alongside
-it, so it classified as `behaviour` and took the expensive route. **The cheap
-branch has never been exercised outside the fixture.**
+place for them.
 
-More runs are not what closes that. A run where the suite is green and only
-`spec-trace` is red — a requirement proven by a test that never named its
-id — is a specific thing to provoke, not something to wait for.
+Checking that claim rather than asserting it moved it. `fail:lint/trace` is
+one class with **two doors**, and only the lint door was actually asserted: a
+red lint with everything else green. The traceability door — lint green,
+suite green, `spec-trace` red, a test that proves its requirement but never
+named its id — ran through a case that asserted `result=fail` and stopped
+there, so the same failure classifying as `behaviour` and buying an Opus
+REPLAN would have passed it. The gate turned out to classify correctly; what
+was missing was anything that would notice if it stopped. Now asserted, with
+its teeth checked by mutation.
+
+That leaves the honest gap smaller and sharper. The branch is proven to fire
+and to route; what has never happened is a real implementer receiving that
+message and fixing the tag without escalating. The nearest real run missed it
+by a hair — the trainer port failure had `spec=1`, but `test=1` alongside it,
+so it was `behaviour` by rule and took the expensive route.
+
+More runs are not what closes that either. A milestone whose suite is green
+and whose only red is `spec-trace` is a specific state to construct, not
+something to wait for.
 
 ---
 
