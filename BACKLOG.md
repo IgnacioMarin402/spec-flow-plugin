@@ -564,15 +564,24 @@ is a bug in the code the milestone was writing.**
   the plan and the diff; neither is wrong here. Only running it says so.
 
 - **A run whose linter was never going to be invoked.** Two `fail:base` at
-  one sha, 44 seconds apart, `lint=-` and `files=-`. The base resolved to
-  HEAD itself, so the changed-file scope was empty by construction. The gate
-  refused twice rather than reporting the pass that everything else would
-  have supported. This is the case the engine exists for: had it proceeded,
-  the history would have recorded `lint=-` for every milestone of the run,
-  which reads exactly like a milestone that honestly touched nothing in
-  scope. Eight minutes later the next gate linted 28 files, so whatever a
-  human did in between worked — the logs prove the refusal and the recovery,
-  not which of the two fixes the message offered was taken.
+  one sha, 44 seconds apart, `lint=-` and `files=-`. The gate refused twice
+  rather than reporting the pass that everything else would have supported.
+  This is the case the engine exists for: had it proceeded, the history would
+  have recorded `lint=-` for every milestone of the run, which reads exactly
+  like a milestone that honestly touched nothing in scope. Eight minutes
+  later the next gate linted 28 files, so whatever a human did in between
+  worked.
+
+  **Which of the two `fail:base` doors fired cannot be recovered, and that is
+  this read's own finding rather than a gap in it.** `resolveBase` throwing —
+  a base this engine cannot name — and a base that resolves to HEAD itself
+  are different refusals needing different human fixes, and
+  `hooks/gate.mjs` writes them with byte-identical history lines
+  (`hist('fail:base', '-', '-', histDashes(config), '-')` at both call
+  sites). The fixture tells them apart because it constructs each and can
+  read the message; telemetry cannot, and telemetry is what survives. An
+  earlier draft of this read asserted the HEAD door from the log, which the
+  log does not support.
 
 - **A port change that broke a different module's test double.** A milestone
   added `catchPokemon` to a repository port; the fake repository in *another*
@@ -618,11 +627,26 @@ not the fixture: `hooks/gate.mjs` invoked for real on a discardable branch, an
 orphan `REQ-POKEMON-015` declared with no test naming it, everything else
 untouched. First invocation: `attempt=1 result=fail:lint/trace lint=- test=0
 spec=1 domain=0`, with `gate-failure.log` naming the exact id and saying the
-plan was not in question. The fix — one `it('REQ-POKEMON-015 ...')` added to
-an existing spec, nothing else touched — closed it: `attempt=1 result=pass`
-on the very next gate. One attempt, no REPLAN, no second `attempt=` line ever
-written. The branch is discarded; the two gate-history lines above are the
-record.
+plan was not in question. Adding one `it('REQ-POKEMON-015 ...')` closed it:
+`attempt=1 result=pass` on the very next gate, no second `attempt=` line ever
+written, so no REPLAN was ever in reach. The branch is discarded; those two
+history lines are the record.
+
+**What that probe did NOT establish, stated plainly because the sentence
+above reads like it did.** The gap named earlier was a real implementer
+receiving the block message and fixing the tag without escalating. A human
+drove this probe, already knowing what the message would say and what the fix
+was — which tests the gate, not the agent. The routing is now proven to fire,
+classify and clear on one attempt; whether an implementer subagent reaches
+the same edit from the same message is still unobserved, and only a real run
+answers it.
+
+The fix used was also the degenerate one: `expect(true).toBe(true)` under a
+name containing the id. That is the minimal edit that flips `spec-trace`,
+which is what isolates the routing — and it is worth saying out loud that
+`spec-trace` accepts it, because binding an id to a test that RAN is the
+whole of its contract. Whether the test proves anything belongs to review and
+to the implementer's own instructions, not to this check.
 
 ---
 
