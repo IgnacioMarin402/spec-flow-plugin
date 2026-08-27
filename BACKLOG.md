@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B14, B4, B15. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it; B4 is blocked on real runs rather than on code.
+**Open order:** B14, B15. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it. B4's read is written: it was never blocked on more runs, and the one gap it found — `fail:lint/trace` has never fired outside the fixture — is a run to provoke, not a sample to grow.
 
 ---
 
@@ -540,6 +540,71 @@ stays. This item adds data to it, not authority.
 **Done looks like:** 5–8 archived runs in `specflow/archive/`, and a short
 written read of what the gate caught. No new code required, which is why this
 is cheap and keeps getting deferred.
+
+### The read
+
+Taken on a consuming project with 14 archived runs, 6 of them carrying
+telemetry, plus one earlier run that has a hand-written post-mortem instead.
+**53 gate invocations: 33 pass, 15 skip-dirty, 3 fail:behaviour, 2 fail:base.**
+
+Read those numbers only from a build that has the tier-dedup fix. Before it,
+the same data reported 105 invocations and 10 failures, because a snapshot is
+a slice of the live log and both tiers were counted as separate runs.
+
+**Five real failures, across two runs. Each one is a story, and none of them
+is a bug in the code the milestone was writing.**
+
+- **A contract that was red on every gate, in every milestone.**
+  `verify.test` ended in `--findRelatedTests`. The gate runs the suite
+  unscoped on every armed gate by design (ADR-008), so it appends no file
+  arguments — and `--findRelatedTests` with no files is a hard Jest CLI
+  error, not "run everything". Two `fail:behaviour` in a row at one sha,
+  `test=1` both times. The repo's contract had been failing every gate since
+  it was written, and the milestone under it was fine. A review pass reads
+  the plan and the diff; neither is wrong here. Only running it says so.
+
+- **A run whose linter was never going to be invoked.** Two `fail:base` at
+  one sha, 44 seconds apart, `lint=-` and `files=-`. The base resolved to
+  HEAD itself, so the changed-file scope was empty by construction. The gate
+  refused twice rather than reporting the pass that everything else would
+  have supported. This is the case the engine exists for: had it proceeded,
+  the history would have recorded `lint=-` for every milestone of the run,
+  which reads exactly like a milestone that honestly touched nothing in
+  scope. Eight minutes later the next gate linted 28 files, so whatever a
+  human did in between worked — the logs prove the refusal and the recovery,
+  not which of the two fixes the message offered was taken.
+
+- **A port change that broke a different module's test double.** A milestone
+  added `catchPokemon` to a repository port; the fake repository in *another*
+  module's suite stopped satisfying the port's shape. `test=1` — and
+  `spec=1` with it, because a red suite means the tagged test never ran, so
+  the milestone's own new requirement ids had nothing proving them. One
+  failure, two checks, one cause. The reviewer had read the plan for the
+  module being changed, which is the one place this does not appear.
+
+**And the counter-case, which belongs in the read as much as the rest.** The
+earliest run's two gate failures caught nothing at all: subagents run in the
+background, so the gate photographed a half-written tree and spent an Opus
+REPLAN concluding the files were already correct. That is what produced the
+dirty-tree skip — and `skip-dirty` is now 15 of 53 invocations, the second
+most common outcome. A read that only counted the true positives would make
+this engine look better than it is and would hide where a fifth of the gate's
+work goes.
+
+**What this does not answer.** Two of seven failure classes have ever fired
+in real work. `fail:lint/trace`, `fail:contract`, `fail:scope`, `fail:killed`
+and `fail:hook-error` have not — all five are covered by
+`scripts/gate-fixture.mjs`, deterministically and in CI, which is the better
+place for them. The gap worth naming is `fail:lint/trace`: it is the branch
+that routes a failure to a cheap direct fix instead of an Opus REPLAN, and
+the one place a pure `spec-trace` failure lands. The nearest real run missed
+it by a hair — the trainer port failure had `spec=1`, but `test=1` alongside
+it, so it classified as `behaviour` and took the expensive route. **The cheap
+branch has never been exercised outside the fixture.**
+
+More runs are not what closes that. A run where the suite is green and only
+`spec-trace` is red — a requirement proven by a test that never named its
+id — is a specific thing to provoke, not something to wait for.
 
 ---
 
