@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B14, B15. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it. B4's read is written: it was never blocked on more runs, and the one gap it found — `fail:lint/trace` has never fired outside the fixture — is a run to provoke, not a sample to grow.
+**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it.
 
 ---
 
@@ -491,6 +491,59 @@ three would have quietly changed meaning.
 of which exists here. Reference removed, and the workflow added to
 `SCAN_FILES`.
 
+### B4 — the runs were never what was missing, and the report was counting them twice — `PENDING`
+
+Filed as "the telemetry has no data in it". A consuming project already had
+14 archived runs, 6 carrying telemetry, plus one with a hand-written
+post-mortem — past the 5–8 the item asked for. What was missing was only the
+read.
+
+Writing it found the reason nobody had noticed: `collectRuns()` returned
+`(current)` — the live `.claude/state/` logs — **plus** every archived
+snapshot, as independent runs. A snapshot is a *slice* of that same live log,
+so every run taken on this machine was counted twice. Reported 105 gate
+invocations and 10 failures; the truth is **53 and 5**. It also spliced runs
+days apart into one pseudo-run and reported the seam as a stall: "a PASS
+followed by 11509m of gate silence" was an 8-day gap between unrelated runs.
+No symptom — it scaled every total uniformly, so the report stayed internally
+consistent and only a hand count disagreed.
+
+**What the gate caught that a review pass did not**, across the five real
+failures: a `verify.test` ending in `--findRelatedTests`, which with no file
+arguments is a hard Jest error rather than "run everything" — the contract had
+been red on every gate since it was written, while the plan and the diff were
+both fine; a base that made the changed-file scope empty by construction, so
+the scoped linter would never have run for any milestone of that run, refused
+twice rather than passing; and a port gaining a method that broke a *different*
+module's test double, taking `spec-trace` red with it because a red suite means
+the tagged test never ran. None is a bug in the code its milestone was writing.
+
+**And the counter-case, kept because a read that counts only true positives
+flatters the engine:** the earliest run's two failures caught nothing, having
+photographed a half-written tree. That is what produced the dirty-tree skip —
+now 15 of 53 invocations, the second most common outcome.
+
+Coverage, checked rather than asserted: two of seven failure classes have ever
+fired in real work. The rest live in `gate-fixture.mjs`, which is the better
+place — but `fail:lint/trace` turned out to be covered through **one of its two
+doors only** (a red lint), while the traceability door ran through a case
+asserting `result=fail` and nothing more. The gate classified correctly; only
+the coverage was missing. Now asserted, teeth checked by mutation.
+
+Then provoked live, twice, because it had never fired in production. First
+human-driven: real `gate.mjs`, orphan REQ id, `fail:lint/trace` → one-line fix
+→ `attempt=1 result=pass`, no REPLAN in reach. That proved the gate and **not**
+the agent, which the first write-up claimed and the second corrected. So again
+with a real `spec-flow:implementer` subagent handed only what a `SendMessage`
+recovery carries and never the diagnosis: it read its plan unprompted, wrote a
+real two-case test, and its `NOTES` caught two things nobody pointed it at — a
+`Mk.md` naming a test path the repo's contract does not use, and a REQ id in a
+doc comment (planted by accident) that its contract says proves nothing, flagged
+rather than silently fixed. 34.5k subagent tokens.
+
+Left behind, and now **B22**: `fail:base` writes byte-identical history lines
+from its two causes.
+
 ---
 
 ## B15 — the model-graded half of the prose contract
@@ -514,161 +567,41 @@ doubles it.
 
 ---
 
-## B4 — the telemetry exists and has no data in it
+## B22 — two different refusals write the same line, and only one record survives
 
-`specflow-stats.mjs` already measures the questions worth asking: whether a
-silent PASS strands a run between milestones, whether test-first is honoured
-(by its observable signature — spec written, scoped run red, then source),
-whether the reviewer reviews or rubber-stamps, and whether skill routing
-lands. `telemetry-snapshot.mjs` archives it per run. The instrumentation is
-not the missing piece. **Runs are.**
+`hooks/gate.mjs` refuses an empty changed-file scope for two different
+reasons, and writes both with byte-identical arguments — `hist('fail:base',
+'-', '-', histDashes(config), '-')` at both call sites. One is a base this
+engine cannot NAME; the other is a base that resolves to HEAD, meaning the
+work is being done on the base branch itself. They need different fixes from
+a human: declare `verify.base_ref`, or move the run onto its own branch.
 
-Two corrections to the obvious version of this item:
+**The peers were checked, and this is the only class with the problem.**
+`fail:lint/trace` and `fail:behaviour` also have two doors each, but both come
+from the single call site that writes real field values, so their doors are
+told apart by `lint=1` vs `spec=1` and by `test=1` vs a check's own field.
+Every other class has exactly one cause. `fail:base` is alone in being
+indistinguishable from its own record.
 
-- **Not 30-with versus 30-without.** That comparison is unfalsifiable at any
-  sample this project can afford — task choice dominates, and at real model
-  cost 60 features is weeks of wall time. It also measures the wrong thing.
-- **The falsifiable question is what the gate caught that a review pass did
-  not.** Every gate failure is already logged with its class and the attempt
-  that produced it. Five to eight real runs answer it, and each one is a
-  concrete story rather than a percentage nobody can reproduce.
+The block message does distinguish them, which is why this has never hurt
+anyone standing in front of it. The message is not kept; the history line is.
 
-Note that `specflow-stats.mjs` is deliberately incapable of failing anything
-and is wired into no check — its own header explains why, and that decision
-stays. This item adds data to it, not authority.
+**The run behind it:** B4's read asserted the HEAD door for a real archived
+failure and could not have known — the claim was corrected in the same pass
+that made it (`69c6a7e`). That is the exact reader this matters for: someone
+reading a run's telemetry after the fact, which is the only thing B4 has.
 
-**Done looks like:** 5–8 archived runs in `specflow/archive/`, and a short
-written read of what the gate caught. No new code required, which is why this
-is cheap and keeps getting deferred.
+Sharper because `REFERENCE.md` already states the principle this violates —
+*"'Nothing changed' and 'I could not tell' must never produce the same
+outcome, because one of them is a pass."* It is applied to the decision, where
+both refuse, and not to the record, where both look the same.
 
-### The read
-
-Taken on a consuming project with 14 archived runs, 6 of them carrying
-telemetry, plus one earlier run that has a hand-written post-mortem instead.
-**53 gate invocations: 33 pass, 15 skip-dirty, 3 fail:behaviour, 2 fail:base.**
-
-Read those numbers only from a build that has the tier-dedup fix. Before it,
-the same data reported 105 invocations and 10 failures, because a snapshot is
-a slice of the live log and both tiers were counted as separate runs.
-
-**Five real failures, across two runs. Each one is a story, and none of them
-is a bug in the code the milestone was writing.**
-
-- **A contract that was red on every gate, in every milestone.**
-  `verify.test` ended in `--findRelatedTests`. The gate runs the suite
-  unscoped on every armed gate by design (ADR-008), so it appends no file
-  arguments — and `--findRelatedTests` with no files is a hard Jest CLI
-  error, not "run everything". Two `fail:behaviour` in a row at one sha,
-  `test=1` both times. The repo's contract had been failing every gate since
-  it was written, and the milestone under it was fine. A review pass reads
-  the plan and the diff; neither is wrong here. Only running it says so.
-
-- **A run whose linter was never going to be invoked.** Two `fail:base` at
-  one sha, 44 seconds apart, `lint=-` and `files=-`. The gate refused twice
-  rather than reporting the pass that everything else would have supported.
-  This is the case the engine exists for: had it proceeded, the history would
-  have recorded `lint=-` for every milestone of the run, which reads exactly
-  like a milestone that honestly touched nothing in scope. Eight minutes
-  later the next gate linted 28 files, so whatever a human did in between
-  worked.
-
-  **Which of the two `fail:base` doors fired cannot be recovered, and that is
-  this read's own finding rather than a gap in it.** `resolveBase` throwing —
-  a base this engine cannot name — and a base that resolves to HEAD itself
-  are different refusals needing different human fixes, and
-  `hooks/gate.mjs` writes them with byte-identical history lines
-  (`hist('fail:base', '-', '-', histDashes(config), '-')` at both call
-  sites). The fixture tells them apart because it constructs each and can
-  read the message; telemetry cannot, and telemetry is what survives. An
-  earlier draft of this read asserted the HEAD door from the log, which the
-  log does not support.
-
-- **A port change that broke a different module's test double.** A milestone
-  added `catchPokemon` to a repository port; the fake repository in *another*
-  module's suite stopped satisfying the port's shape. `test=1` — and
-  `spec=1` with it, because a red suite means the tagged test never ran, so
-  the milestone's own new requirement ids had nothing proving them. One
-  failure, two checks, one cause. The reviewer had read the plan for the
-  module being changed, which is the one place this does not appear.
-
-**And the counter-case, which belongs in the read as much as the rest.** The
-earliest run's two gate failures caught nothing at all: subagents run in the
-background, so the gate photographed a half-written tree and spent an Opus
-REPLAN concluding the files were already correct. That is what produced the
-dirty-tree skip — and `skip-dirty` is now 15 of 53 invocations, the second
-most common outcome. A read that only counted the true positives would make
-this engine look better than it is and would hide where a fifth of the gate's
-work goes.
-
-**What this does not answer.** Two of seven failure classes have ever fired
-in real work. `fail:lint/trace`, `fail:contract`, `fail:scope`, `fail:killed`
-and `fail:hook-error` have not — all five appear in
-`scripts/gate-fixture.mjs`, deterministically and in CI, which is the better
-place for them.
-
-Checking that claim rather than asserting it moved it. `fail:lint/trace` is
-one class with **two doors**, and only the lint door was actually asserted: a
-red lint with everything else green. The traceability door — lint green,
-suite green, `spec-trace` red, a test that proves its requirement but never
-named its id — ran through a case that asserted `result=fail` and stopped
-there, so the same failure classifying as `behaviour` and buying an Opus
-REPLAN would have passed it. The gate turned out to classify correctly; what
-was missing was anything that would notice if it stopped. Now asserted, with
-its teeth checked by mutation.
-
-That leaves the honest gap smaller and sharper. The branch is proven to fire
-and to route; what had never happened is a real implementer receiving that
-message and fixing the tag without escalating. The nearest real run missed it
-by a hair — the trainer port failure had `spec=1`, but `test=1` alongside it,
-so it was `behaviour` by rule and took the expensive route.
-
-**Provoked directly, on 2026-08-27, against the same consuming project —**
-not the fixture: `hooks/gate.mjs` invoked for real on a discardable branch, an
-orphan `REQ-POKEMON-015` declared with no test naming it, everything else
-untouched. First invocation: `attempt=1 result=fail:lint/trace lint=- test=0
-spec=1 domain=0`, with `gate-failure.log` naming the exact id and saying the
-plan was not in question. Adding one `it('REQ-POKEMON-015 ...')` closed it:
-`attempt=1 result=pass` on the very next gate, no second `attempt=` line ever
-written, so no REPLAN was ever in reach. The branch is discarded; those two
-history lines are the record.
-
-**What that probe did NOT establish, stated plainly because the sentence
-above reads like it did.** The gap named earlier was a real implementer
-receiving the block message and fixing the tag without escalating. A human
-drove this probe, already knowing what the message would say and what the fix
-was — which tests the gate, not the agent.
-
-**Closed separately, on the same date, against a real `spec-flow:implementer`
-subagent.** A second discardable branch carried a genuine (if small) delta —
-`Pokemon.isLegendary()`, one real method, committed — with its
-`specflow/<SLUG>/plan.md` and `milestones/M1.md` written the way a real
-milestone reads, and the same real gate fired to produce a fresh
-`gate-failure.log`. A fresh `spec-flow:implementer` `Agent` call was then
-handed only what a `SendMessage` recovery actually carries: which milestone,
-where its plan and gate-failure log live, and its own contract — never the
-diagnosis. It read both files unprompted, wrote a real two-case test — not
-the `expect(true).toBe(true)` the human-driven probe used, which is the
-minimal edit that flips `spec-trace` and nothing more — and its `NOTES`
-caught two things nobody told it to look for: `Mk.md` named a test path the repo's own contract does not use, so
-it wrote the test where the contract's `proof_dir` actually points instead,
-citing an existing file as precedent; and the `isLegendary()` doc comment (my
-own fabricated "prior pass") put the REQ id in a comment, which its own
-contract calls out as never proving anything — it named this in `NOTES`
-rather than silently fixing it, correctly reading its own instruction as
-"fix exactly those violations" and nothing more.
-
-The fix closed the gate in one attempt (`attempt=1 result=pass`, same as the
-human-driven probe) once committed — with the process producing one honest
-false failure of its own along the way: a first gate re-run was killed by
-this session's own tool timeout mid-suite, and the NEXT gate invocation
-correctly read the stranded `running` line and reported `fail:killed` rather
-than silently treating the tree as passing — the mechanism `hooks/gate.mjs`
-documents for exactly this case, observed firing for real rather than only
-in the fixture. 34.5k subagent tokens, 18 tool calls, ~73s of agent time —
-the cost of the one thing the first probe could not buy.
-
-Both branches are deleted; the target repo's `.claude/state` was restored
-both times to what it held before.
+**Done looks like:** the two call sites write distinguishable lines, a
+`gate-fixture.mjs` case per door asserting which one it got (both doors are
+already constructed there — `baseRef: 'origin/does-not-exist'` and
+`stayOnBase: true` — and today both can only assert the class), and
+`REFERENCE.md`'s empty-scope paragraph naming the field that tells them apart.
+Small: it is a token in one line, not a redesign.
 
 ---
 
