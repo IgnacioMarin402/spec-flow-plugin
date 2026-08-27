@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Behaviour fixture for scripts/specflow-stats.mjs — the session-reuse
- * section.
+ * section, and the tier merge every section is built on.
  *
  * Every case runs the real script as a child process against a synthetic
  * repo, because that script's whole surface is what it prints: it exports
@@ -62,8 +62,15 @@ const agent = (minute, type, session) =>
 const pass = (minute) =>
   `${stamp(minute)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=pass lint=0 test=0 unscoped=ok files=1`;
 
-/** Builds a repo holding exactly these log lines and returns what stats printed. */
-function report({ trace = [], gate = [] }) {
+/**
+ * Builds a repo holding exactly these log lines and returns what stats printed.
+ *
+ * `archived` writes snapshots under `specflow/archive/<slug>/telemetry/`, the
+ * second tier the script reads. Passing the SAME lines in both tiers is what
+ * a run taken on this machine actually looks like on disk, since a snapshot is
+ * a slice of the live log rather than a separate recording.
+ */
+function report({ trace = [], gate = [], archived = [] }) {
   const repo = mkdtempSync(join(tmpdir(), 'spec-flow-stats-'));
   try {
     mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
@@ -72,6 +79,19 @@ function report({ trace = [], gate = [] }) {
     writeFileSync(join(repo, '.claude', 'state', 'phase'), 'implement');
     writeFileSync(join(repo, '.claude', 'state', 'run-trace.log'), trace.join('\n') + (trace.length ? '\n' : ''));
     writeFileSync(join(repo, '.claude', 'state', 'gate-history.log'), gate.join('\n') + (gate.length ? '\n' : ''));
+
+    for (const snapshot of archived) {
+      const dir = join(repo, 'specflow', 'archive', snapshot.slug, 'telemetry');
+      mkdirSync(dir, { recursive: true });
+      // CRLF on purpose: telemetry-snapshot.mjs writes with the platform's
+      // ending, so a snapshot committed from Windows reaches a reader as CRLF
+      // while the live log it was sliced from is LF. Two spellings of one line
+      // must not read as two invocations.
+      for (const [file, body] of [['gate-history.log', snapshot.gate], ['run-trace.log', snapshot.trace]]) {
+        if (!body?.length) continue;
+        writeFileSync(join(dir, file), `${body.join('\r\n')}\r\n`);
+      }
+    }
 
     const res = spawnSync(process.execPath, [STATS], {
       cwd: repo,
@@ -217,6 +237,42 @@ check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;
   return contains(out, 'Session reuse') || contains(out, 'no run trace yet');
+});
+
+// ---- the two tiers overlap, and only one of them is a separate run ---------
+//
+// `telemetry-snapshot.mjs` copies a slice of `.claude/state/` into the change
+// folder, so a run taken on this machine is present in BOTH tiers. Reading
+// them as independent runs inflates every number the report prints, and the
+// inflation is invisible: it scales the totals without producing a line
+// anyone can point at as wrong.
+//
+// The archived tier wins the tie because it carries the run's slug; a live
+// line with no snapshot is work not yet archived and stays.
+
+check('a snapshot that duplicates the live log is one invocation, not two', () => {
+  const line = pass(4);
+  const { out } = report({ gate: [line], archived: [{ slug: 'shipped', gate: [line] }] });
+  return (
+    contains(out, '1 invocation(s)') ||
+    (/2 invocation\(s\)/.test(out) ? `counted one gate invocation twice, once per tier.\n--- report ---\n${out}` : '')
+  );
+});
+
+check('a live line with no snapshot yet is still counted', () => {
+  const { out } = report({ gate: [pass(4), pass(6)], archived: [{ slug: 'shipped', gate: [pass(4)] }] });
+  return (
+    contains(out, '2 invocation(s)') ||
+    (/3 invocation\(s\)/.test(out) ? `double-counted the archived line.\n--- report ---\n${out}` : '')
+  );
+});
+
+check('a milestone held in both tiers is reported once', () => {
+  const trace = [agent(1, 'implementer'), read(2, 'x/one.ts'), read(3, 'x/one.ts')];
+  const gate = [pass(4)];
+  const { out } = report({ trace, gate, archived: [{ slug: 'shipped', trace, gate }] });
+  const seen = (out.match(/milestone 1:/g) ?? []).length;
+  return seen === 1 ? '' : `milestone 1 was reported ${seen} time(s); the run exists in both tiers but happened once.\n--- report ---\n${out}`;
 });
 
 // ---- report ---------------------------------------------------------------
