@@ -548,6 +548,39 @@ await Promise.all([
     }),
   ),
 
+  // The case above asserts `result=fail` and stops there, which is the whole
+  // reason this one exists: a traceability failure reaching the EXPENSIVE
+  // route would satisfy it unchanged.
+  //
+  // `lint/trace` is one class with two doors, and only the lint door was ever
+  // asserted (via `lint: RED` further down). This is the other: lint green,
+  // suite green, spec-trace red — a test that proves its requirement but
+  // never named its id. The classification is what decides cost, since
+  // `behaviour` on a second attempt spends an Opus REPLAN on a plan that is
+  // not in question, and the block message says so in as many words.
+  //
+  // Never observed in production across the archived runs this repo has read;
+  // the nearest real failure carried `spec=1` with `test=1` alongside, which
+  // is `behaviour` by rule and took the expensive route. So the fixture is the
+  // only thing standing under this branch.
+  check('spec-trace alone, with lint and the suite green, takes the cheap route', () =>
+    withFixture({ specTrace: 'red' }, (r) => {
+      if (!r.blocked) return 'a red spec-trace did not block the stop';
+      if (!/result=fail:lint\/trace/.test(r.history)) {
+        return `a traceability failure with a green suite must classify as lint/trace, or it buys an Opus REPLAN for a plan that is not in question. history: ${r.history}`;
+      }
+      if (!/test=0/.test(r.history)) return `the suite was meant to be green here: ${r.history}`;
+      const reason = r.payload?.reason ?? '';
+      if (!/the tests pass, so the plan is NOT in question/.test(reason)) {
+        return `the block did not route to the direct fix: ${reason}`;
+      }
+      if (/re-?plan/i.test(reason) && !/Do NOT re-plan/.test(reason)) {
+        return `the block asked for a re-plan on a green suite: ${reason}`;
+      }
+      return null;
+    }),
+  ),
+
   // What this case owns, with the wake half covered separately below (a first
   // pass does block, per ADR-010): a green tree is never REJECTED — no
   // `decision: 'block'` whose reason is a failure rather than a pass — and
