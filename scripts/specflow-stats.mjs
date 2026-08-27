@@ -51,21 +51,46 @@ function lines(file, dir = STATE) {
   return readFileSync(path, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
-/** One entry per run: the live one first, then every archived snapshot. */
+/**
+ * One entry per run: the live one first, then every archived snapshot.
+ *
+ * The two tiers OVERLAP and the overlap must be removed here, because every
+ * section below flattens across runs. A snapshot is a slice of the live log,
+ * not a separate recording, so a run taken on this machine is present in both
+ * — and reading them as independent runs multiplies gate invocations, reads,
+ * subagent returns and milestones by two.
+ *
+ * That failure has no symptom: it scales the totals uniformly, so the report
+ * stays internally consistent and no line reads as wrong. It is only visible
+ * against a hand count, which is how it survived.
+ *
+ * The archived tier wins the tie because it carries the run's slug. What is
+ * left in `(current)` is exactly what no snapshot has captured yet, which is
+ * the honest meaning of "current".
+ */
 function collectRuns() {
-  const runs = [{ name: '(current)', dir: STATE }];
-
+  const archived = [];
   for (const base of [join(root, 'specflow', 'archive'), join(root, 'specflow')]) {
     if (!existsSync(base)) continue;
     for (const slug of readdirSync(base).sort()) {
       if (slug === 'archive') continue;
       const dir = join(base, slug, 'telemetry');
-      if (existsSync(dir)) runs.push({ name: slug, dir });
+      if (existsSync(dir)) archived.push({ name: slug, gate: lines('gate-history.log', dir), trace: lines('run-trace.log', dir) });
     }
   }
 
-  return runs
-    .map((r) => ({ name: r.name, gate: lines('gate-history.log', r.dir).map(parse), trace: lines('run-trace.log', r.dir).map(parse) }))
+  // `lines()` trims, so a snapshot committed with CRLF matches the LF log it
+  // was sliced from. Comparing raw text here would let the line ending decide
+  // whether a run counts once or twice.
+  const seen = new Set(archived.flatMap((r) => [...r.gate, ...r.trace]));
+  const live = {
+    name: '(current)',
+    gate: lines('gate-history.log').filter((l) => !seen.has(l)),
+    trace: lines('run-trace.log').filter((l) => !seen.has(l)),
+  };
+
+  return [live, ...archived]
+    .map((r) => ({ name: r.name, gate: r.gate.map(parse), trace: r.trace.map(parse) }))
     .filter((r) => r.name === '(current)' || r.gate.length > 0 || r.trace.length > 0);
 }
 
