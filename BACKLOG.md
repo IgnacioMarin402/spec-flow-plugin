@@ -608,14 +608,21 @@ was missing was anything that would notice if it stopped. Now asserted, with
 its teeth checked by mutation.
 
 That leaves the honest gap smaller and sharper. The branch is proven to fire
-and to route; what has never happened is a real implementer receiving that
+and to route; what had never happened is a real implementer receiving that
 message and fixing the tag without escalating. The nearest real run missed it
 by a hair — the trainer port failure had `spec=1`, but `test=1` alongside it,
 so it was `behaviour` by rule and took the expensive route.
 
-More runs are not what closes that either. A milestone whose suite is green
-and whose only red is `spec-trace` is a specific state to construct, not
-something to wait for.
+**Provoked directly, on 2026-08-27, against the same consuming project —**
+not the fixture: `hooks/gate.mjs` invoked for real on a discardable branch, an
+orphan `REQ-POKEMON-015` declared with no test naming it, everything else
+untouched. First invocation: `attempt=1 result=fail:lint/trace lint=- test=0
+spec=1 domain=0`, with `gate-failure.log` naming the exact id and saying the
+plan was not in question. The fix — one `it('REQ-POKEMON-015 ...')` added to
+an existing spec, nothing else touched — closed it: `attempt=1 result=pass`
+on the very next gate. One attempt, no REPLAN, no second `attempt=` line ever
+written. The branch is discarded; the two gate-history lines above are the
+record.
 
 ---
 
