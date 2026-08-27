@@ -636,17 +636,39 @@ history lines are the record.
 above reads like it did.** The gap named earlier was a real implementer
 receiving the block message and fixing the tag without escalating. A human
 drove this probe, already knowing what the message would say and what the fix
-was — which tests the gate, not the agent. The routing is now proven to fire,
-classify and clear on one attempt; whether an implementer subagent reaches
-the same edit from the same message is still unobserved, and only a real run
-answers it.
+was — which tests the gate, not the agent.
 
-The fix used was also the degenerate one: `expect(true).toBe(true)` under a
-name containing the id. That is the minimal edit that flips `spec-trace`,
-which is what isolates the routing — and it is worth saying out loud that
-`spec-trace` accepts it, because binding an id to a test that RAN is the
-whole of its contract. Whether the test proves anything belongs to review and
-to the implementer's own instructions, not to this check.
+**Closed separately, on the same date, against a real `spec-flow:implementer`
+subagent.** A second discardable branch carried a genuine (if small) delta —
+`Pokemon.isLegendary()`, one real method, committed — with its
+`specflow/<SLUG>/plan.md` and `milestones/M1.md` written the way a real
+milestone reads, and the same real gate fired to produce a fresh
+`gate-failure.log`. A fresh `spec-flow:implementer` `Agent` call was then
+handed only what a `SendMessage` recovery actually carries: which milestone,
+where its plan and gate-failure log live, and its own contract — never the
+diagnosis. It read both files unprompted, wrote a real two-case test — not
+the `expect(true).toBe(true)` the human-driven probe used, which is the
+minimal edit that flips `spec-trace` and nothing more — and its `NOTES`
+caught two things nobody told it to look for: `Mk.md` named a test path the repo's own contract does not use, so
+it wrote the test where the contract's `proof_dir` actually points instead,
+citing an existing file as precedent; and the `isLegendary()` doc comment (my
+own fabricated "prior pass") put the REQ id in a comment, which its own
+contract calls out as never proving anything — it named this in `NOTES`
+rather than silently fixing it, correctly reading its own instruction as
+"fix exactly those violations" and nothing more.
+
+The fix closed the gate in one attempt (`attempt=1 result=pass`, same as the
+human-driven probe) once committed — with the process producing one honest
+false failure of its own along the way: a first gate re-run was killed by
+this session's own tool timeout mid-suite, and the NEXT gate invocation
+correctly read the stranded `running` line and reported `fail:killed` rather
+than silently treating the tree as passing — the mechanism `hooks/gate.mjs`
+documents for exactly this case, observed firing for real rather than only
+in the fixture. 34.5k subagent tokens, 18 tool calls, ~73s of agent time —
+the cost of the one thing the first probe could not buy.
+
+Both branches are deleted; the target repo's `.claude/state` was restored
+both times to what it held before.
 
 ---
 
