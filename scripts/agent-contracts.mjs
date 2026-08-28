@@ -38,6 +38,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { returnBlocks } from './agent-blocks.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = join(ROOT, 'agents');
@@ -143,17 +144,15 @@ const NOT_ROUTED = {
   ARCHIVED: 'a confirmation of the move; an unarchived specflow/<SLUG>/ is caught by phase-guard when `done` is written, which is a check rather than a prompt',
 };
 
-const returnBlocks = [...readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8').matchAll(/```\n(STATUS:[\s\S]*?)```/g)];
+const declared = returnBlocks(readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8'));
 
-if (returnBlocks.length === 0) {
+if (declared.blocks === 0) {
   problems.push(
     'agents/spec-writer.md declares no `STATUS:` return block. They are anchored to a fenced block opening with `STATUS:`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.',
   );
 }
 
-const returnFields = new Set(
-  returnBlocks.flatMap((b) => [...b[1].matchAll(/^([A-Z][A-Z_]+):/gm)].map((m) => m[1])),
-);
+const returnFields = new Set(declared.fields);
 
 for (const field of [...returnFields].sort()) {
   if (field in NOT_ROUTED) continue;
