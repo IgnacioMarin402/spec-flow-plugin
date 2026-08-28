@@ -136,6 +136,15 @@ jobs:
       - name: Decisions are reachable from the code
         run: npm run decisions:check
 
+      # The comment rule shipped with a skill, a CLAUDE.md section, the records
+      # and decisions:check — and nothing that measured the thing the rule is
+      # about, so the pass that applied it closed on a number in a backlog
+      # entry. This counts transition TEXT rather than comment density, which
+      # is the skill's own conclusion: the two turn out to be near-independent
+      # here, so a percentage is a poor way to decide where to look.
+      - name: History has not moved back into the comments
+        run: npm run comments:check
+
       # The only check over the PROSE half of this plugin. The agents and
       # commands are Markdown that no fixture executes, and the failure this
       # closes has already happened: a field was added to the planner's
