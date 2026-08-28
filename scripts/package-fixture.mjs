@@ -138,12 +138,17 @@ async function run() {
         name: 'consumer',
         version: '1.0.0',
         type: 'module',
-        scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' },
+        // A script FILE for lint, not `node -e "…"`. A quoted `-e` body cannot
+        // survive into a contract — the argv is spawned with no shell, so node
+        // evaluates the quotes as part of a string literal — and `init` refuses
+        // it outright, which would leave this consumer with no lint command.
+        scripts: { test: 'node --test', lint: 'node lint.js' },
       },
       null,
       2,
     )}\n`,
   );
+  writeFileSync(join(repo, 'lint.js'), 'process.exit(0);\n');
   for (const name of ['a', 'b', 'c', 'd', 'e']) {
     writeFileSync(join(repo, 'lib', `${name}.js`), `export const ${name} = () => '${name}';\n`);
   }
@@ -230,6 +235,18 @@ async function run() {
   check(
     'traceability works from the installed package',
     /every one proven by a test/.test(out) ? null : `spec-trace did not bind the requirement:\n${out}`,
+  );
+
+  // The plugin stamps `engine=` into every gate-history line; this is the
+  // OTHER install (ADR-016), and the two move independently. Without this end
+  // naming its own revision there is nothing to compare a CI log against, so a
+  // drift between the two copies is invisible from both sides. Asserted HERE
+  // because this is the only fixture that runs the CLI the way a consumer
+  // installs it — from a tarball with no `.git`, which is exactly the case
+  // whose answer is the `v`-prefixed fallback.
+  check(
+    'spec-flow check names the engine revision that ran',
+    /^engine \S+$/m.test(out) ? null : `the CLI reported no engine revision, so this install cannot be compared with the plugin's:\n${out}`,
   );
 
   // `trace` and `stats` are dispatched by the same bin and reach different

@@ -292,6 +292,21 @@ t('no-gate-cmds denies a whole-repo run', (repo) => {
   return null;
 });
 
+// The denial's whole job is redirecting an implementer, so a command it names
+// that does not resolve is worse than no message: the reader is an agent
+// mid-milestone that cannot install anything, and the hook says in its own
+// source that it is evadable. The contract's own alternative can be anything
+// the repo declared — including a script whose binary is not installed — so
+// what is asserted here is that the message ALSO names a route needing
+// nothing, and that the route is a file this plugin actually ships.
+t('no-gate-cmds names a check that needs nothing installed, and it exists', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
+  const named = /^\s*node (.+check-changed\.mjs)\s*$/m.exec(r.stderr);
+  if (!named) return `the denial names no install-free route:\n${r.stderr.slice(0, 400)}`;
+  if (!existsSync(named[1])) return `it names ${named[1]}, which does not exist — the implementer is sent to a path that is not there`;
+  return null;
+});
+
 t('no-gate-cmds allows the declared scoped command', (repo) => {
   const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run check' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0 (allow). stderr: ${r.stderr.slice(0, 200)}`;

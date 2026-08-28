@@ -544,6 +544,226 @@ rather than silently fixed. 34.5k subagent tokens.
 Left behind, and now **B22**: `fail:base` writes byte-identical history lines
 from its two causes.
 
+### B23 — the report this engine asks for was disarming the gate every other stop — `PENDING`
+
+`init` declares `trace.report.path` and gitignored `.claude/state/` alone. The
+suite writes that report on every armed gate, so the tree was dirty at the next
+stop and the quiescence guard stopped judging. Measured on a repo built through
+the documented route: the run alternated `pass`, `skip-dirty`, `pass`,
+`skip-dirty` — every other milestone judged, and a skip is not a failure, so
+nothing anywhere said so.
+
+The wake ADR-012 added does fire, and it misdiagnoses: it says "commit what is
+left", which tracks the report, after which the suite rewrites it and the
+alternation continues with the file churning in history. Recovering needs
+`git rm --cached`, which no document mentioned.
+
+**Nothing could have caught it, and where the hole was is the finding.**
+`gate-fixture`'s `verify.test` is a no-op that never writes a report and seeds
+one at baseline, so the file was tracked and unchanged in every case;
+`cold-start` is the only fixture that walks a real adoption and it never
+invokes the gate hook. The defect lived precisely in the intersection.
+
+`init` now ignores the report's directory beside `.claude/state/`, and the gate
+excludes the declared path from its own dirty check — same exclusion, same
+reason as the state directory: both are dirt this engine caused, not evidence
+of an implementer mid-write. Prefix rather than equality, because git collapses
+an untracked directory into one entry and that is the shape the first gate
+leaves behind. The new gate case runs two stops with a commit between them and
+a suite that really writes a report; red on the commit before the fix.
+
+### B24 — init wrote shell quotes into an argv that is spawned without one — `PENDING`
+
+`parseScript` split a package script on whitespace and kept the quote
+characters, so `"test": "mocha --spec \"test/**/*.spec.js\""` became a contract
+whose runner receives `"test/**/*.spec.js"` as literal text and matches no
+file. Reported as `detected` rather than `REVIEW`, and printed back without the
+quotes, so nothing asked anyone to look.
+
+The consequence range runs from a loud failure to a green gate over zero
+executed tests — the case REFERENCE's own "do not add `--passWithNoTests`" rule
+exists to prevent, arriving through a different door.
+
+A quoted argument is the same kind of thing as a chained one: something only a
+shell resolves. `parseScript` already refused `[&|;><]`, so quotes now go the
+same way, with the two reported apart because the remedies differ. The `MISSING`
+line names which it hit.
+
+**It found a live instance in this repo.** `cold-start` and `skill-contract`
+both declared `lint: node -e "process.exit(0)"`, and with the quotes surviving
+into the argv node evaluates a string literal: measured, a body of
+`process.exit(1)` exits **0**. Both fixtures had been running a linter that was
+green by construction. `cold-start` now runs `node --check` over the files it is
+handed — a real linter that installs nothing.
+
+### B25 — the only escape hatch the deny hook offers did not exist — `PENDING`
+
+`init` hardcoded `scoped_alternative: "<pm> run check"` without checking that
+the script existed, and did not add it. On a repo built through the documented
+route `npm run check` returns `Missing script: "check"`, and `no-gate-cmds`
+prints that command three times to an implementer it has just denied — from a
+hook whose own source says it is evadable. What a stuck agent learns there is
+to route around the guard.
+
+`npx spec-flow check` was the obvious fix and is the wrong one: npx in a repo
+that has not installed the dependency reaches the registry, where that name
+belongs to an unrelated package — the hazard the README already spells out.
+`init` now writes the alias `bin/spec-flow.mjs` itself documents,
+`"check": "spec-flow check"`, which resolves through `node_modules/.bin` and
+fails plainly when the dependency is absent. A `check` the repo wrote itself is
+never replaced, on the rule `specs/README.md` already had.
+
+### B26 — an agent contract described a gated check as unconditional — `PENDING`
+
+`agents/implementer.md` told the model that `spec-trace` fails a milestone with
+no `Skills:` field. That stopped being true when the check became
+`trace.require_skills_field`, off by default. `agents/reviewer.md` was updated
+in that commit and the implementer was not — the same coupled-contract failure
+`CLAUDE.md` documents, one file away from the check that looks for it, since
+`agent-contracts.mjs` compares planner against reviewer and nothing compared an
+agent's prose against the engine's behaviour.
+
+Verified before the fix: default contract, milestone with no field, `spec-trace`
+exits 0.
+
+The new half of `agent-contracts.mjs` reads the gated fields out of
+`spec-trace.mjs` itself rather than listing them, then requires that an agent
+asserting a spec-trace failure about a gated subject names the gating field in
+the same file. It cannot judge whether prose is true; it can insist the
+condition is stated, which is the fact that goes stale when a check moves
+between unconditional and opt-in. Red on the live defect and on nothing else.
+
+### B27 — the front page promised behaviour; the machine binds names — `PENDING`
+
+"A feature ships only when a test that actually ran proves every requirement in
+its spec." What is enforced is that a test whose reported name carries the id
+executed and did not fail. Measured: a requirement added to `specs/` and a test
+carrying its id with an empty body reports `OK — proven by` and passes the gate,
+with nothing implemented.
+
+This is ADR-001 working rather than failing — the engine reads no source code,
+which is what makes it stack-agnostic. The gap was the claim, in a repo whose
+own rule is that a check whose reach is overestimated is the same liability as
+one that is disarmed. The README now states what the machine binds and what the
+reviewer and the sign-off are for.
+
+**Both follow-ons are now resolved, and one of them by refusal.**
+
+*The report-side check does not exist and cannot.* The JUnit schema has an
+`assertions` attribute, which made it look available; captured from real runs,
+no runner in scope populates it. `time` is the only quantity present and it
+does not separate the cases — the real assertion and the empty body measured
+1.45ms and 0.28ms, a gap under the noise of a loaded runner, and **mocha
+reports `time="0"` for tests that genuinely ran and passed**. Any "zero time is
+suspicious" rule flags real proofs on one of the three runners this engine
+supports. Refused, with the measurement, in ADR-020.
+
+*The reading is placed in `MODE=FOLD`.* Whether a test asserts its requirement
+is a judgement, not a parse, so it belongs to a model — the question was which
+and when. FOLD already reads the deltas, already verifies each landed in
+`specs/`, already reports through `GAPS:`, and is already forbidden from
+touching tests. It costs **no new agent invocation**: one pass per change
+rather than the per-milestone reviewer pass the plan floated, which would also
+have reversed a decision already taken and recorded. It reports; it does not
+gate.
+
+Left behind and closed with it: `GAPS:` was a field no command named, so the
+one finding nothing else in this engine can produce reached the orchestrator
+and stopped. `agent-contracts.mjs` now binds every spec-writer return field to
+a command that reads it or to a stated exemption — red on `80a2a56`, where
+`GAPS` was among the unrouted.
+
+### B28 — the cheapest outcome in the flow was paying the highest price — `PENDING`
+
+A repeat stop on a commit already reported green ran lint, the whole suite and
+every unscoped check, and then discovered from the history that it had nothing
+to say. The sha guard was inside `passAndExit`, after the work. Measured with a
+3-second suite: three stops on one clean tree, 3.3s each, two of them to print
+"already reported". On a five-minute suite that is five minutes of frozen
+session per repeat stop, and Stop fires on every turn end.
+
+The check now runs before anything is spawned. The tree is clean and the sha
+unchanged, so no verdict this gate is entitled to reach can have moved; ADR-008
+requires the suite never be scoped to the diff, not that it be re-run against a
+tree byte for byte identical to one it just passed. What is given up is catching
+a suite that goes red with nothing committed — and a flaky suite doing that
+would today drive a milestone already reported green into a REPLAN.
+
+The stop is still recorded, with every field `-`: reprinting `lint=0 test=0` for
+commands that did not run is the lie `lintField` exists to refuse. The
+now-unreachable branch in `passAndExit` was removed rather than left looking
+armed, and REFERENCE's routing flowchart moved the decision to where it now
+happens.
+
+Two cases. The measuring one — a `verify.test` that appends a line, asserting
+the suite ran once across two stops — is red on the commit before. Its companion
+(a new commit is judged however recently the previous one passed) passes both
+ways: a guard on the new behaviour, not proof of the defect.
+
+### B29 — one half of the distribution could not say which revision it was — `PENDING`
+
+The gate stamps `engine=` into every `gate-history.log` line. `spec-flow check`
+is the other install (ADR-016) and said nothing, so a CI log and a gate line
+could not be compared and a drift between the two copies was invisible from
+both sides. It now prints the revision it resolved — reported, never checked,
+for the reason ADR-004 gives about `cc=`. A git-spec install has no `.git`, so
+the answer is usually the `v`-prefixed version, which is the honest one and why
+ADR-018 gave that prefix a meaning.
+
+The README's install line is pinned too. A bare git spec follows `main`, so CI
+re-resolved the engine on every install and two builds of one commit could be
+judged by two engines; `#main` is written out as the unpinned form so that
+choosing it is a choice.
+
+Asserted in `package-fixture`, the only check that runs the CLI the way a
+consumer installs it — from a tarball with no `.git`, which is exactly the case
+whose answer is the fallback.
+
+### B30 — B13 shipped a rule and no instrument, and has drifted since — `PENDING`
+
+B13 closed on "the engine settled around 37%". This file's own header says an
+item is done when a check goes red before the fix and green after, **not when a
+paragraph says so**, and that number is a paragraph: measured with one
+consistent method at `34c4fc2` — the commit that declared the pass finished —
+the engine reads 42.0% and `spec-trace` 46%, not 37% and 40%. No counting method
+tried reproduces the recorded figures.
+
+Measured across three commits in a throwaway clone, same script each time:
+
+| commit | date | engine | spec-trace | config | gate |
+|---|---|---|---|---|---|
+| `34c4fc2` | 08-16 | 42.0% | 46% | 37% | 50% |
+| `11b431c` | 08-22 | 42.9% | 50% | 41% | 51% |
+| `80a2a56` | 08-27 | 44.2% | 50% | 43% | 53% |
+
+Three identical files, all rising: not a composition effect. And the rise is of
+the kind B13 existed to remove, not only of ratio — transition text went
+**15 → 20 → 23** over the same commits, counted with a pattern narrowed until it
+stopped matching ordinary English. (A first, wider one reported 48 against a
+real 23, by matching "before this" and "it was" inside invariants. Reporting
+that number would have been the overclaim this repo refuses.)
+
+**What this is not is a request to trim comments.** B13 is right that the 50%
+figure was never uniform bloat, and the skill says a file at 45% whose comments
+are all invariants is finished. The skill goes further and supplies this item's
+own argument: ratio and transition text are near-independent here, "which is why
+a percentage is a poor way to decide where to look and a worse way to decide
+when to stop". The rule had already identified the right signal and shipped
+nothing that measured it.
+
+`scripts/comment-transitions.mjs` counts transition text over `hooks/`,
+`scripts/` and `bin/` — no fixture exemption, since the skill says outright that
+none is exempt and the one time they were, the exclusion was hiding history in
+four files. The count is asserted **equal** to a recorded number rather than
+capped: a ceiling only notices the direction that gets worse, and a count
+drifting below it is the same stale figure this replaces. Zero is not the
+target — the skill names the case where an old shape is a trap and one line
+naming it is an invariant.
+
+Baseline 29, and the check states in its own header that a minority of those are
+a domain sense rather than a file's past. It is a tripwire, not a census: its
+job is to move.
+
 ---
 
 ## B15 — the model-graded half of the prose contract
@@ -667,6 +887,17 @@ further deletes what the rule exists to protect.
 **Done looks like:** headers that open with what the file guarantees rather
 than with what it used to do, across `hooks/` and `scripts/`, with the
 transition text landing in commit messages as it goes.
+
+**Correction, from B30.** The percentages in this entry are not reproducible.
+Measured with one consistent method at `34c4fc2` — the commit that declared
+this pass finished — the engine reads 42.0% and `spec-trace` 46%, against the
+37% and 40% recorded above; no counting method tried produces the recorded
+figures. The conclusion the entry draws is unaffected and still right: the
+reduction was uneven because the ratio was never the signal. What the entry
+lacked was an instrument, so nothing noticed the figures rising afterwards.
+`scripts/comment-transitions.mjs` is that instrument, and it measures
+transition text rather than density, for the reason this entry itself
+discovered. See **B30**.
 
 ---
 

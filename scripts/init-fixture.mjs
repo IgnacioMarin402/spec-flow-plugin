@@ -446,6 +446,33 @@ await Promise.all([
     }),
   ),
 
+  // A quoted argument is the same kind of thing as a chained one: something
+  // only a SHELL resolves, in a field the engine spawns without one. Splitting
+  // on whitespace keeps the quote characters, and the runner then receives
+  // `"test/**/*.spec.js"` as literal text and matches no file — which for a
+  // runner that exits 0 on an empty match is a green gate over zero executed
+  // tests. Both fields, because only `verify.lint` has `stripTargets` to
+  // accidentally rescue it.
+  check('a quoted argument is left to the human rather than passed through as text', () =>
+    withRepo(
+      {
+        ...COMPLETE,
+        scripts: { test: 'mocha --spec "test/**/*.spec.js"', lint: 'eslint --rulesdir "./rules" src' },
+      },
+      async (dir) => {
+        await run([], dir);
+        const c = readContract(dir);
+        for (const field of ['test', 'lint', 'lint_no_fix']) {
+          const quoted = (c.verify[field] ?? []).filter((t) => /["']/.test(t));
+          if (quoted.length > 0) {
+            return `verify.${field} carries shell quotes as literal text (${JSON.stringify(quoted)}); the gate spawns this argv with no shell, so the runner receives the quote characters`;
+          }
+        }
+        return null;
+      },
+    ),
+  ),
+
   // ---- an interpreter is not a runner ----
   //
   // Found by running init against a real repo, not by this fixture: a test
@@ -567,6 +594,54 @@ await Promise.all([
       await run(['--force'], dir);
       if (readFileSync(join(dir, 'specs', 'README.md'), 'utf8') !== '# ours\n') {
         return 'a repo\'s own spec conventions were overwritten — this is documentation, not engine state';
+      }
+      return null;
+    }),
+  ),
+
+  // `scoped_alternative` is the ONLY thing `no-gate-cmds` offers an
+  // implementer it has just denied, and the hook prints it three times. Named
+  // as a script the repo does not have, the implementer is told to run
+  // `Missing script: "check"` — and that hook says in its own source that it
+  // is evadable, so what a stuck implementer learns is to route around it.
+  check('the scoped alternative init writes names a command the repo actually has', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const alternative = readContract(dir).unscoped_denied?.scoped_alternative ?? '';
+      const script = /^\S+\s+run\s+(\S+)/.exec(alternative)?.[1];
+      if (!script) return `scoped_alternative is not a "<pm> run <script>" invocation: ${JSON.stringify(alternative)}`;
+      const scripts = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts ?? {};
+      if (!scripts[script]) {
+        return `scoped_alternative is "${alternative}" and package.json declares no "${script}" script, so the only escape hatch the deny hook offers exits non-zero: ${JSON.stringify(Object.keys(scripts))}`;
+      }
+      return null;
+    }),
+  ),
+
+  check('a check script the repo already wrote is never replaced', () =>
+    withRepo({ ...COMPLETE, scripts: { ...COMPLETE.scripts, check: 'make verify' } }, async (dir) => {
+      await run(['--force'], dir);
+      const scripts = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts ?? {};
+      if (scripts.check !== 'make verify') return `the repo's own check script was overwritten with ${JSON.stringify(scripts.check)}`;
+      return null;
+    }),
+  ),
+
+  // The other file this engine causes a repo to churn, and the one it names
+  // itself: `trace.report.path` is written by the SUITE on every gate, so
+  // left tracked-or-untracked it dirties the tree between one stop and the
+  // next, and the quiescence guard stops judging every other milestone. The
+  // gate excludes the path too; this is the half that keeps `git status`
+  // legible, exactly as for `.claude/state/`.
+  check('it gitignores the report it just told the suite to write', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const declared = JSON.parse(readFileSync(join(dir, '.spec-flow', 'config.json'), 'utf8')).trace?.report?.path;
+      if (!declared) return 'this repo got no trace.report, so the case is testing nothing — fix the fixture, not the engine';
+      const lines = readFileSync(join(dir, '.gitignore'), 'utf8').split('\n').map((l) => l.trim());
+      const dir0 = `${declared.split('/')[0]}/`;
+      if (!lines.includes(dir0) && !lines.includes(declared)) {
+        return `neither ${dir0} nor ${declared} is gitignored, so the suite's own report dirties the tree at every stop: ${JSON.stringify(lines)}`;
       }
       return null;
     }),

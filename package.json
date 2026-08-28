@@ -34,6 +34,7 @@
     "coupling:check": "node scripts/coupling-fixture.mjs",
     "paths:check": "node scripts/plugin-paths.mjs",
     "decisions:check": "node scripts/decisions.mjs",
+    "comments:check": "node scripts/comment-transitions.mjs",
     "agents:check": "node scripts/agent-contracts.mjs",
     "skill:check": "node scripts/skill-contract.mjs",
     "pack:check": "node scripts/package-fixture.mjs",

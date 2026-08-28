@@ -66,11 +66,27 @@ try {
         // setup, it is the case where `init` CANNOT name the runner from the
         // bin, and it is therefore the one that proves the reporter flag is
         // found from the argv rather than from `test_name`.
-        scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' },
+        //
+        // `lint` runs a script FILE rather than `node -e "…"`, and the
+        // difference is not cosmetic. A quoted `-e` body cannot survive the
+        // trip into a contract: the argv is spawned with no shell, so the
+        // quotes reach node as part of the value and it evaluates a string
+        // literal — measured, a body of `process.exit(1)` exited 0. This
+        // fixture's linter was green by construction for as long as it was
+        // written that way, which is the one thing a cold start must not be.
+        scripts: { test: 'node --test', lint: 'node lint.js' },
       },
       null,
       2,
     )}\n`,
+  );
+  // A real linter, installing nothing: `node --check` parses a file and fails
+  // on a syntax error, so the gate's scoped lint actually inspects the files
+  // it is handed instead of exiting 0 whatever it is given.
+  writeFileSync(
+    join(repo, 'lint.js'),
+    "import { execFileSync } from 'node:child_process';\n" +
+      "for (const file of process.argv.slice(2)) execFileSync(process.execPath, ['--check', file]);\n",
   );
   writeFileSync(join(repo, 'lib', 'login.js'), 'export const login = (user, password) => password === "right";\n');
   // Enough files for the scope globs to be a reading rather than a guess. A

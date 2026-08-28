@@ -83,11 +83,16 @@ try {
   writeFileSync(
     join(repo, 'package.json'),
     `${JSON.stringify(
-      { name: 'fixture', version: '1.0.0', type: 'module', scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' } },
+      // `lint` runs a script FILE: a quoted `-e` body cannot survive into a
+      // contract, because the argv is spawned with no shell and node then
+      // evaluates the quotes as part of a string literal. `init` refuses it
+      // outright now, which would leave this repo with no lint command at all.
+      { name: 'fixture', version: '1.0.0', type: 'module', scripts: { test: 'node --test', lint: 'node lint.js' } },
       null,
       2,
     )}\n`,
   );
+  writeFileSync(join(repo, 'lint.js'), 'process.exit(0);\n');
   writeFileSync(join(repo, 'lib', 'a.js'), 'export const a = 1;\n');
   writeFileSync(
     join(repo, 'test', 'a.test.js'),
