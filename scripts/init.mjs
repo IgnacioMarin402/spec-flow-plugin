@@ -83,11 +83,34 @@ function readJson(path) {
  * Wrapper prefixes are stripped, so a script written as `npm exec -- vitest
  * run` yields the same answer as one written as `vitest run`.
  */
+/**
+ * Why a script cannot become a contract argv, or null when it can.
+ *
+ * Both answers are the same kind of thing — something only a SHELL resolves,
+ * in a field this engine spawns without one — and they are reported apart
+ * because the remedies differ: a chain has to be split by a human, a quoted
+ * argument usually just loses its quotes. A message naming the wrong one
+ * sends someone to edit the wrong thing.
+ *
+ * Quoting is the half that reads as working. Splitting on whitespace KEEPS
+ * the quote characters, so `--spec "test/**\/*.spec.js"` reaches the runner
+ * as literal text, matches no file, and on any runner that exits 0 for an
+ * empty match becomes a green gate over zero executed tests.
+ */
+function shellOnly(script) {
+  if (!script) return null;
+  if (/[&|;><]/.test(script)) return 'it chains or redirects commands, so it is not one runner invocation';
+  if (/["']/.test(script)) {
+    return 'it quotes an argument, and this engine spawns the argv directly — with no shell to remove the quotes, the runner receives them as part of the value';
+  }
+  return null;
+}
+
 function parseScript(script) {
   if (!script) return null;
-  // A script chaining commands is not one runner invocation; the engine needs
-  // a single argv it can spawn, so anything compound is left to the human.
-  if (/[&|;><]/.test(script)) return null;
+  // The engine needs a single argv it can spawn. Anything a shell would have
+  // had to resolve first is left to the human — see `shellOnly`.
+  if (shellOnly(script)) return null;
 
   const tokens = script.trim().split(/\s+/).filter(Boolean);
 
@@ -313,7 +336,12 @@ export function buildContract(root) {
       );
     }
   } else {
-    missing.push('verify.test and verify.test_name — no single-command "test" script to read them from.');
+    const why = shellOnly(scripts.test);
+    missing.push(
+      why
+        ? `verify.test and verify.test_name — the "test" script (${scripts.test}) could not be read: ${why}. Write the argv by hand, one token per array element and no quotes around any of them.`
+        : 'verify.test and verify.test_name — no single-command "test" script to read them from.',
+    );
   }
 
   // --- linter. An autofix variant is used when the repo declares one; it is
@@ -364,7 +392,12 @@ export function buildContract(root) {
       );
     }
   } else {
-    missing.push('verify.lint, verify.lint_no_fix and verify.lint_name — no single-command "lint" script to read them from.');
+    const why = shellOnly(scripts.lint) ?? shellOnly(scripts['lint:fix'] ?? scripts.format);
+    missing.push(
+      why
+        ? `verify.lint, verify.lint_no_fix and verify.lint_name — the lint script could not be read: ${why}. Write the argv by hand, one token per array element and no quotes around any of them.`
+        : 'verify.lint, verify.lint_no_fix and verify.lint_name — no single-command "lint" script to read them from.',
+    );
   }
 
   const lintConfigHint = findConfigFile(root, lintName);
@@ -611,8 +644,62 @@ This file is excluded from the check by \`trace.not_a_capability\`, so it is
 documentation rather than a spec.
 `;
 
-/** Creates the directories, the specs contract and the gitignore line. Returns what it changed. */
-export function scaffold(root) {
+/**
+ * The `check` alias, added when the repo has none.
+ *
+ * `unscoped_denied.scoped_alternative` is the only thing `no-gate-cmds`
+ * offers an implementer it has just denied, and that hook prints it three
+ * times. Pointed at a script the repo does not have, a stuck implementer gets
+ * `Missing script: "check"` — from a hook that says in its own source it is
+ * evadable, which makes evasion the thing the guard rail teaches.
+ *
+ * `spec-flow check`, never `npx spec-flow check`: npx in a repo that has NOT
+ * installed the dependency reaches the registry, where that name belongs to
+ * an unrelated package — the hazard the README spells out. A script resolves
+ * through `node_modules/.bin` and fails plainly when the dependency is
+ * missing. The alias is the one `bin/spec-flow.mjs` already documents.
+ *
+ * Never replaces a `check` the repo wrote itself, on the same rule as
+ * `specs/README.md`: this is the adopter's file, and their command wins.
+ */
+function ensureCheckScript(root) {
+  const path = join(root, 'package.json');
+  let raw;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+
+  let pkg;
+  try {
+    pkg = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (pkg.scripts?.check) return null;
+
+  // The file's own indentation, so adding one line does not reformat a file
+  // the adopter has to read the diff of.
+  const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? '  ';
+  pkg.scripts = { ...pkg.scripts, check: 'spec-flow check' };
+  try {
+    writeFileSync(path, `${JSON.stringify(pkg, null, indent)}\n`);
+  } catch {
+    return null;
+  }
+  return 'added a "check" script to package.json — it runs the gate\'s own commands, scoped to this branch, and is what the deny hook points an implementer at';
+}
+
+/**
+ * Creates the directories, the specs contract, the gitignore lines and the
+ * `check` alias. Returns what it changed.
+ *
+ * `reportPath` is `trace.report.path` from the contract just written, and it
+ * is a parameter rather than a re-read because the caller has the contract in
+ * hand and a second reader of it could disagree with the first.
+ */
+export function scaffold(root, reportPath = '') {
   const done = [];
 
   for (const dir of ['specs', join('specflow', 'archive')]) {
@@ -630,13 +717,37 @@ export function scaffold(root) {
     done.push('created specs/README.md — the capability-spec contract');
   }
 
+  // Two paths this engine makes a repo churn, and both have to be ignored or
+  // the gate stops judging. `.claude/state/` is the gate's own bookkeeping,
+  // rewritten on every stop. `trace.report.path` is the file the SUITE
+  // writes — and the gate is what runs the suite, so it lands in the tree on
+  // every armed invocation and the NEXT stop reads it as an implementer
+  // mid-write. Left out, a run alternates pass / skip-dirty for its whole
+  // length: every other milestone judged, the rest not, and a skip is not a
+  // failure, so nothing anywhere says so.
+  //
+  // The report is ignored by its DIRECTORY where it has one. That is the
+  // surface a runner actually fills — several drop siblings beside the file
+  // this contract names — and it is also what git reports when the directory
+  // is untracked, which is the state the first gate leaves it in.
+  const lines = ['.claude/state/'];
+  const reportDir = reportPath ? reportPath.replace(/\\/g, '/').split('/')[0] : '';
+  if (reportPath) lines.push(reportDir && reportDir !== reportPath ? `${reportDir}/` : reportPath);
+
   const gitignore = join(root, '.gitignore');
-  const line = '.claude/state/';
-  const current = existsSync(gitignore) ? readFileSync(gitignore, 'utf8') : '';
-  if (!current.split('\n').some((l) => l.trim() === line)) {
-    appendFileSync(gitignore, `${current && !current.endsWith('\n') ? '\n' : ''}${line}\n`);
+  let current = existsSync(gitignore) ? readFileSync(gitignore, 'utf8') : '';
+  for (const line of lines) {
+    if (current.split('\n').some((l) => l.trim() === line)) continue;
+    const prefix = current && !current.endsWith('\n') ? '\n' : '';
+    appendFileSync(gitignore, `${prefix}${line}\n`);
+    // Kept in step with the file, so the second line's own "already there?"
+    // question is asked against what the first one just wrote.
+    current += `${prefix}${line}\n`;
     done.push(`added ${line} to .gitignore`);
   }
+
+  const checkScript = ensureCheckScript(root);
+  if (checkScript) done.push(checkScript);
 
   return done;
 }
@@ -687,7 +798,7 @@ if (isMain) {
     );
   }
 
-  for (const line of scaffold(root)) console.log(`  ${line}`);
+  for (const line of scaffold(root, contract.trace.report?.path)) console.log(`  ${line}`);
   if (detected.length > 0) console.log('');
 
   for (const line of detected) console.log(`  detected  ${line}`);
