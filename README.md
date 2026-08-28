@@ -80,21 +80,46 @@ Run it from your repo's root, on a branch off your base branch:
 ```bash
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
+```
 
+That is the whole install. Then, from your repo's root:
+
+```bash
+node <the plugin's path>/scripts/init.mjs   # writes .spec-flow/config.json
+```
+
+**One install, and the plugin is it.** Nothing in a session reaches anything
+else: the eleven hooks, both commands and every agent resolve through
+`${CLAUDE_PLUGIN_ROOT}`, so `/spec-flow` works with nothing else present —
+measured on a repo with no `node_modules` at all. The engine has no runtime
+dependencies of its own, which is what lets a bare copy run.
+
+### Optional: the same engine as a devDependency
+
+Only worth it for **a terminal without Claude Code, or your CI** — neither has
+a plugin. It buys a short command and an `npm ci` that resolves from your
+lockfile instead of re-fetching:
+
+```bash
 # Pin it. A bare git spec follows `main`, so CI re-resolves the engine on
 # every install and two builds of the same commit can be judged by two
 # different engines. Any commit or tag works; `#main` is the unpinned form,
 # written out so that choosing it is a choice.
 npm install --save-dev github:IgnacioMarin402/spec-flow-plugin#<commit-or-tag>
-npx spec-flow init      # writes .spec-flow/config.json
 npx spec-flow check     # green here means green at the gate; its last line names the engine revision that ran
 npx spec-flow models    # which model tier each agent will run on, and who decided
 ```
 
-**The command is `spec-flow` and this engine is not on npm at all** — that name
+Skipping it costs nothing but the short name — `node <clone>/scripts/check-changed.mjs`
+runs the same checks from a bare clone, with no `package.json` required, which
+is also how a repo that is not a Node package uses this engine at all.
+
+**The command is `spec-flow` and this engine is not on npm** — that name
 belongs to an unrelated package there, and `spec-flow-plugin` is published
-nowhere. Install first, from the line above: `npx spec-flow` in a repo that has
-not installed it reaches the registry and runs a stranger's code.
+nowhere. So `npx spec-flow` in a repo that has *not* run the install above
+reaches the registry and runs a stranger's code. Both installs come from this
+one repository ([ADR-016](decisions/016-one-repository-one-distribution.md)),
+so there is one codebase to maintain whichever you use.
 
 **No code is yours to write, and on a conventional project no configuration
 either.** `init` reads your test and lint commands off `package.json`, adds
@@ -102,19 +127,20 @@ your runner's reporter flag to the test command, and writes a contract the
 engine can run; the last line proves it. Below is what each step is for, to be
 read when one does not do what you expected.
 
-**1. The plugin** brings the commands, the agents and the hooks. Nothing else
-in this list is Claude-Code-specific.
+**1. The plugin** brings the commands, the agents and the hooks, and it is the
+only required install. Nothing else here is Claude-Code-specific.
 
-**2. The engine as a devDependency, from this same repository**, because the
-same checks have to run outside a session — your terminal and CI have no
-`${CLAUDE_PLUGIN_ROOT}` and no Claude Code. The dependency is a git spec rather
-than a registry name on purpose: **nothing here is published to npm**, so the
-plugin and the dependency are one repository and cannot drift into two
+**2. The devDependency is optional and buys one thing: the short name outside
+a session.** Your terminal without Claude Code, and your CI, have no
+`${CLAUDE_PLUGIN_ROOT}` — so they need the engine from somewhere, and a
+lockfile entry is cheaper per CI run than re-fetching a clone. It is a git spec
+rather than a registry name on purpose: **nothing here is published to npm**, so
+the plugin and the dependency are one repository and cannot drift into two
 versions ([ADR-016](decisions/016-one-repository-one-distribution.md)). Append
 `#<commit-or-tag>` to pin CI to a commit rather than following `main`. It has
 **no runtime dependencies** of its own, and every command runs from your repo's
 root with no arguments and no environment variables.
-[The commands, and the by-path route for a repo that cannot take the dependency](REFERENCE.md#cli).
+[The commands, and the by-path route that needs no install at all](REFERENCE.md#cli).
 
 **3. The contract.** `init` reads what your repo already declares — your `test`
 and `lint` scripts, where your tests live, your base branch — writes

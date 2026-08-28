@@ -706,7 +706,7 @@ function ensureCheckScript(root) {
 
   return installed
     ? 'added a "check" script to package.json — it runs the gate\'s own commands, scoped to this branch, and is what the deny hook points an implementer at'
-    : 'added a "check" script to package.json — it is what the deny hook points an implementer at, and it resolves through node_modules/.bin, which does not carry spec-flow yet. Install the engine as a devDependency (README step 2), or the script exits "spec-flow: not found"';
+    : 'added a "check" script to package.json — it resolves through node_modules/.bin, which does not carry spec-flow, so it exits "spec-flow: not found" until you add the OPTIONAL devDependency (README step 2). Nothing is broken meanwhile: the deny hook also names the plugin\'s own copy, which needs no install';
 }
 
 /**

@@ -595,18 +595,28 @@ form disambiguates.
 The orchestrator runs `telemetry` itself at intake and at DONE. Without it the
 logs stay in gitignored state and `stats` has nothing to read.
 
-**Two routes, one repository.** `spec-flow <command>` exists once the engine is
-installed — `npm install --save-dev github:IgnacioMarin402/spec-flow-plugin`,
-which links a binary named `spec-flow`. **Nothing is published to a registry**
+**None of this is needed inside a session, and that is the first thing to
+know.** Every hook, command and agent resolves through
+`${CLAUDE_PLUGIN_ROOT}` — including `init`, `check`, `stats`, `models` and
+`telemetry` — so `/spec-flow` runs on the plugin alone. Measured on a repo with
+no `node_modules` at all: the gate reports a pass and the other ten hooks exit
+clean. What follows is for the two places that have no plugin, a terminal
+without Claude Code and your CI.
+
+**Three routes, one repository.** `spec-flow <command>` exists once the
+OPTIONAL dependency is installed — `npm install --save-dev
+github:IgnacioMarin402/spec-flow-plugin`, which links a binary named
+`spec-flow`. It buys the short name and, in CI, an `npm ci` that resolves from
+your lockfile rather than re-fetching. **Nothing is published to a registry**
 (see ADR-016): the git spec is what keeps this dependency and the plugin on one
 version axis instead of two. `spec-flow` on npm is an unrelated project, so a
 repo that has not installed this one and runs `npx spec-flow` gets that
 instead. Append `#<commit-or-tag>` to the spec to pin CI rather than follow
 `main`.
 
-A repo that cannot take the dependency runs the same scripts by path out of a
-clone — nothing is installed either way, because the engine has no runtime
-dependencies:
+Without it — or in a repo that is not a Node package at all — the same scripts
+run by path out of a clone, or straight out of the installed plugin. Nothing is
+installed either way, because the engine has no runtime dependencies:
 
 | `spec-flow …` | by path, from your repo's root |
 |---|---|
@@ -615,6 +625,11 @@ dependencies:
 | `trace` | `node <clone>/scripts/spec-trace.mjs` |
 | `stats` | `node <clone>/scripts/specflow-stats.mjs` |
 | `telemetry` | `node <clone>/scripts/telemetry-snapshot.mjs` |
+
+`<clone>` can be the plugin's own directory, and inside a session that is the
+better answer: it is the copy the gate itself will run, so there is no second
+revision to drift. The deny hook names that exact path when it redirects an
+implementer, for the same reason.
 
 No arguments, no environment variables: every script resolves the repo from
 `CLAUDE_PROJECT_DIR` or the working directory. A clone follows `main`, so pin it

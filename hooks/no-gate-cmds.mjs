@@ -20,8 +20,17 @@
  * real scoped checks on Stop regardless of what the agent ran mid-turn — an
  * evasion here wastes context on unscoped output, it does not skip the gate.
  */
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
+
+/**
+ * This plugin copy's own root — never the repo being checked. Same rule and
+ * same reason as `gate.mjs`: the path this message names has to be the copy
+ * that will actually judge the milestone.
+ */
+const ENGINE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** Basename, minus a trailing `.sh` — the shape a declared script name is matched against. */
 const scriptName = (tok) => tok.replace(/^.*[\\/]/, '').replace(/\.sh$/, '');
@@ -110,6 +119,19 @@ await run(async () => {
       `mostly about files this milestone never touched, and it lands in your context.\n\n` +
       `Run the scoped check instead — same commands, only the files this branch changed:\n\n` +
       `    ${alternative}\n\n` +
+      // The contract's alternative is the repo's own declaration and goes
+      // first. This second line is the one that cannot be wrong: it names THIS
+      // plugin's copy, resolved from the hook's own location, so it needs
+      // nothing installed and is the same engine the gate is about to run.
+      //
+      // Both, rather than choosing between them, because deciding would mean
+      // inferring whether the declared command resolves — a package script that
+      // shells out to a binary the repo has not installed looks identical from
+      // here to one that works. A message that sends an implementer to a
+      // command exiting `not found` is what this line exists to stop, and
+      // guessing is how it would come back.
+      `The same check with nothing installed, which is the copy the gate itself runs:\n\n` +
+      `    node ${join(ENGINE_ROOT, 'scripts', 'check-changed.mjs')}\n\n` +
       `Scoped invocations are allowed too${scopedHint}. If you are the implementer, ` +
       `you do not need to run anything: end your turn and the gate reports back.\n\n` +
       // No disarm recipe here, on purpose. This message is read by an agent
