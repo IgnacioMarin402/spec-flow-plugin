@@ -868,15 +868,15 @@ flowchart TD
     DIRTY -->|"dirty"| JUDGED{"has any gate <br/> judged this commit?"}
     JUDGED -->|"no"| WAKE["skip-dirty, then BLOCK — <br/> nothing is coming to judge this commit <br/> (once per commit)"]
     JUDGED -->|"yes"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing <br/> (10 in a row wakes the run once)"]
-    DIRTY -->|"clean"| BASE{"base branch <br/> resolvable?"}
+    DIRTY -->|"clean"| SEEN{"has this commit's sha <br/> already passed?"}
+    SEEN -->|"yes, repeat stop"| QUIET["allow the stop — no decision, <br/> print one notice for the human. <br/> NOTHING is spawned: same tree, <br/> same verdict, attempts already at 0"]
+    SEEN -->|"no"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
     BASE -->|"yes"| SCOPE{"can scope_globs match <br/> anything this repo tracks?"}
     SCOPE -->|"no"| BLK3["BLOCK — a human fixes <br/> verify.scope_globs. <br/> lint could never run"]
     SCOPE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
-    RUN -->|"all green"| SEEN{"already reported <br/> this commit's sha?"}
-    SEEN -->|"no, first time"| PASS["BLOCK — wake the orchestrator <br/> with what to do next. <br/> attempts reset to 0"]
-    SEEN -->|"yes, repeat stop"| QUIET["allow the stop — no decision, <br/> print one notice for the human. <br/> attempts already at 0"]
+    RUN -->|"all green"| PASS["BLOCK — wake the orchestrator <br/> with what to do next. <br/> attempts reset to 0"]
     RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
     CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
     CLS -->|"a red test, attempt 1"| FIX

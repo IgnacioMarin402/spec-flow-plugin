@@ -24,10 +24,12 @@
  *   in hooks.json discards this file's output, and a Stop hook that renders no
  *   decision ALLOWS the stop — above this file's catch-all.
  * - On the first pass for a commit: blocks the stop and wakes the
- *   orchestrator with what to do next — see ADR-010. A repeat pass for a
- *   commit already reported this way allows the stop instead, silently to
- *   the model. On fail: blocks, routing back to PLAN or to the implementer
- *   depending on the failure's class.
+ *   orchestrator with what to do next — see ADR-010. A repeat stop on a
+ *   commit already reported that way allows the stop instead, silently to
+ *   the model, and spawns NOTHING: the tree is clean and the sha is
+ *   unchanged, so the verdict cannot have moved and re-running the suite for
+ *   it costs the suite's whole runtime to say so. On fail: blocks, routing
+ *   back to PLAN or to the implementer depending on the failure's class.
  * - At MAX_ATTEMPTS it hands control to a human and writes `blocked` into the
  *   phase file. The wait state would be unreachable under `implement`, since
  *   stopping to wait re-triggers this gate.
@@ -222,8 +224,32 @@ await run(
     // after the first pass — silently disarming the gate with no message
     // anywhere, since skip-dirty is not a failure. The README asks repos to
     // gitignore this directory; this line is what happens when they don't.
+    //
+    // `trace.report.path` is excluded for the same reason and it is the half
+    // that bites every adopter rather than only a careless one: that file is
+    // written by the SUITE, and the gate is what runs the suite. So every
+    // armed invocation leaves it behind and the next one reads it as an
+    // unfinished write. Uncorrected, a run alternates pass / skip-dirty for
+    // its whole length — every other milestone judged, the rest not, and a
+    // skip is not a failure, so nothing anywhere says so. `init` gitignores
+    // the path now; this is what happens for the contracts written before it
+    // did, and for a repo that already committed the file.
+    //
+    // Prefix rather than equality: git collapses an untracked directory into
+    // a single entry (`?? reports/`), which is exactly the shape the FIRST
+    // gate on a fresh clone leaves. An unrelated file under the same
+    // directory is still real dirt and stays.
+    const reportPath = config.trace.report?.path?.replace(/\\/g, '/') ?? '';
+    const isReportDirt = (line) => {
+      if (!reportPath) return false;
+      const path = line.slice(3).replace(/^"|"$/g, '').replace(/\\/g, '/');
+      return path === reportPath || reportPath.startsWith(path.endsWith('/') ? path : `${path}/`);
+    };
     const dirty = statusRes.status === 0
-      ? statusRes.stdout.split('\n').filter((l) => l.trim() && !/\.claude[\\/]state[\\/]/.test(l)).join('\n')
+      ? statusRes.stdout
+          .split('\n')
+          .filter((l) => l.trim() && !/\.claude[\\/]state[\\/]/.test(l) && !isReportDirt(l))
+          .join('\n')
       : '';
     if (dirty.trim()) {
       hist('skip-dirty', '-', '-', histDashes(config), dirty.trim().split('\n').length);
@@ -286,6 +312,36 @@ await run(
       return;
     }
 
+    // ---- the verdict this commit already has --------------------------------
+    //
+    // Stop fires more than once over one clean tree, and the sha guard has
+    // always known a repeat is not worth waking the model for. It learned it
+    // too late: the check lived inside `passAndExit`, so lint, the WHOLE suite
+    // and the unscoped checks had already run in order to produce a notice
+    // saying nothing had changed. On a five-minute suite that is five minutes
+    // of frozen session per repeat stop, and Stop fires on every turn end.
+    //
+    // Nothing this gate is entitled to judge can have changed: the tree is
+    // clean — checked immediately above — and the sha already carries a
+    // `pass`. ADR-008 requires that the suite never be scoped to the diff; it
+    // does not require re-running it against a tree byte for byte identical to
+    // one it just passed. What is given up is catching a suite that goes red
+    // with nothing committed, and a flaky suite doing that would today send a
+    // milestone already reported green into a REPLAN.
+    //
+    // The stop is still recorded — the `running` line must be replaced or the
+    // next gate reports this invocation as killed — with every field `-`,
+    // because reprinting `lint=0 test=0` for commands that did not run is the
+    // same lie in miniature that `lintField` below exists to refuse.
+    const judgedSha = shortSha(root);
+    if (judgedSha !== '-' && previous.some((l) => l.split(' ')[1] === judgedSha && / result=pass /.test(l))) {
+      hist('pass', '-', '-', histDashes(config), '-');
+      emitNotice(
+        `spec-flow: gate PASSED — ${judgedSha}. Already reported for this commit, and not re-judged: the tree is clean and nothing has been committed since, so the verdict cannot have changed. Nothing more happens on its own unless you act.`,
+      );
+      return;
+    }
+
     // A pass now WAKES the orchestrator — see ADR-010, which reverses the
     // "silent to the model" half of the design this replaced. What forced
     // it: `emitNotice`'s `systemMessage` renders in `claude -p` and is
@@ -299,12 +355,9 @@ await run(
     // Waking on every stop would thrash: Stop can fire more than once on the
     // SAME clean tree (an implementer that reported early, a human who said
     // nothing), and a milestone only needs the orchestrator's attention once
-    // per commit it produced. So this wakes ONCE per sha — `previous`,
-    // captured above before this invocation's own history line existed,
-    // already carries a `result=pass` for the current sha if an earlier stop
-    // on this exact tree already woke the run. Later stops on that same sha
-    // fall back to `emitNotice`: still on screen, just not spent re-waking a
-    // model with nothing new to do.
+    // per commit it produced. That guard now sits ABOVE — a repeat stop
+    // returns before anything is spawned — so reaching here at all means this
+    // sha has no pass yet and this invocation is the one that judged it.
     const passAndExit = (lintRc, testRc, unscopedFields, filesField) => {
       const sha = shortSha(root);
       hist('pass', lintRc, testRc, unscopedFields, filesField);
@@ -313,19 +366,6 @@ await run(
       writeFile(fullLogFile, '');
 
       const summary = `spec-flow: gate PASSED — ${sha} (${config.verify.lint_name} ${lintRc}, ${config.verify.test_name} ${testRc}, ${unscopedFields}).`;
-
-      // `sha !== '-'`: `shortSha` returns `-` when git itself failed, and
-      // reading that as "already woke" would silence every future pass on a
-      // broken checkout forever — the same silent-disarm shape this file
-      // exists to close, one line further down.
-      const alreadyWoke = sha !== '-' && previous.some(
-        (l) => l.split(' ')[1] === sha && / result=pass /.test(l),
-      );
-
-      if (alreadyWoke) {
-        emitNotice(`${summary} Already reported for this commit — nothing more happens on its own unless you act.`);
-        return;
-      }
 
       emitBlock(
         `${summary} Advance the run now: start the NEXT milestone with a fresh implementer Agent call, or if none remain, invoke spec-writer in MODE=FOLD; if this was the fold's own gate re-run, write 'done' into .claude/state/phase. Do not re-run lint or tests yourself and do not repeat what already passed.`,

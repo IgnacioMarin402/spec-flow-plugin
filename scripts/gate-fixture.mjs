@@ -153,6 +153,11 @@ async function fixture({
   // passes trivially and would prove nothing about either change.
   report = null,
   reportBody = '',
+  // Whether `reportBody` is committed at baseline. Off for the one case whose
+  // subject is the report the SUITE writes: seeding it makes the file tracked
+  // and unchanged, which is the one arrangement in which it cannot dirty
+  // anything — so a case about that dirt has to start without it.
+  seedReport = true,
   specs = {},
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
@@ -278,7 +283,7 @@ async function fixture({
   // SUITE would have left behind before the gate ever runs, not an artifact
   // of this branch's diff — a real `verify.test` overwrites it on every gate
   // invocation, same as here.
-  if (report) {
+  if (report && seedReport) {
     mkdirSync(dirname(join(repoDir, report.path)), { recursive: true });
     writeFileSync(join(repoDir, report.path), reportBody);
   }
@@ -646,6 +651,121 @@ await Promise.all([
       if (typeof second.payload?.systemMessage !== 'string' || !second.payload.systemMessage) {
         return `the second stop said nothing at all, so it reads exactly like a hung run: ${JSON.stringify(second.payload)}`;
       }
+      return null;
+    } finally {
+      rmSync(built.engineDir, { recursive: true, force: true });
+      rmSync(built.repoDir, { recursive: true, force: true });
+    }
+  }),
+
+  // ---- the repeat stop must not pay for the verdict it already has -------
+  //
+  // The sha guard above stops a repeat stop from re-WAKING the model, and it
+  // was evaluated inside `passAndExit` — after lint, the whole suite and the
+  // unscoped checks had already run. So the cheapest outcome in the flow paid
+  // the most expensive price: a five-minute suite spent five minutes, on an
+  // identical tree it had already judged, to end in a notice saying so.
+  //
+  // Counted rather than timed: a `verify.test` that appends a line every time
+  // it runs turns "did the suite run twice" into a fact instead of a
+  // stopwatch reading that a loaded CI box could flip either way.
+  check('a repeat stop on a commit already passed does not run the suite again', async () => {
+    const built = await fixture({
+      specTrace: 'green',
+      // Under `.claude/state/`, which the gate excludes from its own dirty
+      // check — a marker anywhere else would dirty the tree and this case
+      // would measure the quiescence guard instead of the short-circuit.
+      test: ['node', '-e', 'require("fs").appendFileSync(".claude/state/ran.log", "x")'],
+    });
+    try {
+      const first = await runGate(built);
+      if (!first.blocked) return `the first pass did not wake the orchestrator: ${JSON.stringify(first.payload)}`;
+
+      const runsAfterFirst = readFileSync(join(built.repoDir, '.claude/state/ran.log'), 'utf8').length;
+      if (runsAfterFirst !== 1) return `the suite ran ${runsAfterFirst} time(s) on the first stop, so this case cannot measure the second`;
+
+      const second = await runGate(built);
+      if (second.blocked) return `the repeat stop re-woke the model: ${JSON.stringify(second.payload)}`;
+      if (!second.payload?.systemMessage) return `the repeat stop said nothing at all: ${JSON.stringify(second.payload)}`;
+
+      const runsAfterSecond = readFileSync(join(built.repoDir, '.claude/state/ran.log'), 'utf8').length;
+      if (runsAfterSecond !== 1) {
+        return `the suite ran again on a stop whose only outcome was "already reported" — on a real suite that is the whole of its runtime spent to say nothing (${runsAfterSecond} runs)`;
+      }
+      return null;
+    } finally {
+      rmSync(built.engineDir, { recursive: true, force: true });
+      rmSync(built.repoDir, { recursive: true, force: true });
+    }
+  }),
+
+  // The half that must survive it: the short-circuit keys off a PASS for this
+  // exact commit, so a new commit is judged from scratch however recently the
+  // previous one passed.
+  check('a new commit is judged even though the one before it just passed', async () => {
+    const built = await fixture({
+      specTrace: 'green',
+      // Under `.claude/state/`, which the gate excludes from its own dirty
+      // check — a marker anywhere else would dirty the tree and this case
+      // would measure the quiescence guard instead of the short-circuit.
+      test: ['node', '-e', 'require("fs").appendFileSync(".claude/state/ran.log", "x")'],
+    });
+    try {
+      await runGate(built);
+      const git = (...args) => run('git', args, { cwd: built.repoDir });
+      writeFileSync(join(built.repoDir, 'c.ts'), 'export const c = 1;\n');
+      await git('add', '--', 'c.ts');
+      await git('commit', '-qm', 'the next milestone');
+
+      const second = await runGate(built);
+      if (readFileSync(join(built.repoDir, '.claude/state/ran.log'), 'utf8').length !== 2) {
+        return `the suite did not run for the new commit — the short-circuit is keying off something other than the sha: ${second.history}`;
+      }
+      if (!second.blocked) return `the new commit's pass did not wake the orchestrator: ${JSON.stringify(second.payload)}`;
+      return null;
+    } finally {
+      rmSync(built.engineDir, { recursive: true, force: true });
+      rmSync(built.repoDir, { recursive: true, force: true });
+    }
+  }),
+
+  // ---- the dirt this engine makes itself ---------------------------------
+  //
+  // `trace.report.path` names a file the SUITE writes, and the gate is what
+  // runs the suite. So every armed invocation leaves that file behind, and
+  // the NEXT one reads it as a dirty tree — which is not an implementer
+  // mid-write, it is the previous gate. Uncorrected the run alternates
+  // pass / skip-dirty for the whole feature: every other milestone is judged
+  // and the rest are not, while a skip is not a failure and so says nothing.
+  //
+  // Two runs with a commit in between, because one run cannot see it: the
+  // report has to already exist for the guard to trip, and only the first
+  // invocation creates it.
+  check('the report the suite writes does not read as a dirty tree at the next stop', async () => {
+    const built = await fixture({
+      report: { format: 'junit', path: 'reports/junit.xml' },
+      // The whole point: the suite produces it, nothing seeds it. Committed at
+      // baseline it would be tracked and unchanged, which is the one shape in
+      // which this bug is invisible.
+      seedReport: false,
+      specs: { 'specs/fix.md': FIX_SPEC },
+      test: ['node', '-e', `require("fs").writeFileSync("reports/junit.xml", ${JSON.stringify(JUNIT_PROVES)})`],
+    });
+    try {
+      const first = await runGate(built);
+      if (!/result=pass/.test(first.history)) return `the first milestone was not judged: ${first.history}`;
+
+      // The next milestone: work committed, turn ended, a verdict expected.
+      const git = (...args) => run('git', args, { cwd: built.repoDir });
+      writeFileSync(join(built.repoDir, 'c.ts'), 'export const c = 1;\n');
+      await git('add', '--', 'c.ts');
+      await git('commit', '-qm', 'the next milestone');
+
+      const second = await runGate(built);
+      if (/result=skip-dirty/.test(second.history)) {
+        return `the second milestone was skipped as a dirty tree, and the only thing dirtying it is the report the gate's own suite wrote — half of every run's milestones would go unjudged: ${second.history}`;
+      }
+      if (!/result=pass/.test(second.history)) return `the second milestone was not judged: ${second.history}`;
       return null;
     } finally {
       rmSync(built.engineDir, { recursive: true, force: true });
