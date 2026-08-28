@@ -232,6 +232,18 @@ async function run() {
     /every one proven by a test/.test(out) ? null : `spec-trace did not bind the requirement:\n${out}`,
   );
 
+  // The plugin stamps `engine=` into every gate-history line; this is the
+  // OTHER install (ADR-016), and the two move independently. Without this end
+  // naming its own revision there is nothing to compare a CI log against, so a
+  // drift between the two copies is invisible from both sides. Asserted HERE
+  // because this is the only fixture that runs the CLI the way a consumer
+  // installs it — from a tarball with no `.git`, which is exactly the case
+  // whose answer is the `v`-prefixed fallback.
+  check(
+    'spec-flow check names the engine revision that ran',
+    /^engine \S+$/m.test(out) ? null : `the CLI reported no engine revision, so this install cannot be compared with the plugin's:\n${out}`,
+  );
+
   // `trace` and `stats` are dispatched by the same bin and reach different
   // modules. A `files` list that covers the check route and drops one of these
   // ships a CLI whose other subcommands throw on a missing import.

@@ -18,9 +18,17 @@
  *   node scripts/check-changed.mjs --no-fix # report only, change nothing
  */
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { loadConfig, ensureReportDir } from './spec-flow-config.mjs';
 import { resolveBase, changedFiles, scopeMatchesNothing } from './changed-files.mjs';
 import { runUnscopedChecks, summary } from './unscoped-checks.mjs';
+import { engineRevision } from './engine-revision.mjs';
+
+/**
+ * This engine copy's own root — never the repo being checked. Same rule and
+ * same reason as `gate.mjs`: what gets reported has to be the copy that RAN.
+ */
+const ENGINE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const fix = !process.argv.includes('--no-fix');
@@ -108,6 +116,19 @@ for (const c of result.checks) {
   console.log(c.out);
   console.log('');
 }
+
+// WHICH copy of the engine said so. The plugin writes `engine=` into every
+// gate-history line; this alias is the OTHER install (ADR-016), and the two
+// move independently — a git spec follows whatever it was pinned to while
+// `/plugin marketplace update` moves the plugin. Nothing warns about that, and
+// until now nothing even let a CI log and a gate-history line be compared:
+// this end was silent about its own revision. It is reported, never checked,
+// for the reason ADR-004 gives about `cc=`.
+//
+// A git-spec install has no `.git`, so this usually prints the `v`-prefixed
+// package version — which is the honest answer, marked as what it is, and the
+// reason ADR-018 gave that prefix a meaning.
+console.log(`engine ${engineRevision(ENGINE_ROOT)}`);
 
 if (lintRc === 0 && testRc === 0 && result.allPass) {
   console.log(`OK — lint, tests and the unscoped checks pass (${summary(result)}).`);
