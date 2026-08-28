@@ -4,6 +4,19 @@
 in its spec.** The failure this closes is the quiet one: a requirement everyone
 believes is covered, and no test that proves it.
 
+**What the machine enforces, exactly:** a test whose reported name carries the
+requirement's id executed and did not fail — checked in both directions, and a
+skipped test is absent from a report of what ran, so there is no spelling of
+"skip" that gets past it. What the machine cannot check is whether that test
+*asserts* the requirement, because the engine reads no source code — that is
+the trade that makes it work on any Node project without knowing your framework
+([ADR-001](decisions/001-proof-comes-from-the-runner.md)). A test named for a
+requirement that asserts nothing passes. The reviewer, the spec sign-off and
+your own code review are what stand there; this engine is what stops a
+requirement from having no test at all, which is the failure that survives
+those three. Said plainly because a check whose reach is overestimated is the
+same liability as one that is disarmed.
+
 spec-flow is a spec-driven multi-agent pipeline for Claude Code. A free-text
 requirement becomes a spec you sign off on, a milestone-by-milestone plan, a
 review pass, and an implementation loop gated by lint, tests and requirement
@@ -61,9 +74,13 @@ Run it from your repo's root, on a branch off your base branch:
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 
-npm install --save-dev github:IgnacioMarin402/spec-flow-plugin
+# Pin it. A bare git spec follows `main`, so CI re-resolves the engine on
+# every install and two builds of the same commit can be judged by two
+# different engines. Any commit or tag works; `#main` is the unpinned form,
+# written out so that choosing it is a choice.
+npm install --save-dev github:IgnacioMarin402/spec-flow-plugin#<commit-or-tag>
 npx spec-flow init      # writes .spec-flow/config.json
-npx spec-flow check     # green here means green at the gate
+npx spec-flow check     # green here means green at the gate; its last line names the engine revision that ran
 npx spec-flow models    # which model tier each agent will run on, and who decided
 ```
 
@@ -130,8 +147,11 @@ through the same file.
 Staying current is one command — `/plugin marketplace update` — or none, if you
 turn on Claude Code's background auto-update for this marketplace. Step 2 does
 not follow on its own: it is a git spec, so it moves when you move it, and
-nothing warns you that the two halves are on different commits. [Both routes,
-and why the update lands here and does nothing on some
+nothing warns you that the two halves are on different commits. What each half
+does say is which revision it is: the gate writes `engine=` into every line of
+`gate-history.log`, and `spec-flow check` ends by naming its own — so the two
+can be compared by eye when a result differs between your terminal and a run.
+[Both routes, and why the update lands here and does nothing on some
 plugins](REFERENCE.md#staying-current).
 
 ## The five subagents, and what they run on
@@ -302,6 +322,7 @@ npm install
 npm run lint          # eslint over hooks/ and scripts/
 npm run typecheck     # tsc --noEmit
 npm run check         # no coupling to any one consuming repo
+npm run comments:check # no file's history has moved back into its comments
 npm run paths:check   # every ${CLAUDE_PLUGIN_ROOT} path resolves
 npm run init:check    # what `init` generates actually validates
 npm run gate:check    # the gate holds under its own failure modes
