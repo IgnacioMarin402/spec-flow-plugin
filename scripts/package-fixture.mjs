@@ -138,12 +138,17 @@ async function run() {
         name: 'consumer',
         version: '1.0.0',
         type: 'module',
-        scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' },
+        // A script FILE for lint, not `node -e "…"`. A quoted `-e` body cannot
+        // survive into a contract — the argv is spawned with no shell, so node
+        // evaluates the quotes as part of a string literal — and `init` refuses
+        // it outright, which would leave this consumer with no lint command.
+        scripts: { test: 'node --test', lint: 'node lint.js' },
       },
       null,
       2,
     )}\n`,
   );
+  writeFileSync(join(repo, 'lint.js'), 'process.exit(0);\n');
   for (const name of ['a', 'b', 'c', 'd', 'e']) {
     writeFileSync(join(repo, 'lib', `${name}.js`), `export const ${name} = () => '${name}';\n`);
   }
