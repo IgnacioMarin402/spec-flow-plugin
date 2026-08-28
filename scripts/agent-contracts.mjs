@@ -94,6 +94,54 @@ if (!fields || fields.length === 0) {
   }
 }
 
+// ---- an agent may not describe a GATED check as unconditional ------------
+//
+// `spec-trace` has checks the contract can switch off, and one of them was
+// unconditional for a single commit. When it became a contract opt-in the
+// reviewer's contract was updated and the implementer's was not, so the
+// implementer still told the model that spec-trace fails a milestone with no
+// `Skills:` field — false in the default contract, and unfalsifiable from
+// inside a run, where the only evidence would be a gate that never fired.
+//
+// The rule is narrow because this file cannot judge whether prose is TRUE.
+// What it can insist on is that an agent asserting a spec-trace FAILURE about
+// a subject the contract gates names the gating field in the same file. That
+// is the fact a reader needs, and it is precisely what goes stale when a
+// check moves between unconditional and opt-in.
+//
+// The gated fields are read out of spec-trace itself rather than listed here:
+// a list would keep agreeing with the code exactly until someone gates a
+// second check.
+const specTrace = readFileSync(join(ROOT, 'scripts', 'spec-trace.mjs'), 'utf8');
+
+/** `if (!CONFIG.trace.require_skills_field) continue;` -> `require_skills_field`. */
+const gatedFields = [...specTrace.matchAll(/CONFIG\.trace\.(\w+)\)\s*continue/g)].map((m) => m[1]);
+
+for (const field of gatedFields) {
+  // `require_skills_field` -> `skills`: the subject the field decides about,
+  // and the word an agent's prose will be using instead of the field name.
+  const subject = field.replace(/^require_/, '').replace(/_field$/, '').replace(/_/g, ' ');
+
+  for (const file of readdirSync(AGENTS).filter((f) => f.endsWith('.md')).sort()) {
+    const text = readFileSync(join(AGENTS, file), 'utf8');
+    if (text.includes(field)) continue; // the condition is stated somewhere in this contract
+
+    // Paragraph, not sentence: the assertion and its subject routinely sit in
+    // neighbouring sentences, and the implementer's real defect did exactly
+    // that — "spec-trace fails a milestone without it" one sentence after the
+    // last mention of the field it means.
+    for (const para of text.split(/\n\s*\n/)) {
+      const lower = para.toLowerCase();
+      if (!lower.includes('spec-trace') || !lower.includes(subject)) continue;
+      if (!/\bfails?\b|\brejects?\b|\brefuses?\b/.test(lower)) continue;
+      problems.push(
+        `agents/${file} tells its reader that spec-trace fails over "${subject}", and never names \`${field}\` — the contract field that decides whether that check runs at all. It is off by default, so the sentence is false in most repos, and an agent cannot discover that from inside a run: the only evidence would be a gate that never fires. State the condition, or say what actually always checks it.`,
+      );
+      break;
+    }
+  }
+}
+
 // ---- every shipped agent says what it may use ----------------------------
 //
 // An agent with no `tools:` inherits every tool the harness offers, `Task`
@@ -139,5 +187,6 @@ console.log(
   `agent-contracts: OK — ${fields.length} milestone field(s); ` +
     `${fields.length - Object.keys(NOT_REVIEWED).length} named in the reviewer's checklist, ` +
     `${Object.keys(NOT_REVIEWED).length} exempt with a stated reason; ` +
-    `${agentFiles.length} agent(s), every one declaring its tools.`,
+    `${agentFiles.length} agent(s), every one declaring its tools; ` +
+    `${gatedFields.length} contract-gated spec-trace check(s), none described as unconditional.`,
 );
