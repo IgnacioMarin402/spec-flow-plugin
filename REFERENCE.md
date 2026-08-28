@@ -125,6 +125,20 @@ checking:
   the test unselected, and a runtime `t.skip()` all end in the same place —
   reported by nothing.
 
+**What the binding cannot see is the test's body.** A test whose reported name
+carries the id and whose body asserts nothing passes — measured, on a green
+gate, with the requirement unimplemented. The engine reads no source code
+(ADR-001), so this is not a gap it can close by looking harder, and it is not
+one the report can close either: the JUnit schema's `assertions` attribute is
+populated by none of the runners in scope, and `time` does not separate the
+cases — mocha reports `time="0"` for tests that genuinely ran. So the
+judgement is placed where a model can make it and the cost is one pass per
+change: `MODE=FOLD` opens each added requirement's test, asks whether it would
+still pass with the requirement unimplemented, and reports through `GAPS:`.
+It reports rather than gates, because a reading of whether an assertion is
+meaningful is not the kind of claim that should stop a run on its own.
+[ADR-020](decisions/020-a-tagged-test-is-judged-not-measured.md)
+
 **Traceability is off while there is nothing to prove**, and the gate still
 lints and runs your suite. Two things put you there, and a fresh install is
 normally the second: declaring neither source, or declaring one that has not
@@ -806,7 +820,7 @@ flowchart TD
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
     G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> stamp SHIPPED, archive"]
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
     G2 -->|"gap in the specs' wording"| F
     G2 -->|"gap in code or tests"| RE

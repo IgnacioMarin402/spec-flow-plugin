@@ -91,7 +91,9 @@ Those exact two paths, with those exact names, because the implementer reads exa
 
 Keep the phase at `implement` — the fold may touch `specs/` wording, and that edit deserves the same gate as any other.
 
-Invoke `spec-writer` in `MODE=FOLD` with `specflow/<SLUG>/spec.md`. It verifies the deltas landed, stamps `**Status:** SHIPPED`, and archives the folder. A case 2 or case 4 fix has no deltas to verify and the fold is just the stamp and the move — run it anyway. That stamp is the only thing standing between `specflow/` and a pile of folders nobody can interpret, and it is what the spec-trace check verifies.
+Invoke `spec-writer` in `MODE=FOLD` with `specflow/<SLUG>/spec.md`. It verifies the deltas landed, reads each added requirement's test for what it actually asserts, stamps `**Status:** SHIPPED`, and archives the folder. A case 2 or case 4 fix has no deltas to verify and the fold is just the stamp and the move — run it anyway. That stamp is the only thing standing between `specflow/` and a pile of folders nobody can interpret, and it is what the spec-trace check verifies.
+
+**Read its `GAPS:` line and pass it to the human, whatever else you report.** Nothing downstream raises it: a test whose title carries the requirement's id and whose body proves nothing passes the gate and spec-trace alike, so this is the only pass in the flow that sees it. That matters more here than in `/spec-flow` — a case 2 (WEAK-TEST) fix exists precisely because a test was not proving what it claimed, and a fix whose own new test is weak has closed the defect on paper. It does not block the archive and is not a gate failure ([ADR-020](../decisions/020-a-tagged-test-is-judged-not-measured.md)); what it must not be is dropped.
 
 **Commit and push the fold, then end your turn** so the gate re-runs the spec-trace check against a clean tree. A pass re-invokes you the same way step 4 does — proceed straight to step 6. If it fails on the spec side, `SendMessage` the log back to the spec-writer session. If the gap is in code or tests, go back to step 1.
 

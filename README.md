@@ -11,11 +11,18 @@ skipped test is absent from a report of what ran, so there is no spelling of
 *asserts* the requirement, because the engine reads no source code — that is
 the trade that makes it work on any Node project without knowing your framework
 ([ADR-001](decisions/001-proof-comes-from-the-runner.md)). A test named for a
-requirement that asserts nothing passes. The reviewer, the spec sign-off and
-your own code review are what stand there; this engine is what stops a
-requirement from having no test at all, which is the failure that survives
-those three. Said plainly because a check whose reach is overestimated is the
-same liability as one that is disarmed.
+requirement that asserts nothing passes every check in the flow.
+
+**So a model reads it instead, once per change.** The fold step opens each
+added requirement's test and asks whether it would still pass with the
+requirement unimplemented, and reports what it finds — it does not gate on it.
+That placement was measured rather than assumed: the JUnit schema has an
+`assertions` attribute that no supported runner populates, and `time` does not
+separate the cases — mocha reports `time="0"` for tests that genuinely ran
+([ADR-020](decisions/020-a-tagged-test-is-judged-not-measured.md)). Beyond
+that reading, the spec sign-off and your own code review are what stand there.
+Said plainly because a check whose reach is overestimated is the same liability
+as one that is disarmed.
 
 spec-flow is a spec-driven multi-agent pipeline for Claude Code. A free-text
 requirement becomes a spec you sign off on, a milestone-by-milestone plan, a

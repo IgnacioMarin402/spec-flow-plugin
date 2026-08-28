@@ -12,7 +12,7 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B22, B27, B14, B15. B22 is small and came out of B4's read. B27 shipped its README half and left two measurable follow-ons named. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it.
+**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it.
 
 ---
 
@@ -633,7 +633,7 @@ the same file. It cannot judge whether prose is true; it can insist the
 condition is stated, which is the fact that goes stale when a check moves
 between unconditional and opt-in. Red on the live defect and on nothing else.
 
-### B27 — the front page promised behaviour; the machine binds names — `PENDING`, partially
+### B27 — the front page promised behaviour; the machine binds names — `PENDING`
 
 "A feature ships only when a test that actually ran proves every requirement in
 its spec." What is enforced is that a test whose reported name carries the id
@@ -647,12 +647,31 @@ own rule is that a check whose reach is overestimated is the same liability as
 one that is disarmed. The README now states what the machine binds and what the
 reviewer and the sign-off are for.
 
-**Deliberately left open**, because a paragraph is not falsifiable and this
-backlog says so rather than pretending otherwise. Two measurable follow-ons, in
-cost order: a JUnit report already carries `time` and often `assertions`, so a
-test reporting zero of either could surface as a gate *warning* without reading
-a line of source; and nothing reviews the diff of the test that closed a
-milestone — the reviewer reads the plan, never the result.
+**Both follow-ons are now resolved, and one of them by refusal.**
+
+*The report-side check does not exist and cannot.* The JUnit schema has an
+`assertions` attribute, which made it look available; captured from real runs,
+no runner in scope populates it. `time` is the only quantity present and it
+does not separate the cases — the real assertion and the empty body measured
+1.45ms and 0.28ms, a gap under the noise of a loaded runner, and **mocha
+reports `time="0"` for tests that genuinely ran and passed**. Any "zero time is
+suspicious" rule flags real proofs on one of the three runners this engine
+supports. Refused, with the measurement, in ADR-020.
+
+*The reading is placed in `MODE=FOLD`.* Whether a test asserts its requirement
+is a judgement, not a parse, so it belongs to a model — the question was which
+and when. FOLD already reads the deltas, already verifies each landed in
+`specs/`, already reports through `GAPS:`, and is already forbidden from
+touching tests. It costs **no new agent invocation**: one pass per change
+rather than the per-milestone reviewer pass the plan floated, which would also
+have reversed a decision already taken and recorded. It reports; it does not
+gate.
+
+Left behind and closed with it: `GAPS:` was a field no command named, so the
+one finding nothing else in this engine can produce reached the orchestrator
+and stopped. `agent-contracts.mjs` now binds every spec-writer return field to
+a command that reads it or to a stated exemption — red on `80a2a56`, where
+`GAPS` was among the unrouted.
 
 ### B28 — the cheapest outcome in the flow was paying the highest price — `PENDING`
 
