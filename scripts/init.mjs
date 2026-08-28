@@ -688,7 +688,25 @@ function ensureCheckScript(root) {
   } catch {
     return null;
   }
-  return 'added a "check" script to package.json — it runs the gate\'s own commands, scoped to this branch, and is what the deny hook points an implementer at';
+
+  // Writing the script is not the same as the script working, and the gap
+  // between those two is the shape this whole fix was about. The alias needs
+  // the dependency — which an adopter following the README already has, and
+  // one running these scripts by path does not. Said here rather than
+  // discovered at the first denial, where the reader is an implementer that
+  // cannot install anything.
+  //
+  // Presence of the SHIM, deliberately, not `resolveLocalBin`: that answers
+  // "where is the real JavaScript", which is what a committed argv needs and
+  // not what this asks. `npm run` puts `node_modules/.bin` on PATH and runs
+  // whatever is there, symlink or shell script or `.cmd`, so the shim
+  // existing in any of its shapes is the whole condition.
+  const shim = join(root, 'node_modules', '.bin', 'spec-flow');
+  const installed = existsSync(shim) || existsSync(`${shim}.cmd`);
+
+  return installed
+    ? 'added a "check" script to package.json — it runs the gate\'s own commands, scoped to this branch, and is what the deny hook points an implementer at'
+    : 'added a "check" script to package.json — it is what the deny hook points an implementer at, and it resolves through node_modules/.bin, which does not carry spec-flow yet. Install the engine as a devDependency (README step 2), or the script exits "spec-flow: not found"';
 }
 
 /**
