@@ -18,6 +18,13 @@
  * indistinguishable after the fact — the same refusal `cc=?` makes in
  * gate.mjs, where an absent value must read as "not known here" (ADR-004).
  *
+ * **The transcript LAGS the conversation** — it is written asynchronously, so
+ * the turn that triggered this Stop may not be in the file yet. That costs
+ * nothing here and is the reason the read is cumulative rather than "the last
+ * turn": whatever has not landed is counted at the next stop, under a later
+ * timestamp. A reader built around the current turn would undercount every
+ * turn instead, silently.
+ *
  * **Attribution is by model and sidechain, not by agent role.** A sidechain
  * message names no agent, and deriving one from which spawn was in flight
  * would be a guess written down as a fact. The roles map onto tiers
@@ -25,10 +32,10 @@
  * sidechain to a role is a correlation, and correlation belongs in the
  * report, where it can say it is unsure. `specflow-stats.mjs` reads these.
  */
-import { openSync, readSync, fstatSync, closeSync, appendFileSync } from 'node:fs';
+import { openSync, readSync, fstatSync, closeSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, readFileOrDefault, writeFile, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, writeFile, run } from './lib/io.mjs';
 
 /**
  * Every counter this hook reports, and where each lives in a usage record.
@@ -69,12 +76,29 @@ function unreadBytes(path, offsetFile) {
     fd = openSync(path, 'r');
     const size = fstatSync(fd).size;
 
+    // An offset that EXISTS and cannot be read is not the same as no offset at
+    // all, and the difference decides a number. With no file, this transcript
+    // has never been counted and reading from 0 is the only correct answer;
+    // with a corrupt one, some prefix is already on a line in run-trace.log
+    // and re-reading from 0 appends those bytes a second time. So the corrupt
+    // case skips its slice and resynchronises, losing a count rather than
+    // inventing one — the rule this file's header states.
     let from = 0;
-    try {
-      const saved = JSON.parse(readFileOrDefault(offsetFile, '{}'));
-      if (saved.path === path && Number.isInteger(saved.bytes) && saved.bytes <= size) from = saved.bytes;
-    } catch {
-      /* an unreadable offset reads the file whole — costly, never wrong */
+    if (existsSync(offsetFile)) {
+      try {
+        const saved = JSON.parse(readFileSync(offsetFile, 'utf8'));
+        // Reading from 0 is right in both of the first two cases and wrong in
+        // the third, which is the distinction worth keeping straight: a
+        // different path and an offset past the end are both NEW CONTENT this
+        // log has never seen, while an offset that will not parse means some
+        // prefix is already counted and cannot be identified.
+        if (saved.path !== path) from = 0;
+        else if (!Number.isInteger(saved.bytes)) return { text: '', next: size, resynced: true };
+        else if (saved.bytes > size) from = 0;
+        else from = saved.bytes;
+      } catch {
+        return { text: '', next: size, resynced: true };
+      }
     }
 
     if (from === size) return { text: '', next: from };
@@ -89,6 +113,28 @@ function unreadBytes(path, offsetFile) {
     return { text: text.slice(0, lastNewline), next: from + Buffer.byteLength(text.slice(0, lastNewline + 1), 'utf8') };
   } finally {
     if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/**
+ * A payload or a file this hook could not read, recorded by SHAPE — key names
+ * only, never content.
+ *
+ * Every other observer here keeps one (`run-trace-unmatched.log`,
+ * `register-agent-unmatched.log`, `opus-budget-unmatched.log`) and
+ * `specflow-stats.mjs` reports the counts, for a reason that applies most
+ * sharply to this hook: it reads a file another program writes, so the way it
+ * dies is a field moving — after which it records nothing, forever, and a
+ * cost section that says zero looks exactly like a cheap run.
+ */
+function noteMiss(state, what) {
+  try {
+    const path = join(state, 'token-trace-unmatched.log');
+    const line = JSON.stringify(what);
+    const existing = existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [];
+    if (!existing.includes(line)) appendFileSync(path, `${line}\n`);
+  } catch {
+    /* logging must never be why this hook fails */
   }
 }
 
@@ -136,17 +182,27 @@ await run(async () => {
 
   const payload = await readPayload();
   const path = [payload.transcript_path, payload.transcriptPath].find((v) => typeof v === 'string' && v);
-  if (!path) return; // no transcript on this build's payload -> nothing is known, so nothing is written
 
   const state = stateDir(root);
   const offsetFile = join(state, 'token-offset');
 
+  // No transcript on this build's payload: nothing is known, so nothing is
+  // written — but the SHAPE is, because this is how the hook stops working
+  // without stopping running.
+  if (!path) {
+    noteMiss(state, { no_transcript_path: Object.keys(payload).sort() });
+    return;
+  }
+
   let slice;
   try {
     slice = unreadBytes(path, offsetFile);
-  } catch {
-    return; // unreadable: see the header — a missing count is never a zero
+  } catch (err) {
+    noteMiss(state, { transcript_unreadable: err?.code ?? 'unknown' });
+    return; // see the header — a missing count is never a zero
   }
+
+  if (slice.resynced) noteMiss(state, { offset_unreadable: 'resynchronised, one slice not counted' });
 
   const groups = tally(slice.text);
 

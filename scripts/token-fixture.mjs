@@ -210,6 +210,57 @@ check('a transcript path that does not exist records nothing and does not throw'
   return lines.length === 0 ? '' : `wrote a line from a file it could not open:\n${lines.join('\n')}`;
 });
 
+check('a corrupt offset counts nothing rather than counting a prefix twice', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ out: 100 })]);
+  stop(repo, t);
+  writeFileSync(join(repo, '.claude/state/token-offset'), 'not json\n');
+  appendFileSync(t, entry({ out: 5 }));
+  const { lines } = stop(repo, t);
+  if (lines.length !== 1) return `a second line appeared, so the first 100 was counted again:\n${lines.join('\n')}`;
+  const missed = readFileSync(join(repo, '.claude/state/token-trace-unmatched.log'), 'utf8');
+  return missed.includes('offset_unreadable') ? '' : `the skipped slice left no record:\n${missed}`;
+});
+
+check('a resynchronised offset picks the next slice up cleanly', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ out: 100 })]);
+  stop(repo, t);
+  writeFileSync(join(repo, '.claude/state/token-offset'), 'not json\n');
+  appendFileSync(t, entry({ out: 5 }));
+  stop(repo, t); // the slice that is lost
+  appendFileSync(t, entry({ out: 9 }));
+  const { lines } = stop(repo, t);
+  if (lines.length !== 2) return `expected the run to resume counting, got ${lines.length} line(s):\n${lines.join('\n')}`;
+  return field(lines[1], 'out') === '9' ? '' : `reported out=${field(lines[1], 'out')}, want 9`;
+});
+
+check('a payload with no transcript path records its SHAPE, so a moved field is visible', () => {
+  const repo = makeRepo();
+  stop(repo, null);
+  const path = join(repo, '.claude/state/token-trace-unmatched.log');
+  if (!existsSync(path)) return 'the hook went quiet and left no record — the failure it is least able to survive';
+  const missed = readFileSync(path, 'utf8');
+  return missed.includes('no_transcript_path') && missed.includes('session_id') ? '' : `the record names no payload keys:\n${missed}`;
+});
+
+check('an unreadable transcript records its shape too', () => {
+  const repo = makeRepo();
+  stop(repo, join(repo, 'gone.jsonl'));
+  const path = join(repo, '.claude/state/token-trace-unmatched.log');
+  if (!existsSync(path)) return 'no record of a transcript that could not be opened';
+  return readFileSync(path, 'utf8').includes('transcript_unreadable') ? '' : 'the record does not name the cause';
+});
+
+check('the miss log is deduped — one moved field is one line, not one per stop', () => {
+  const repo = makeRepo();
+  stop(repo, null);
+  stop(repo, null);
+  stop(repo, null);
+  const missed = readFileSync(join(repo, '.claude/state/token-trace-unmatched.log'), 'utf8').split('\n').filter(Boolean);
+  return missed.length === 1 ? '' : `${missed.length} lines for one repeated cause:\n${missed.join('\n')}`;
+});
+
 // ---- where it must not fire ------------------------------------------------
 
 for (const phase of ['', 'idle', 'done']) {

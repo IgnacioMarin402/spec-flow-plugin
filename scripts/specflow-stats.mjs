@@ -492,6 +492,7 @@ for (const [file, what] of [
   ['run-trace-unmatched.log', 'subagent returns with no STATUS line'],
   ['opus-budget-unmatched.log', 'SendMessage payloads the budget could not attribute'],
   ['register-agent-unmatched.log', 'Opus spawns whose session id was not found'],
+  ['token-trace-unmatched.log', 'stops whose token usage could not be read — a cost of zero here is not a cheap run'],
 ]) {
   const n = lines(file).length;
   if (n > 0) say(`note: ${n} ${what} — see .claude/state/${file}`);
