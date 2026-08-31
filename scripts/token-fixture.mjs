@@ -16,7 +16,8 @@
  *
  *   node scripts/token-fixture.mjs [engine-root]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
+import { removeTemp } from './temp-dir.mjs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -298,7 +299,7 @@ check('status and stats report the same totals off one log', () => {
 });
 
 // ---- report ----------------------------------------------------------------
-for (const dir of temps) rmSync(dir, { recursive: true, force: true });
+for (const dir of temps) removeTemp(dir);
 
 if (failures.length > 0) {
   console.error(`tokens: ${failures.length} case(s) failed.\n`);
