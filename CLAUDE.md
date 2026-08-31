@@ -93,7 +93,7 @@ It has happened twice, in both halves:
   contract, and the reviewer — the one agent whose job is checking the plan —
   was not told, so a missing field passed review unseen.
 
-So: after changing a hook, re-read the other nine. After changing what an
+So: after changing a hook, re-read the other eleven. After changing what an
 artifact contains, re-read every agent and command that writes or reads it.
 Testing the thing you changed is not the check that matters here.
 

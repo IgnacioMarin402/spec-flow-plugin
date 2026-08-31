@@ -588,6 +588,7 @@ form disambiguates.
 | `spec-flow check` | Lint changed files + full suite + unscoped checks. `--no-fix` to report only |
 | `spec-flow trace` | `spec-trace` alone: the requirement/proof binding |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
+| `spec-flow status` | Where the live run is, what the gate last said, and what it has cost so far |
 | `spec-flow models` | Which tier each agent will run on here, and which layer decided it. Non-zero when the routing block is unusable |
 | `spec-flow telemetry --mark` | Record the telemetry offset at the start of a run |
 | `spec-flow telemetry <SLUG>` | Archive this run's slice into the change folder |
@@ -599,7 +600,7 @@ logs stay in gitignored state and `stats` has nothing to read.
 know.** Every hook, command and agent resolves through
 `${CLAUDE_PLUGIN_ROOT}` — including `init`, `check`, `stats`, `models` and
 `telemetry` — so `/spec-flow` runs on the plugin alone. Measured on a repo with
-no `node_modules` at all: the gate reports a pass and the other ten hooks exit
+no `node_modules` at all: the gate reports a pass and the other eleven hooks exit
 clean. What follows is for the two places that have no plugin, a terminal
 without Claude Code and your CI.
 
@@ -746,7 +747,8 @@ Gitignored working files. Delete any of them to reset that piece of state.
 | `agent-registry` | Session id → agent type |
 | `run-offset` | Telemetry line counts at intake, set by `telemetry --mark` |
 | `gate-history.log` | One line per gate invocation. `running` while it judges, replaced by the outcome; a surviving `running` means that invocation was killed |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, each tagged with the session that produced it |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes and per-model token counts, each tagged with the session that produced it |
+| `token-offset` | How far into the session transcript the token accounting has read. Delete it to re-count the whole transcript into one line |
 | `gate-failure.log` | Last failure, truncated — what the planner reads |
 | `gate-failure.full.log` | Same, untruncated — what a human reads |
 | `lint-on-write-unmatched.log` | Linter invocations that failed to spawn |

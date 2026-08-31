@@ -25,6 +25,11 @@ const commands = {
   check: '../scripts/check-changed.mjs',
   trace: '../scripts/spec-trace.mjs',
   stats: '../scripts/specflow-stats.mjs',
+  // The state a run leaves between turns, rendered. `stats` asks what the
+  // telemetry MEANS across every archived run; this one answers where the
+  // live run is right now, which is the question you have while it is running
+  // and the one a Stop hook's own channel cannot reach you with (ADR-010).
+  status: '../scripts/status.mjs',
   // Reachable from a terminal and not only through `/spec-flow:models`,
   // because the question it answers — what will this agent actually run on —
   // is one you ask while editing the config, which is not a moment you are

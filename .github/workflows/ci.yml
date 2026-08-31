@@ -193,10 +193,17 @@ jobs:
       - name: stats report
         run: npm run stats:check
 
-      # The other nine hooks. Shallower than the gate fixture, and that is
-      # the right trade: they are nine small adapters over one protocol, and
-      # what a port breaks in them is coarse — a hook that crashes, or fires
-      # when it should be transparent.
+      # The token accounting. It reads a file another program writes, so what
+      # it pins is an observation about Claude Code's transcript rather than
+      # anything this engine controls — the shape moving is the whole risk,
+      # and a silent zero in a cost report is the shape of that failure.
+      - name: Token accounting
+        run: npm run tokens:check
+
+      # Every hook without a fixture of its own. Shallower than the gate
+      # fixture, and that is the right trade: they are small adapters over one
+      # protocol, and what a port breaks in them is coarse — a hook that
+      # crashes, or fires when it should be transparent.
       - name: Hook behaviour
         run: npm run hooks:check
 

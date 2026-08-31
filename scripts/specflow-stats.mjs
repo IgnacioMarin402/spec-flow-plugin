@@ -36,6 +36,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from './spec-flow-config.mjs';
+import { parseFields as parse, summarizeTokens, tokenRow, human } from './trace-lines.mjs';
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const STATE = join(root, '.claude', 'state');
@@ -92,13 +93,6 @@ function collectRuns() {
   return [live, ...archived]
     .map((r) => ({ name: r.name, gate: r.gate.map(parse), trace: r.trace.map(parse) }))
     .filter((r) => r.name === '(current)' || r.gate.length > 0 || r.trace.length > 0);
-}
-
-/** `k=v k=v` pairs off a log line, plus the leading ISO timestamp. */
-function parse(line) {
-  const fields = Object.fromEntries([...line.matchAll(/(\w[\w-]*)=(\S+)/g)].map(([, k, v]) => [k, v]));
-  const at = /^(\S+Z)/.exec(line);
-  return { at: at ? new Date(at[1]) : null, raw: line, ...fields };
 }
 
 const minutesBetween = (a, b) => Math.round((b - a) / 60000);
@@ -446,6 +440,50 @@ if (segments.length === 0) {
 
   say('  Both numbers are proxies: the trace carries no milestone id, so a milestone here is');
   say('  whatever happened between two gate PASSes.');
+}
+say('');
+
+// ---- 6. what the run cost, in the unit the budget does not charge ----------
+//
+// `opus-budget.mjs` charges the intent to spawn, so one consult over a large
+// context and six over a small one are charged 1 and 6 — in the opposite
+// order to what they cost. These lines are the other unit. Nothing here
+// proposes a different budget: the change policy accepts a run, and this is
+// how the run gets recorded.
+//
+// Summed by model rather than by agent, because that is the join the hook can
+// make without guessing — see hooks/token-trace.mjs. The tiers ARE the models
+// (ADR-013), so a per-model total already answers what the budget asks.
+const tokenLines = trace.filter((e) => e.model && e.msgs !== undefined);
+
+say('Tokens');
+if (tokenLines.length === 0) {
+  say('  no token accounting recorded yet — token-trace.mjs writes it at each stop, from');
+  say('  the transcript Claude Code already keeps. A trace older than that hook has none.');
+} else {
+  const rows = summarizeTokens(tokenLines);
+  const width = Math.max(...rows.map((r) => r.model.length));
+  for (const r of rows) say(`  ${tokenRow(r, width)}`);
+
+  const total = (field, filter = () => true) => rows.filter(filter).reduce((sum, r) => sum + r[field], 0);
+  say(`  total: in ${human(total('in'))}, out ${human(total('out'))}, cache_read ${human(total('cache_read'))}, cache_write ${human(total('cache_write'))}`);
+
+  // The number the budget cannot see. A spawn is charged once whatever it
+  // costs, so cost-per-spawn is the only thing that can say whether a cap in
+  // calls is calibrated — and it is a DIVISION ACROSS TWO SOURCES, the token
+  // lines and the agent returns, so it is reported as a ratio and never as a
+  // per-agent figure the trace cannot support.
+  const subagentOut = total('out', (r) => r.chain === 'subagent');
+  const spawns = trace.filter((e) => e.type && e.status).length;
+  if (subagentOut > 0 && spawns > 0) {
+    say(`  subagent output: ${human(subagentOut)} across ${spawns} recorded spawn(s) — ~${human(Math.round(subagentOut / spawns))}/spawn.`);
+    say('  That average is the unit max_opus_calls does not charge; it says nothing about which agent.');
+  } else if (subagentOut === 0 && spawns > 0) {
+    say(`  ${spawns} spawn(s) recorded and no subagent tokens with them.`);
+    warn.push(
+      `${spawns} subagent spawn(s) are in this trace and no token line is marked sidechain. Either this build does not flag a subagent's messages in the transcript or the spawns predate token-trace.mjs — treat the per-spawn cost as unmeasured, not as zero.`,
+    );
+  }
 }
 say('');
 
