@@ -15,6 +15,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
+import { removeTemp } from './temp-dir.mjs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -152,7 +153,9 @@ async function withRepo(opts, assert) {
   try {
     return await assert(dir);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    // Not a bare rmSync: this repo is git-inited, and git's background
+    // maintenance races the walk. See scripts/temp-dir.mjs.
+    removeTemp(dir);
   }
 }
 

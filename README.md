@@ -89,7 +89,7 @@ node <the plugin's path>/scripts/init.mjs   # writes .spec-flow/config.json
 ```
 
 **One install, and the plugin is it.** Nothing in a session reaches anything
-else: the eleven hooks, both commands and every agent resolve through
+else: the twelve hooks, both commands and every agent resolve through
 `${CLAUDE_PLUGIN_ROOT}`, so `/spec-flow` works with nothing else present —
 measured on a repo with no `node_modules` at all. The engine has no runtime
 dependencies of its own, which is what lets a bare copy run.
@@ -362,7 +362,8 @@ npm run gate:check    # the gate holds under its own failure modes
 npm run trace:check   # the requirement/proof binding holds
 npm run report:check  # the report readers, against real emitters' output
 npm run stats:check   # the telemetry report's session-reuse numbers
-npm run hooks:check   # the other nine hooks
+npm run tokens:check  # the token accounting, against real transcript shapes
+npm run hooks:check   # every hook without a fixture of its own
 npm run agents:check  # the planner and the reviewer agree about the milestone
 npm run skill:check   # the setup skill and the engine agree about the contract
 npm run pack:check    # a git spec installs and works from node_modules
