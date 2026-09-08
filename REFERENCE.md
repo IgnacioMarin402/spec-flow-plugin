@@ -92,10 +92,13 @@ the file itself and no code is yours to write.
 This works without the engine knowing your runner because **the format answers
 the question, not the tool**: `<skipped/>` is an element in the JUnit schema and
 `# SKIP` is a directive in the TAP spec, so a test that did not run is
-identifiable in a file whoever wrote it. Which *flag* produces that file is
-per-runner knowledge and stays out of the engine — see
-[ADR-005](decisions/005-a-report-format-is-not-a-runner.md), and ADR-002 before
-it for the half that still holds. `init` proposes the path, marked `REVIEW`,
+identifiable in a file whoever wrote it. **The READER therefore knows no
+runner** — that half is ADR-005, and ADR-002 before it.
+
+Which *flag* produces that file is per-runner knowledge, and it lives on the
+generator side: under [ADR-007](decisions/007-the-supported-scope-is-node.md)
+`init` ships a table of reporter flags for the Node runners it supports, and
+says so when yours is not one of them. It proposes the path marked `REVIEW`,
 because a path it inferred is not a path it read.
 
 **`executed_tests` — the escape hatch.** For a runner with no standard report:
@@ -398,6 +401,26 @@ the rest without a word. A contract offering it would validate, write, transmit
 and do nothing. Three agents declare their own effort in the frontmatter this
 plugin ships; the other two take the session's, which `effortLevel` in the
 project's own settings sets. See ADR-014 and ADR-015.
+
+**Pinning an actual version** is a different axis and not this engine's: a tier
+is per agent, a version is per session, and Claude Code sets it from the
+project's `.claude/settings.json`:
+
+```json
+{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "<a full model id>" } }
+```
+
+The id is whatever `/model` lists, and it is deliberately not spelled out
+here — an example naming one would be stale within a release, which is the rot
+this repo's own checks refuse. That pin changes what `opus` means everywhere in
+the session, your own turns included. `spec-flow models` reports it and names
+the file it came from.
+
+**None of it resets.** Every value above lives in a file the engine reads
+fresh: the routing on each spawn, the settings at session start. Opening a new
+conversation does not restore defaults. What *does* reset is anything set for
+the current session only — `/model` switched in the picker, or a session-only
+effort level. Put it in a file and it survives.
 
 ---
 

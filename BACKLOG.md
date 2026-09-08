@@ -12,7 +12,11 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it.
+**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B32 and
+B33 are questions before they are tasks — whether the front page's shape is
+checkable at all, and whether a `fetch-depth: 0` checkout is worth it to guard
+four frozen records. B15 is blocked on `claude plugin eval` early access —
+re-checked and still returning it.
 
 ---
 
@@ -766,6 +770,31 @@ job is to move.
 
 ---
 
+### B31 — risk was the one category in the flow with no field, no owner and no checker — `PENDING` (ADR-021)
+
+Measured, not argued: `risk` appeared three times across every surface the
+plugin ships, all three free text inside a placeholder with no field and no
+reader — `plan.md`'s `## Approach`, a run-on clause in the reviewer's
+checklist, `blast radius` in `proposal.md`'s `## Context`. Every field that
+DOES have a holder (`Objective`, `Files to add/change`, `Tests to add/change`,
+`Spec deltas`) gets a reviewer paragraph and turns `agent-contracts.mjs` red
+when the two sides disagree; risk had neither, so that machinery never applied
+to it.
+
+[ADR-021](decisions/021-a-risk-is-named-where-it-can-be-observed.md) records
+the shape and what it refused (a bare `Risks:` field that cannot fail, a gate
+check, a model verdict nothing else checks). `agents/planner.md` gained
+`What this could break: <what no requirement covers, AND what would show
+it>`, `agents/reviewer.md` gained the paragraph rejecting an answer with no
+observable half.
+
+Red before green, in a throwaway clone rather than this tree: the template
+edit alone turned `agent-contracts.mjs` red naming the new field; adding the
+reviewer's paragraph turned it green again. `agent-contracts.mjs` itself
+needed no change — it already asserts the coupling this item closes.
+
+---
+
 ## B15 — the model-graded half of the prose contract
 
 `claude plugin eval` runs `evals/**/case.yaml` against a plugin, with graders
@@ -912,6 +941,56 @@ than re-explained.
 adds is applying it to a specific task on demand. Worth doing **after** B13,
 not before: a skill that encoded the current comment habit would make the
 thing B13 exists to fix harder to change.
+
+## B32 — the README was cut once and grew back, because nothing held the shape
+
+B12 cut it from 365 lines to 179 by moving the flowcharts and the gate's
+branch reasoning to REFERENCE (`08f5e28`, -269 lines). Measured again by
+`git log --stat`: it is 383 lines today, longer than where B12 started
+cutting from, and the regrowth includes a model-routing section in "The five
+subagents" that duplicates what `spec-flow models` prints and what REFERENCE
+already holds.
+
+B12's defect and this one are the same defect at two scales — two sections
+holding most of the page, and a reader wanting either reading past the other.
+What B12 shipped as a check was cross-doc anchors (`plugin-paths.mjs`), which
+catches a broken link and says nothing about shape, so the structural half of
+that fix was held by nothing but the memory of whoever cut it.
+
+**Not decided:** whether a shape check should exist. A line budget on
+`README.md` alone would be a new asymmetry — `REFERENCE.md` and `CLAUDE.md`
+have none — and adding one silently is the pattern `CLAUDE.md` records under
+`Skills:`. What is worth deciding first is whether the front page has a stated
+job that a check could hold, or whether the honest answer is that prose shape
+is reviewed by people.
+
+## B33 — two of the four `Record:` shas in `decisions/` pointed at commits that do not exist
+
+`decisions.mjs` checks that every `ADR-NNN` citation resolves to a record and
+every record is cited — it never reads what follows `**Record:**` on that same
+line. That field is free-text prose, so nothing had ever verified it.
+
+Checked against the full history (`git log --all`, no shallow clone):
+`ADR-002`'s `021b71d` and `ADR-004`'s `0676b37` resolved to nothing — not a
+rewritten ref, not a squash artifact reachable another way, just absent.
+`ADR-001`'s and `ADR-003`'s shas were correct. All four were written in one
+retroactive commit (`671d409`, "cite the first four") that had to reconstruct
+which commit shipped each decision from memory; it got two right and two
+wrong, and nothing since has re-checked either. Corrected to `508c7bf` (ADR-002)
+and `e7b6afa` (ADR-004), each verified by matching commit-message content
+against the ADR's own text.
+
+**Not mechanized, and why:** the natural check is `git cat-file -e <sha>` over
+every `Record:` value, but `ci.yml`'s `actions/checkout@v4` has no
+`fetch-depth`, which defaults to a shallow clone — the check would fail on
+correct shas as readily as wrong ones there, for every job in the matrix. A
+check that skips itself on a shallow clone would never fire in CI at all,
+which is worse than no check: it would look armed everywhere and be armed
+nowhere. Fixing that requires `fetch-depth: 0` in `ci.yml`, a real ongoing
+cost (slower, heavier checkout on every job) to guard four frozen records —
+every decision since ADR-005 uses `Governs:` instead and carries no sha, so
+the field this would check has had zero new instances in 20 records. Left
+open as a cost/value call rather than decided by default.
 
 ## Deliberately not doing
 
