@@ -1,6 +1,6 @@
 # ADR-004 — Node is a floor and is enforced; Claude Code is recorded
 
-**Date:** 2026-08-15 · **Status:** accepted · **Record:** `0676b37`
+**Date:** 2026-08-15 · **Status:** accepted · **Record:** `e7b6afa`
 
 ## The question
 

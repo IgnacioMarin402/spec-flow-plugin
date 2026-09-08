@@ -1,6 +1,6 @@
 # ADR-002 — the engine may not know technologies; `init` may, and still does not generate
 
-**Date:** 2026-08-15 · **Status:** superseded by [ADR-005](005-a-report-format-is-not-a-runner.md) · **Record:** `021b71d`
+**Date:** 2026-08-15 · **Status:** superseded by [ADR-005](005-a-report-format-is-not-a-runner.md) · **Record:** `508c7bf`
 
 > Superseded in part, and the part that stands is worth keeping straight. Its
 > refusal of a per-runner flag or template list still holds and ADR-005 keeps

@@ -12,10 +12,11 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B32 is
-a question before it is a task — whether the front page's shape is checkable
-at all. B15 is blocked on `claude plugin eval` early access — re-checked and
-still returning it.
+**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B32 and
+B33 are questions before they are tasks — whether the front page's shape is
+checkable at all, and whether a `fetch-depth: 0` checkout is worth it to guard
+four frozen records. B15 is blocked on `claude plugin eval` early access —
+re-checked and still returning it.
 
 ---
 
@@ -962,6 +963,34 @@ have none — and adding one silently is the pattern `CLAUDE.md` records under
 `Skills:`. What is worth deciding first is whether the front page has a stated
 job that a check could hold, or whether the honest answer is that prose shape
 is reviewed by people.
+
+## B33 — two of the four `Record:` shas in `decisions/` pointed at commits that do not exist
+
+`decisions.mjs` checks that every `ADR-NNN` citation resolves to a record and
+every record is cited — it never reads what follows `**Record:**` on that same
+line. That field is free-text prose, so nothing had ever verified it.
+
+Checked against the full history (`git log --all`, no shallow clone):
+`ADR-002`'s `021b71d` and `ADR-004`'s `0676b37` resolved to nothing — not a
+rewritten ref, not a squash artifact reachable another way, just absent.
+`ADR-001`'s and `ADR-003`'s shas were correct. All four were written in one
+retroactive commit (`671d409`, "cite the first four") that had to reconstruct
+which commit shipped each decision from memory; it got two right and two
+wrong, and nothing since has re-checked either. Corrected to `508c7bf` (ADR-002)
+and `e7b6afa` (ADR-004), each verified by matching commit-message content
+against the ADR's own text.
+
+**Not mechanized, and why:** the natural check is `git cat-file -e <sha>` over
+every `Record:` value, but `ci.yml`'s `actions/checkout@v4` has no
+`fetch-depth`, which defaults to a shallow clone — the check would fail on
+correct shas as readily as wrong ones there, for every job in the matrix. A
+check that skips itself on a shallow clone would never fire in CI at all,
+which is worse than no check: it would look armed everywhere and be armed
+nowhere. Fixing that requires `fetch-depth: 0` in `ci.yml`, a real ongoing
+cost (slower, heavier checkout on every job) to guard four frozen records —
+every decision since ADR-005 uses `Governs:` instead and carries no sha, so
+the field this would check has had zero new instances in 20 records. Left
+open as a cost/value call rather than decided by default.
 
 ## Deliberately not doing
 
