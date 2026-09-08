@@ -1,6 +1,6 @@
 # ADR-005 — a report format is not a runner, and traceability is opt-in
 
-**Date:** 2026-08-16 · **Status:** accepted · **Supersedes:** ADR-002
+**Date:** 2026-08-16 · **Status:** accepted · **Supersedes:** ADR-002 · **Narrowed by:** [ADR-007](007-the-supported-scope-is-node.md) — the first refusal below, a per-runner flag table, was lifted for the Node scope; everything else stands
 
 ## The question
 

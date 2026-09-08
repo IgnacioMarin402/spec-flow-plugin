@@ -39,6 +39,46 @@ Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
 
 ---
 
+## What it actually looks like
+
+A requirement lives in `specs/`, permanently, with an id:
+
+```markdown
+### REQ-USER-001 — the user can reset their password by email
+The system sends a single-use link, valid for one hour.
+```
+
+A test carries that id in the name its runner prints:
+
+```js
+it('REQ-USER-001 — sends a single-use link valid for one hour', ...)
+```
+
+Green is the two of them agreeing, read from the report your suite wrote:
+
+```
+spec-trace: OK — 12 requirement(s) across 3 capability spec(s), every one
+proven by a test; 4 archived change(s), every one with a status.
+OK — lint, tests and the unscoped checks pass.
+```
+
+Red is what makes it worth having. Skip that test — `it.skip`, a mark, a
+runtime condition, any spelling — and it disappears from the report of what
+executed:
+
+```
+spec-trace: the spec layer and the code disagree.
+
+  - REQ-USER-001 (specs/user.md) has no test that RAN. Add a test whose name
+    contains REQ-USER-001, or delete the requirement — an unproven requirement
+    is a wish, not a spec.
+
+1 problem(s).
+```
+
+The same red appears for a test naming an id no spec declares. Both directions
+fail, and the gate runs them when a turn ends, not when someone remembers to.
+
 ## Requirements
 
 - Claude Code, and a git repo with a base branch you branch off of
@@ -197,93 +237,18 @@ plugins](REFERENCE.md#staying-current).
 | `implementer` | Implements exactly one milestone | Sonnet |
 | `architect` | Consulted on demand when the implementer hits something design-sensitive | Opus |
 
-**Those are tiers, not versions.** Each agent's frontmatter names `opus`,
-`sonnet` or `haiku`, and Claude Code resolves that to the current model of the
-tier — so an agent follows its tier forward instead of freezing on the model
-that was best the day it was written ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
-
-### Changing one
-
-```json
-{
-  "max_opus_calls": 6,
-  "agents": { "reviewer": "sonnet", "architect": "sonnet" }
-}
-```
-
-That is `.claude/spec-flow.config.json` in **your** repo — not the engine's
-contract, which holds architectural facts rather than preferences. A
-`PreToolUse` hook applies it when the spawn happens, so the orchestrator is
-never asked to pass a model and cannot forget to. An entry naming an agent that
-does not exist, or anything that is not a tier, **denies the spawn** and says
-which entry is wrong: a routing block that reads as though it works and routes
-nothing is the failure this engine exists to close.
+**Those are tiers, not versions**, and a project can re-route one, cap
+`max_opus_calls`, or pin an actual model version for the session — none of it
+resets between conversations.
+[Changing a tier, pinning a version, and how effort works](REFERENCE.md#the-second-config-file)
+([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
 
 ```bash
 npx spec-flow models
 ```
 
 prints what each agent will actually run on and **which layer decided it** —
-the plugin's default, your override, or a version pin. Three layers decide it
-and no single file shows more than one, so this is the only honest answer.
-
-### Pinning an actual version
-
-A tier is per agent; a version is per session, and it is Claude Code's setting
-rather than this engine's. In your repo's `.claude/settings.json`:
-
-```json
-{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "<a full model id>" } }
-```
-
-The id is whatever `/model` lists. It is deliberately not spelled out here:
-an example naming one would be stale within a release, which is the rot this
-repo's own check refuses — and that check caught this very line while it was
-being written.
-
-That changes what `opus` means everywhere in the session, including for your
-own turns. `spec-flow models` reports the pin and names the file it came from.
-
-### Effort
-
-Effort is the second axis, and it does **not** work like the tier. Three of the
-agents declare their own; the other two follow your session:
-
-| agent | effort |
-|---|---|
-| `reviewer` | `low` — its prompt already says it is the cheapest pass, and escalating is its escape hatch rather than thinking harder |
-| `planner` | `high` — it writes the artifact every later pass is judged against |
-| `architect` | `high` — it is reached only once a cheaper agent failed to decide safely |
-| `implementer` | your session's — the milestone decides the work, and its difficulty is the plan's claim |
-| `spec-writer` | your session's — it asks you when unsure instead of thinking harder alone |
-
-So the two that follow your session are the lever you have, in
-`.claude/settings.json`:
-
-```json
-{ "effortLevel": "high" }
-```
-
-**A project cannot set effort per agent, and that is measured rather than
-assumed.** A spawn silently discards an `effort` key: sent one alongside four
-other keys with deliberately invalid values, the schema complained about
-`isolation` — the one it knows — and dropped the rest without a word. An
-`effort` entry in the routing block would validate, write, transmit and do
-nothing, which is the single failure this engine exists to refuse, so it is
-not offered ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md)).
-
-Changing the three declared values is a change to the engine's defaults rather
-than to your config — open an issue. `spec-flow models` marks every row
-`(agent)` or `(session)` so you can always see which of the two you are
-looking at.
-
-### None of it resets
-
-Every value above lives in a file the engine reads fresh: the routing on each
-spawn, the settings at session start. Opening a new conversation does not
-restore defaults. What *does* reset is anything you set only for the current
-session — `/model` switched with `s` in the picker, or an `/effort` level that
-applies to the session only. Put it in a file and it survives.
+the plugin's default, your override, or a version pin.
 
 ## Your first run
 

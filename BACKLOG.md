@@ -12,7 +12,10 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B15 is blocked on `claude plugin eval` early access — re-checked and still returning it.
+**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B32 is
+a question before it is a task — whether the front page's shape is checkable
+at all. B15 is blocked on `claude plugin eval` early access — re-checked and
+still returning it.
 
 ---
 
@@ -912,6 +915,28 @@ than re-explained.
 adds is applying it to a specific task on demand. Worth doing **after** B13,
 not before: a skill that encoded the current comment habit would make the
 thing B13 exists to fix harder to change.
+
+## B32 — the README was cut once and grew back, because nothing held the shape
+
+B12 cut it from 365 lines to 179 by moving the flowcharts and the gate's
+branch reasoning to REFERENCE (`08f5e28`, -269 lines). Measured again by
+`git log --stat`: it is 383 lines today, longer than where B12 started
+cutting from, and the regrowth includes a model-routing section in "The five
+subagents" that duplicates what `spec-flow models` prints and what REFERENCE
+already holds.
+
+B12's defect and this one are the same defect at two scales — two sections
+holding most of the page, and a reader wanting either reading past the other.
+What B12 shipped as a check was cross-doc anchors (`plugin-paths.mjs`), which
+catches a broken link and says nothing about shape, so the structural half of
+that fix was held by nothing but the memory of whoever cut it.
+
+**Not decided:** whether a shape check should exist. A line budget on
+`README.md` alone would be a new asymmetry — `REFERENCE.md` and `CLAUDE.md`
+have none — and adding one silently is the pattern `CLAUDE.md` records under
+`Skills:`. What is worth deciding first is whether the front page has a stated
+job that a check could hold, or whether the honest answer is that prose shape
+is reviewed by people.
 
 ## Deliberately not doing
 
