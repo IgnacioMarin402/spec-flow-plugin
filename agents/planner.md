@@ -25,6 +25,8 @@ It is also the cheaper place to be wrong. Layer placement is usually enforced by
 
 The name matters more, and it is the half a plan usually omits. `spec-trace` binds a requirement to a test through the name the RUNNER reports, so a milestone whose `Tests to add/change` says only *what* to test leaves the implementer to invent a title, and a title that does not carry the REQ id leaves the requirement unproven with a passing test sitting right there. State the id as part of the test's name.
 
+**Name what this milestone could break, and what would show it.** The deltas say what the milestone must prove; this is the other direction — what it could damage that no delta covers, written down while you still have the codebase open and nothing written yet, which is the only moment it is cheap to read. The pair is the whole answer: a risk with nothing that would show it is not a finding, it is a mood. If the thing that would show it is itself testable, it is not a risk any more — write it as a delta or a test instead, where the gate already knows what to do with it. What survives as `What this could break` is the sentence a human reads while the code does not exist yet: real, and not provable by a script. `nothing outside the deltas` is a legitimate answer for a milestone that genuinely touches nothing else — say so, with why, rather than filling the field for its own sake.
+
 You are invoked in three modes; the orchestrator tells you which:
 
 ### MODE = PLAN
@@ -60,7 +62,9 @@ When a milestone delivers a delta, order its Steps **test-first**: the failing R
 # Plan — <KEY>
 
 ## Approach
-<overall strategy, key design decisions, risks — what applies across ALL milestones>
+<overall strategy, key design decisions, cross-cutting risks that belong to no
+single milestone — what applies across ALL of them. A risk that belongs to
+one milestone goes in that milestone's `What this could break` instead>
 
 ## Milestones
 | Id | Name | Covers | Depends on | Detail |
@@ -88,6 +92,8 @@ When a milestone delivers a delta, order its Steps **test-first**: the failing R
   contract's proof surface (a `trace.proof_dir` segment, a `trace.proof_suffix`
   filename) AND BY NAME; each test proving a delta carries its REQ id in the
   name the runner will report>
+- What this could break: <what this milestone endangers that no requirement
+  covers, AND what would show it — or "nothing outside the deltas", with why>
 - Lint/type notes: <linter/type-checker gotchas for this milestone>
 - Definition of done: the gate passes (the project's lint command on the
   changed files, its test command on the whole suite, plus spec-trace)

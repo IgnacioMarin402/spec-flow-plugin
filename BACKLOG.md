@@ -769,6 +769,31 @@ job is to move.
 
 ---
 
+### B31 — risk was the one category in the flow with no field, no owner and no checker — `PENDING` (ADR-021)
+
+Measured, not argued: `risk` appeared three times across every surface the
+plugin ships, all three free text inside a placeholder with no field and no
+reader — `plan.md`'s `## Approach`, a run-on clause in the reviewer's
+checklist, `blast radius` in `proposal.md`'s `## Context`. Every field that
+DOES have a holder (`Objective`, `Files to add/change`, `Tests to add/change`,
+`Spec deltas`) gets a reviewer paragraph and turns `agent-contracts.mjs` red
+when the two sides disagree; risk had neither, so that machinery never applied
+to it.
+
+[ADR-021](decisions/021-a-risk-is-named-where-it-can-be-observed.md) records
+the shape and what it refused (a bare `Risks:` field that cannot fail, a gate
+check, a model verdict nothing else checks). `agents/planner.md` gained
+`What this could break: <what no requirement covers, AND what would show
+it>`, `agents/reviewer.md` gained the paragraph rejecting an answer with no
+observable half.
+
+Red before green, in a throwaway clone rather than this tree: the template
+edit alone turned `agent-contracts.mjs` red naming the new field; adding the
+reviewer's paragraph turned it green again. `agent-contracts.mjs` itself
+needed no change — it already asserts the coupling this item closes.
+
+---
+
 ## B15 — the model-graded half of the prose contract
 
 `claude plugin eval` runs `evals/**/case.yaml` against a plugin, with graders
