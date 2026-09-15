@@ -421,7 +421,12 @@ await run(
     if (headRes.status === 0 && headRes.stdout.trim() === base) {
       const branchRes = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, encoding: 'utf8' });
       const branch = branchRes.status === 0 ? branchRes.stdout.trim() : '(unknown)';
-      hist('fail:base', '-', '-', histDashes(config), '-');
+      // `files.length` — zero, and COUNTED — is the only thing separating this
+      // refusal from the one above in the record: both write `result=fail:base`
+      // and they need different repairs from a human, while the block message
+      // that tells them apart is not kept. `-` there means nothing was counted,
+      // which is true of that door and false of this one.
+      hist('fail:base', '-', '-', histDashes(config), files.length);
       emitBlock(
         `GATE FAILED — the base resolved to HEAD itself, so the changed-file scope is empty by construction and ${config.verify.lint_name} was never invoked. ` +
           `Branch "${branch}" has no commit the base does not already have. Either this work is being done directly ON the base branch, in which case the scope will be empty for every milestone of this run, or this milestone committed nothing at all. ` +

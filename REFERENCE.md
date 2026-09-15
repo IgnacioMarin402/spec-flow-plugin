@@ -969,7 +969,11 @@ flowchart TD
   and "I could not tell" must never produce the same outcome, because one of
   them is a pass. A base that resolves *to HEAD* is refused for the same
   reason: work committed straight onto the base branch has an empty diff by
-  construction, so the scoped linter never runs for the whole run.
+  construction, so the scoped linter never runs for the whole run. Both write
+  `result=fail:base`, and a human repairs them differently — declare
+  `verify.base_ref`, or move the work onto its own branch — so **`files=` is
+  what tells them apart in the history**: `-` where the base could not be named
+  and nothing was ever counted, `0` where it was counted and was empty.
 - **A pass blocks once per commit, not once per stop** (ADR-010). Blocking on
   every stop over an unchanged tree would thrash — an implementer that
   reported early, a human who said nothing in between, each firing another

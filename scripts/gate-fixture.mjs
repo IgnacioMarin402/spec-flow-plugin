@@ -1055,10 +1055,18 @@ await Promise.all([
     }),
   ),
 
+  // `fail:base` is the one class with two causes, and they need different
+  // repairs from a human: declare `verify.base_ref`, or move the work onto its
+  // own branch. `files=` is what separates them in the record — this door threw
+  // before `changedFiles` ran, so it has no count and must not invent one. The
+  // block message distinguishes them too, and the message is not kept.
   check('a declared base_ref that git cannot resolve blocks rather than falling back', () =>
     withFixture({ specTrace: 'green', baseRef: 'origin/does-not-exist', lint: RED, test: RED }, (r) => {
       if (!r.blocked) return `a bogus base_ref silently fell back to an empty scope: ${r.history}`;
       if (!/result=fail:base/.test(r.history)) return `expected fail:base, got: ${r.history}`;
+      if (!/files=-/.test(r.history)) {
+        return `expected files=- : nothing was counted here, and a count would read as the base-resolved-to-HEAD door, which a human fixes differently. history: ${r.history}`;
+      }
       return null;
     }),
   ),
@@ -1118,6 +1126,12 @@ await Promise.all([
         return `the base resolved to HEAD, so the scope is empty by construction and verify.lint can never run — and the gate passed the milestone anyway. history: ${r.history}`;
       }
       if (!/result=fail:base/.test(r.history)) return `expected fail:base, got: ${r.history}`;
+      // The other half of the pair above: this door DID resolve a base and DID
+      // count, and the count is zero by construction. `files=-` here would make
+      // the record identical to the base it could not name at all.
+      if (!/files=0\b/.test(r.history)) {
+        return `expected files=0 : this door counted an empty scope, and writing "-" makes it indistinguishable from the base that could never be resolved. history: ${r.history}`;
+      }
       return null;
     }),
   ),
