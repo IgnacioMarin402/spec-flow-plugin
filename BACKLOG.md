@@ -12,11 +12,12 @@ the comments next to the code, where it is read by whoever changes that code
 next. A backlog that keeps re-stating settled decisions is the same liability
 as a doc nothing checks.
 
-**Open order:** B22, B14, B15. B22 is small and came out of B4's read. B32 and
-B33 are questions before they are tasks — whether the front page's shape is
-checkable at all, and whether a `fetch-depth: 0` checkout is worth it to guard
-four frozen records. B15 is blocked on `claude plugin eval` early access —
-re-checked and still returning it.
+**Open order:** B14, B15. B32 and B33 are questions before they are tasks —
+whether the front page's shape is checkable at all, and whether a
+`fetch-depth: 0` checkout is worth it to guard four frozen records. B15 is
+blocked on `claude plugin eval` early access — re-checked 2026-09-15 on
+`2.1.246` and still returning it to a RUN, though `--help` now prints the full
+help and exits 0.
 
 ---
 
@@ -795,6 +796,34 @@ needed no change — it already asserts the coupling this item closes.
 
 ---
 
+### B22 — two different refusals wrote the same line, and only one record survived — `PENDING`
+
+`hooks/gate.mjs` refused an empty changed-file scope for two causes that need
+different repairs from a human — a base it cannot NAME (declare
+`verify.base_ref`) and a base that resolves to HEAD (move the work onto its own
+branch) — and wrote both with byte-identical arguments. Confirmed by running
+the two doors rather than by reading them: every semantic field matched,
+`result=fail:base lint=- test=- spec=- files=-`.
+
+The fix is the convention the same file already used one branch below.
+`fail:scope` writes `files=0` because it counted and found nothing; a base that
+throws before `changedFiles` runs has nothing to count and writes `-`. The HEAD
+door had a real count in hand and was discarding it. `files.length` restores
+the distinction `REFERENCE.md` already stated as principle — *"'Nothing
+changed' and 'I could not tell' must never produce the same outcome"* — which
+had been applied to the decision, where both refuse, and not to the record.
+
+**No new `result=` class, deliberately.** `status.mjs` tallies the history by
+that field, so a sixth class would have changed what every reader summarises in
+order to separate two doors a field value already separates.
+
+Red before green in a throwaway clone at `4442d87`: the HEAD door's case fails
+there naming `files=-`, and passes after. Its twin on the other door asserts
+`files=-` and passes both ways — a guard on the new behaviour, not proof of the
+defect.
+
+---
+
 ## B15 — the model-graded half of the prose contract
 
 `claude plugin eval` runs `evals/**/case.yaml` against a plugin, with graders
@@ -806,6 +835,15 @@ Writing cases before that is enablement-blocked, not effort-blocked — and
 shipping unrunnable cases would be worse than none, since a suite nobody
 executes reads as coverage.
 
+**Re-checked 2026-09-15 on Claude Code `2.1.246`: still gated, and the way it
+is gated is itself the trap this repo exists to catch.** `claude plugin eval
+--help` prints the full help — every flag below, `--ablation` included — and
+exits 0, because help renders in the argument parser ahead of the gate. Only
+the run answers: `claude plugin eval .` returns the early-access line and exits
+1, and so does a plugin name that does not exist, which places the gate before
+target resolution and makes it blanket rather than anything about how it was
+invoked. Re-check by running it, never by reading `--help`.
+
 What it buys that `agent-contracts.mjs` cannot: whether judgement actually
 fires. Highest-value cases, in order — the reviewer's `CHANGES_REQUESTED` path
 (never yet observed), the triage classifier's five cases in `/spec-fix`, and
@@ -813,44 +851,6 @@ the orchestrator's refusal to write code itself.
 
 Note the cost before starting: each case runs the model, and `--ablation`
 doubles it.
-
----
-
-## B22 — two different refusals write the same line, and only one record survives
-
-`hooks/gate.mjs` refuses an empty changed-file scope for two different
-reasons, and writes both with byte-identical arguments — `hist('fail:base',
-'-', '-', histDashes(config), '-')` at both call sites. One is a base this
-engine cannot NAME; the other is a base that resolves to HEAD, meaning the
-work is being done on the base branch itself. They need different fixes from
-a human: declare `verify.base_ref`, or move the run onto its own branch.
-
-**The peers were checked, and this is the only class with the problem.**
-`fail:lint/trace` and `fail:behaviour` also have two doors each, but both come
-from the single call site that writes real field values, so their doors are
-told apart by `lint=1` vs `spec=1` and by `test=1` vs a check's own field.
-Every other class has exactly one cause. `fail:base` is alone in being
-indistinguishable from its own record.
-
-The block message does distinguish them, which is why this has never hurt
-anyone standing in front of it. The message is not kept; the history line is.
-
-**The run behind it:** B4's read asserted the HEAD door for a real archived
-failure and could not have known — the claim was corrected in the same pass
-that made it (`69c6a7e`). That is the exact reader this matters for: someone
-reading a run's telemetry after the fact, which is the only thing B4 has.
-
-Sharper because `REFERENCE.md` already states the principle this violates —
-*"'Nothing changed' and 'I could not tell' must never produce the same
-outcome, because one of them is a pass."* It is applied to the decision, where
-both refuse, and not to the record, where both look the same.
-
-**Done looks like:** the two call sites write distinguishable lines, a
-`gate-fixture.mjs` case per door asserting which one it got (both doors are
-already constructed there — `baseRef: 'origin/does-not-exist'` and
-`stayOnBase: true` — and today both can only assert the class), and
-`REFERENCE.md`'s empty-scope paragraph naming the field that tells them apart.
-Small: it is a token in one line, not a redesign.
 
 ---
 
@@ -941,6 +941,25 @@ than re-explained.
 adds is applying it to a specific task on demand. Worth doing **after** B13,
 not before: a skill that encoded the current comment habit would make the
 thing B13 exists to fix harder to change.
+
+**Checked 2026-09-15: the blocker is cleared and the scope is a third smaller
+than written.** B13 shipped `.claude/skills/engine-comments`, which is the
+first of the three rules above. It is the only thing in `.claude/skills/`, so
+verify-before-claiming and fixture-goes-red-first remain `CLAUDE.md` prose with
+no skill and no instrument — `comment-transitions.mjs` measures the rule that
+already has one.
+
+**The question the entry never asks, and should before this is written:
+nothing binds `.claude/skills/` to anything.** `skill-contract.mjs` ties the
+*shipped* `skills/spec-flow-setup/SKILL.md` to the engine precisely because
+prose a model acts on goes stale silently; it does not look at this directory,
+so `engine-comments` today — and a B14 skill tomorrow — is checked by nothing.
+That is the `.spec-flow/skills.md` shape, and the thing that separates them is
+an argument `engine-comments` makes about itself and B14 has not made: a
+decision *procedure* stays true as the repo changes, while an inventory of a
+*present state* does not. A skill that listed this repo's conventions would be
+the second kind. One that says how to sort a claim into proven and unproven is
+the first.
 
 ## B32 — the README was cut once and grew back, because nothing held the shape
 
