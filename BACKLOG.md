@@ -796,7 +796,7 @@ needed no change — it already asserts the coupling this item closes.
 
 ---
 
-### B22 — two different refusals wrote the same line, and only one record survived — `PENDING`
+### B22 — two different refusals wrote the same line, and only one record survived — `3f84617`
 
 `hooks/gate.mjs` refused an empty changed-file scope for two causes that need
 different repairs from a human — a base it cannot NAME (declare
