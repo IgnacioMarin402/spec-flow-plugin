@@ -1,6 +1,6 @@
 # ADR-019 — CI runs the floor it imposes, on the platform it disclaims
 
-**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `.github/workflows/ci.yml`, `package.json`, `README.md` · **Supersedes the CI half of:** ADR-011
+**Date:** 2026-08-23 · **Status:** accepted; the floor moved to Node 22 in `ff1d075` (Node 20 reached end of life on 2026-04-30), so the matrix is `[22, 24]` — the rule is unchanged · **Governs:** `.github/workflows/ci.yml`, `package.json`, `README.md` · **Supersedes the CI half of:** ADR-011
 
 **Question.** CI ran one job, Ubuntu on Node 22. `engines.node` declared `>=20`
 and `preflight` denies a run below it, so the floor enforced on others had never
