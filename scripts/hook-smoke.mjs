@@ -579,6 +579,7 @@ t('a stale-phase reset disarms the run without forgetting where it was', (repo) 
   if (/re-run \/spec-flow/.test(r.stdout)) {
     return `it still tells the user to start over though it knows where the run was: ${r.stdout}`;
   }
+  if (!/\/spec-flow:resume/.test(r.stdout)) return `it does not name the command that picks the run up (ADR-024): ${r.stdout}`;
   return null;
 });
 

@@ -197,6 +197,12 @@ jobs:
       - name: Token accounting
         run: npm run tokens:check
 
+      # The step a dead run resumes at. A wrong verdict repeats a milestone,
+      # skips one, or plans over a spec nobody approved — and it is read off
+      # files several hooks write, so this is where their shapes meet.
+      - name: Resume verdicts
+        run: npm run resume:check
+
       # Every hook without a fixture of its own. Shallower than the gate
       # fixture, and that is the right trade: they are small adapters over one
       # protocol, and what a port breaks in them is coarse — a hook that
