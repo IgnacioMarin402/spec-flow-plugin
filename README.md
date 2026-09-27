@@ -1,60 +1,39 @@
 # spec-flow
 
 **A feature ships only when a test that actually ran proves every requirement
-in its spec.** The failure this closes is the quiet one: a requirement everyone
-believes is covered, and no test that proves it.
+in its spec.** It closes the quiet failure: a requirement everyone believes is
+covered, with no test that proves it.
 
-**What the machine enforces, exactly:** a test whose reported name carries the
-requirement's id executed and did not fail — checked in both directions, and a
-skipped test is absent from a report of what ran, so there is no spelling of
-"skip" that gets past it. What the machine cannot check is whether that test
-*asserts* the requirement, because the engine reads no source code — that is
-the trade that makes it work on any Node project without knowing your framework
-([ADR-001](decisions/001-proof-comes-from-the-runner.md)). A test named for a
-requirement that asserts nothing passes every check in the flow.
+spec-flow is a spec-driven, multi-agent pipeline for Claude Code, for Node
+projects. A free-text requirement becomes a spec you sign off, a plan in
+milestones, a review, and an implementation loop gated by lint, tests and
+requirement traceability — checks that run **outside the model**, in a hook,
+on the commands your repo declares.
 
-**So a model reads it instead, once per change.** The fold step opens each
-added requirement's test and asks whether it would still pass with the
-requirement unimplemented, and reports what it finds — it does not gate on it.
-That placement was measured rather than assumed: the JUnit schema has an
-`assertions` attribute that no supported runner populates, and `time` does not
-separate the cases — mocha reports `time="0"` for tests that genuinely ran
-([ADR-020](decisions/020-a-tagged-test-is-judged-not-measured.md)). Beyond
-that reading, the spec sign-off and your own code review are what stand there.
-Said plainly because a check whose reach is overestimated is the same liability
-as one that is disarmed.
+**What the machine enforces:** a test whose reported name carries the
+requirement's id executed — checked in both directions, from the report your
+runner writes, so a skipped or todo test does not count. **What it cannot
+check** is whether that test asserts anything: the engine reads no source code
+([ADR-001](decisions/001-proof-comes-from-the-runner.md)). A model reads each
+new test once per change and reports weak ones; the sign-off and your code
+review do the rest ([ADR-020](decisions/020-a-tagged-test-is-judged-not-measured.md)).
 
-spec-flow is a spec-driven multi-agent pipeline for Claude Code. A free-text
-requirement becomes a spec you sign off on, a milestone-by-milestone plan, a
-review pass, and an implementation loop gated by lint, tests and requirement
-traceability running **outside the model**.
+## What it looks like
 
-Two commands — `/spec-flow` for a feature, `/spec-fix` for a defect — drive
-five subagents, each on the model tier its job needs. **It supports Node
-projects.** Inside that scope it has no opinion about your framework or your
-architecture, because **it reads no source code**: it runs the commands your
-repo declares in one file, `.spec-flow/config.json`, and reads their output.
-
-Every field, table and flag is in **[REFERENCE.md](REFERENCE.md)**.
-
----
-
-## What it actually looks like
-
-A requirement lives in `specs/`, permanently, with an id:
+A requirement lives in `specs/`, with a permanent id:
 
 ```markdown
 ### REQ-USER-001 — the user can reset their password by email
 The system sends a single-use link, valid for one hour.
 ```
 
-A test carries that id in the name its runner prints:
+A test carries that id in its name:
 
 ```js
 it('REQ-USER-001 — sends a single-use link valid for one hour', ...)
 ```
 
-Green is the two of them agreeing, read from the report your suite wrote:
+Green is the two agreeing, read from the report your suite wrote:
 
 ```
 spec-trace: OK — 12 requirement(s) across 3 capability spec(s), every one
@@ -62,9 +41,8 @@ proven by a test; 4 archived change(s), every one with a status.
 OK — lint, tests and the unscoped checks pass.
 ```
 
-Red is what makes it worth having. Skip that test — `it.skip`, a mark, a
-runtime condition, any spelling — and it disappears from the report of what
-executed:
+Skip that test — `it.skip`, `it.todo`, a runtime skip — and it disappears from
+the report:
 
 ```
 spec-trace: the spec layer and the code disagree.
@@ -72,183 +50,46 @@ spec-trace: the spec layer and the code disagree.
   - REQ-USER-001 (specs/user.md) has no test that RAN. Add a test whose name
     contains REQ-USER-001, or delete the requirement — an unproven requirement
     is a wish, not a spec.
-
-1 problem(s).
 ```
 
-The same red appears for a test naming an id no spec declares. Both directions
-fail, and the gate runs them when a turn ends, not when someone remembers to.
+A test naming an id no spec declares fails the same way.
 
 ## Requirements
 
-- Claude Code, and a git repo with a base branch you branch off of
-- **A Node project** — a `package.json` declaring how you test and lint.
-  Nothing refuses to run on another stack, and a contract filled in by hand may
-  well work there; it is simply not tested or supported.
-  [Why the scope is Node, and what was refused](decisions/007-the-supported-scope-is-node.md)
-- Node 20+ — enforced: a run refuses to start below it, and every check here
-  runs on 20, 22 and 24
-- **Linux or Windows** — both exercised by CI, on each of those Node versions.
-  macOS is not, and nothing refuses to run there: the contract `init` writes is
-  the same file on every platform, and this engine has no platform check at
-  all.
-  [Why the contract is platform-neutral](decisions/011-the-contract-is-platform-neutral.md) ·
-  [ADR-019 — why the matrix covers the floor and the platform](decisions/019-ci-runs-the-floor-it-imposes.md)
-- A linter and a test runner you can invoke from the command line
-
-## What is yours and what is the engine's
-
-The engine knows nothing about your project that you have not told it. That is
-the design, and it means the list of things only you can supply is short,
-finite, and worth seeing before you start.
-
-| Yours | The engine's |
-|---|---|
-| **The contract** — which commands lint and test, what is in scope, where specs live. `init` reads most of it off your repo and reports what it could not | Running those commands, scoping lint to the changed files, never scoping the suite |
-| **Confirming the reporter flag** `init` added, so your suite writes a report saying which tests RAN — and supplying it yourself if your runner is not one it knows | Proposing that flag, parsing the report — JUnit XML or TAP — binding each requirement to a test that executed, in both directions, and refusing when it cannot tell |
-| **Writing the specs' words** — at sign-off, you approve what the system will claim to do | Refusing to let a requirement stay unproven, or a test prove something no spec declares |
-| **The judgement calls** — the sign-off, a `WRONG-SPEC` confirmation, and any run the gate hands back after five failures | Everything between those: planning, review, implementation, and the checks that run outside the model |
-| **Keeping Node and Claude Code current** | Refusing to start on a Node it does not support, and recording the Claude Code that ran each gate |
-
-Nothing else is asked of you mid-run. If the engine stops and waits, it is one
-of the rows above, and it says which.
+- Claude Code, and a git repo where you work on a branch off your base branch
+- A Node project with test and lint commands. Other stacks are not supported
+  ([ADR-007](decisions/007-the-supported-scope-is-node.md))
+- Node 20+ — a run refuses to start below it
+- Linux or Windows; CI runs both on every supported Node
+  ([ADR-019](decisions/019-ci-runs-the-floor-it-imposes.md))
 
 ## Install
-
-Run it from your repo's root, on a branch off your base branch:
 
 ```bash
 claude plugin marketplace add IgnacioMarin402/spec-flow-plugin
 claude plugin install spec-flow@spec-flow-marketplace
 ```
 
-That is the whole install. Then, from your repo's root:
+Then, from your repo's root:
 
 ```bash
 node <the plugin's path>/scripts/init.mjs   # writes .spec-flow/config.json
+node <the plugin's path>/scripts/check-changed.mjs
 ```
 
-**One install, and the plugin is it.** Nothing in a session reaches anything
-else: the twelve hooks, both commands and every agent resolve through
-`${CLAUDE_PLUGIN_ROOT}`, so `/spec-flow` works with nothing else present —
-measured on a repo with no `node_modules` at all. The engine has no runtime
-dependencies of its own, which is what lets a bare copy run.
+`init` reads your test and lint commands from `package.json`, adds your
+runner's reporter flag so the suite writes a report of what ran, and marks
+anything it inferred `REVIEW` and anything it could not read `MISSING`. If it
+leaves `MISSING` lines, ask Claude Code to set up spec-flow: the plugin's setup
+skill fills them and proves the result with `check-changed`. Green there means
+green at the gate. Every field is in
+[REFERENCE](REFERENCE.md#what-makes-a-requirement-proven).
 
-### Optional: the same engine as a devDependency
-
-Only worth it for **a terminal without Claude Code, or your CI** — neither has
-a plugin. It buys a short command and an `npm ci` that resolves from your
-lockfile instead of re-fetching:
-
-```bash
-# Pin it. A bare git spec follows `main`, so CI re-resolves the engine on
-# every install and two builds of the same commit can be judged by two
-# different engines. Any commit or tag works; `#main` is the unpinned form,
-# written out so that choosing it is a choice.
-npm install --save-dev github:IgnacioMarin402/spec-flow-plugin#<commit-or-tag>
-npx spec-flow check     # green here means green at the gate; its last line names the engine revision that ran
-npx spec-flow models    # which model tier each agent will run on, and who decided
-```
-
-Skipping it costs nothing but the short name — `node <clone>/scripts/check-changed.mjs`
-runs the same checks from a bare clone, with no `package.json` required, which
-is also how a repo that is not a Node package uses this engine at all.
-
-**The command is `spec-flow` and this engine is not on npm** — that name
-belongs to an unrelated package there, and `spec-flow-plugin` is published
-nowhere. So `npx spec-flow` in a repo that has *not* run the install above
-reaches the registry and runs a stranger's code. Both installs come from this
-one repository ([ADR-016](decisions/016-one-repository-one-distribution.md)),
-so there is one codebase to maintain whichever you use.
-
-**No code is yours to write, and on a conventional project no configuration
-either.** `init` reads your test and lint commands off `package.json`, adds
-your runner's reporter flag to the test command, and writes a contract the
-engine can run; the last line proves it. Below is what each step is for, to be
-read when one does not do what you expected.
-
-**1. The plugin** brings the commands, the agents and the hooks, and it is the
-only required install. Nothing else here is Claude-Code-specific.
-
-**2. The devDependency is optional and buys one thing: the short name outside
-a session.** Your terminal without Claude Code, and your CI, have no
-`${CLAUDE_PLUGIN_ROOT}` — so they need the engine from somewhere, and a
-lockfile entry is cheaper per CI run than re-fetching a clone. It is a git spec
-rather than a registry name on purpose: **nothing here is published to npm**, so
-the plugin and the dependency are one repository and cannot drift into two
-versions ([ADR-016](decisions/016-one-repository-one-distribution.md)). Append
-`#<commit-or-tag>` to pin CI to a commit rather than following `main`. It has
-**no runtime dependencies** of its own, and every command runs from your repo's
-root with no arguments and no environment variables.
-[The commands, and the by-path route that needs no install at all](REFERENCE.md#cli).
-
-**3. The contract.** `init` reads what your repo already declares — your `test`
-and `lint` scripts, where your tests live, your base branch — writes
-`.spec-flow/config.json`, and scaffolds `specs/`. **It never invents a value it
-could not determine**, so it sorts every field into `detected`, `REVIEW` or
-`MISSING` and exits non-zero until nothing is missing.
-
-**Your suite has to say which tests RAN**, because a test that was skipped must
-not count as proof — otherwise skipping is the cheapest way to silence a red
-suite. That comes from a report your runner already knows how to write:
-
-```json
-"report": { "format": "junit", "path": "reports/junit.xml" }
-```
-
-`init` appends the flag that produces it to your test command, for the runners
-this engine supports, and marks it `REVIEW` so you see the edit. It is a flag
-and never a script: the engine parses JUnit XML and TAP itself, because
-`<skipped/>` and `# SKIP` are defined by those formats rather than by any
-runner. If your runner is one it does not know, it says so and leaves the flag
-to you. **Until the report lands, traceability is simply off** — the gate still
-lints and tests — and it turns itself back on the moment you declare a
-requirement, refusing rather than passing quietly.
-[Both proof sources, and the escape hatch for runners with no standard report](REFERENCE.md#what-makes-a-requirement-proven).
-
-**If `init` left `MISSING` lines, a Claude Code session can finish the job.**
-Ask it to set up spec-flow in this repo: the plugin ships a setup skill that
-fills what `init` could not read — most often a `test` script that runs through
-an interpreter rather than a named runner — and then *proves* the result by
-running your suite and the check below. It cannot be wrong quietly: the last
-thing it does is run step 4, and step 4 goes red when the report does not land.
-
-**4. Check it.** `check-changed` lints what this branch changed, runs your
-suite, and runs the traceability check — the same commands the gate will run,
-through the same file.
-
-Staying current is one command — `/plugin marketplace update` — or none, if you
-turn on Claude Code's background auto-update for this marketplace. Step 2 does
-not follow on its own: it is a git spec, so it moves when you move it, and
-nothing warns you that the two halves are on different commits. What each half
-does say is which revision it is: the gate writes `engine=` into every line of
-`gate-history.log`, and `spec-flow check` ends by naming its own — so the two
-can be compared by eye when a result differs between your terminal and a run.
-[Both routes, and why the update lands here and does nothing on some
-plugins](REFERENCE.md#staying-current).
-
-## The five subagents, and what they run on
-
-| agent | what it does | ships on |
-|---|---|---|
-| `spec-writer` | Turns the requirement into a spec, triages a defect, folds a shipped change back into `specs/` | Sonnet |
-| `planner` | Turns the approved spec into milestones, and is the escalation consultant | Opus |
-| `reviewer` | Reads the plan against the spec once, before an implementer is spent | Haiku |
-| `implementer` | Implements exactly one milestone | Sonnet |
-| `architect` | Consulted on demand when the implementer hits something design-sensitive | Opus |
-
-**Those are tiers, not versions**, and a project can re-route one, cap
-`max_opus_calls`, or pin an actual model version for the session — none of it
-resets between conversations.
-[Changing a tier, pinning a version, and how effort works](REFERENCE.md#the-second-config-file)
-([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
-
-```bash
-npx spec-flow models
-```
-
-prints what each agent will actually run on and **which layer decided it** —
-the plugin's default, your override, or a version pin.
+The plugin is the whole install. For a terminal without Claude Code, or CI, the
+same engine installs as a pinned devDependency straight from this repository —
+nothing is published to npm, and `spec-flow` on npm is someone else's package
+([REFERENCE → CLI](REFERENCE.md#cli)). To stay current:
+`/plugin marketplace update` ([REFERENCE](REFERENCE.md#staying-current)).
 
 ## Your first run
 
@@ -256,92 +97,60 @@ the plugin's default, your override, or a version pin.
 /spec-flow users can reset their password by email
 ```
 
-What happens:
+1. The run refuses to start if the contract does not load or the base branch
+   does not resolve.
+2. The spec-writer asks you questions if the requirement is ambiguous.
+3. **You sign off** on the requirement deltas and the decision. A "no" is
+   archived with its reason.
+4. Plan, review, then one milestone at a time, each in a fresh implementer
+   session that is told to write each requirement's test first.
+5. **The gate runs when the turn ends.** Red tells the orchestrator what to
+   fix; green tells it to advance — so a run moves on its own.
+6. Fold: the change is verified against `specs/`, stamped SHIPPED and archived
+   with the run's telemetry.
 
-0. **The run refuses to start** if the contract does not load or the base
-   branch does not resolve. That check costs nothing — no agent has run yet —
-   and it is why step 3 of the install matters.
-1. **The spec-writer asks you questions** if the requirement is ambiguous.
-   Answer in the chat.
-2. **You sign off.** It shows the requirement deltas and the decision, and
-   waits. This is the last moment "no" costs nothing. A rejection is stamped
-   and archived, not deleted.
-3. **Plan, review, then implementation** — one milestone at a time, each in a
-   fresh implementer session, test-first per requirement.
-4. **The gate runs when the turn ends.** Green blocks the stop and tells the
-   orchestrator to advance; red blocks it and tells the orchestrator what to
-   fix.
-5. **Fold and done.** The change spec is verified against `specs/`, stamped
-   SHIPPED, archived with the run's telemetry.
+Beyond answering its questions, it stops for you only at the sign-off, a
+`/spec-fix` defect that turns out to be a wrong spec or a feature, an exhausted
+escalation budget, or five gate failures — then read
+`.claude/state/gate-failure.log`.
 
-**A pass wakes the orchestrator, once per commit** (ADR-010). The first time
-the gate reports a given commit as green, it blocks the stop the same way a
-failure does, so both you and the orchestrator see it — a milestone advances
-on its own, with nothing to type:
+For a defect, `/spec-fix <what is broken>` triages it against `specs/` and runs
+one implementer pass through the same gate.
 
-```
-Stop says: spec-flow: gate PASSED — 6fdfb93 (eslint 0, npm test 0, spec=0).
-Advance the run now: start the NEXT milestone with a fresh implementer
-Agent call, or if none remain, invoke spec-writer in MODE=FOLD; if this
-was the fold's own gate re-run, write 'done' into .claude/state/phase.
-```
+## The agents
 
-A second stop over the same commit — nothing new committed — stays silent to
-the model instead, so the run is not asked to act on the same pass twice.
+| agent | does | ships on |
+|---|---|---|
+| `spec-writer` | Writes the spec, triages defects, folds shipped changes into `specs/` | Sonnet |
+| `planner` | Turns the spec into milestones; escalation consultant | Opus |
+| `reviewer` | Reads the plan against the spec before an implementer is spent | Haiku |
+| `implementer` | Implements one milestone | Sonnet |
+| `architect` | Consulted when the implementer hits a design decision | Opus |
 
-If it stops and asks for a human, read `.claude/state/gate-failure.log`.
-
----
+Those are tiers, not versions. A project can re-route any agent and cap
+escalations ([REFERENCE](REFERENCE.md#the-second-config-file));
+`/spec-flow:models` shows what each will run on and who decided.
 
 ## How it works
 
-Nothing coordinates a run but `.claude/state/phase` — no queue, no daemon, no
-shared memory between agents. A subagent finishes, the orchestrator's turn
-ends, and a `Stop` hook runs the checks outside the model and either allows the
-stop or blocks with the instruction for what to do next.
-
-- **The orchestrator never writes code.** It routes. Everything that produces an
-  artifact is a subagent on the model tier its job needs.
-- **The gate is not a step in the pipeline** — it is what happens when the
-  pipeline stops. Its block message *is* the next instruction.
-- **The first pass on a commit blocks too**, on the same channel a failure
-  uses (ADR-010) — a green milestone advances the run on its own, and you see
-  it happen. A repeat stop on that same commit is where the free ride is: it
-  renders no decision, so it costs nothing and wakes nobody.
-
-The three flowcharts — a feature, a defect, and the gate's own routing — are in
-[REFERENCE](REFERENCE.md#how-a-run-unfolds), along with the reasoning behind
-each branch.
+Nothing coordinates a run but one file, `.claude/state/phase`. The orchestrator
+routes and never writes code; each subagent does one job; when the
+orchestrator's turn ends, a `Stop` hook runs your lint, your whole suite and the
+traceability check, and either allows the stop or blocks with the next
+instruction. The three flowcharts are in
+[REFERENCE](REFERENCE.md#how-a-run-unfolds).
 
 ## Developing the engine
 
 ```bash
 npm install
-npm run lint          # eslint over hooks/ and scripts/
-npm run typecheck     # tsc --noEmit
-npm run check         # no coupling to any one consuming repo
-npm run comments:check # no file's history has moved back into its comments
-npm run paths:check   # every ${CLAUDE_PLUGIN_ROOT} path resolves
-npm run init:check    # what `init` generates actually validates
-npm run gate:check    # the gate holds under its own failure modes
-npm run trace:check   # the requirement/proof binding holds
-npm run report:check  # the report readers, against real emitters' output
-npm run stats:check   # the telemetry report's session-reuse numbers
-npm run tokens:check  # the token accounting, against real transcript shapes
-npm run hooks:check   # every hook without a fixture of its own
-npm run agents:check  # the planner and the reviewer agree about the milestone
-npm run skill:check   # the setup skill and the engine agree about the contract
-npm run pack:check    # a git spec installs and works from node_modules
-npm run cold:check    # a Node repo, from zero to green, installing nothing
+npm run lint && npm run typecheck
 ```
 
-All of these run in CI on every push and PR, and none of them needs the
-network. The last one is the only check that fails when *adoption* breaks
-rather than a piece of the engine: it takes a Node repo from nothing to a green
-`spec-flow check` through the route documented above, running the scripts by
-path so that the claim it proves is `init`'s and not an install's.
-
----
+Every other check is a `*:check` script in `package.json`, none needs the
+network, and CI runs all of them on Linux and Windows. `cold:check` is the one
+that fails when *adoption* breaks: it takes a Node repo from nothing to a green
+`check` through the route above.
 
 ## License
 
