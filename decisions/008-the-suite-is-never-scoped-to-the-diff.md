@@ -2,54 +2,21 @@
 
 **Date:** 2026-08-21 · **Status:** accepted · **Governs:** `hooks/gate.mjs`
 
-## The question
+**Question.** Lint is scoped to the changed files so a milestone is not blocked
+by old debt. Should the suite be scoped the same way?
 
-The gate scopes LINT to the files changed on the branch, so a milestone is
-never blocked by pre-existing lint debt in files it never touched. The obvious
-symmetry is to scope the test run the same way — faster gates, and the same
-argument appears to apply.
+**Decision.** No: `verify.test` runs in full on every armed gate, including when
+nothing in scope changed. Linting a file is a local property of that file; a
+suite's outcome is a property of the system, and a scoped run stays green while
+a consumer outside the diff breaks. An empty scope is a fact about the diff, and
+not always a real one — a mis-resolved base manufactures it — so it skips lint
+and changes nothing about the suite.
 
-It does not, and the reason is worth a record because the symmetry is what
-makes the mistake attractive.
+**Refused.** Scoping tests to changed files; skipping the suite on an empty
+scope (the trigger is also a symptom of a disarmed gate); guessing the base
+(`resolveBase` refuses, since a wrong base lints nothing).
 
-## The decision
-
-**`verify.test` runs in full on every armed gate**, unscoped, including when
-the set of changed files is empty.
-
-`lint(file)` is a total, local predicate over one file: file-scoping it is
-exact. A suite's outcome is not a property of one file, it is a property of the
-system. A scoped run can stay green while the change breaks a consumer outside
-the diff — a silent pass through the import graph, which is the exact failure
-this engine exists to close, reintroduced one level up in the test command's
-argv.
-
-The degenerate case falls out of the same argument. "No file in scope changed"
-is a statement about the diff, not about the system, and an empty diff is not
-always real: a mis-resolved base manufactures one. So an empty scope skips
-lint, and changes nothing about the suite.
-
-## What was refused
-
-**Scoping tests to the changed files.** Above.
-
-**Skipping the suite when the scope is empty.** The condition that would
-trigger the skip is also a symptom of the gate being disarmed.
-
-**Trusting the base branch to be inferable.** `resolveBase` refuses to guess
-instead, because a wrong base disarms the gate entirely: it manufactures a
-scope of zero changed files, which lints nothing.
-
-## The cost, and where it lands
-
-A repo with a slow suite pays it on every milestone, and the hook's declared
-timeout (1800s in `hooks.json`) is a ceiling, not a promise — a `command` hook
-that reaches it is CANCELED, and a Stop hook that renders no decision ALLOWS
-the stop. So the answer for a slow suite is to declare a smoke subset as
-`verify.test`, which is the adopter's decision about what "proven" means, not
-something the gate can infer.
-
-## Related
-
-ADR-001 (proof comes from the runner) — the same principle one level down:
-what proves a requirement is a test that RAN, not a derivation over source.
+**Cost.** A slow suite is paid every milestone, and the Stop hook's 1800s
+timeout is a ceiling: a cancelled Stop hook ALLOWS the stop. The answer is a
+smoke subset declared as `verify.test` — the adopter's call about what
+"proven" means.

@@ -2,35 +2,19 @@
 
 **Date:** 2026-08-15 · **Status:** accepted · **Record:** `e7b6afa`
 
-## The question
+**Question.** The Node running the engine and the Claude Code hosting it both
+decide whether it works. Should either be enforced?
 
-Two versions decide whether this engine runs correctly: the Node it executes
-under, and the Claude Code hosting it. Should either be enforced?
+**Decision.**
+- **Node: a floor, enforced.** `package.json`'s `engines.node` is the single
+  declaration, and `preflight` refuses a run below it before any agent is
+  spent. Major version only, only when both parse, and only inside a run — a
+  repo that never adopted the engine is never denied over it.
+- **Claude Code: recorded, not checked.** Every gate-history line carries
+  `cc=<CLAUDE_CODE_VERSION>`, or `cc=?`. A supported range needs evidence about
+  versions outside it, and the only user runs the latest: any floor would be
+  invented, and an invented floor denies real runs. Recording it means the first
+  version-dependent failure arrives with the version attached.
 
-## The decision
-
-**Node: a floor, enforced.** `package.json`'s `engines.node` is the single
-declaration, and `preflight` refuses a run below it before any agent is spent.
-Major version only, and only when both parse — a floor the engine cannot
-compare against confidently is not worth denying a run over. Inside a run
-only: a subagent in a repo that never adopted this engine is never denied over
-a floor only this engine declares.
-
-**Claude Code: recorded, not checked.** `CLAUDE_CODE_VERSION` is written into
-every gate-history line as `cc=`, or `cc=?` where the harness does not expose
-it.
-
-A check was possible — the variable exists. It was refused because declaring a
-supported range means having evidence about versions outside it, and this
-project has been run by someone who always uses the latest. Every claim about
-an older Claude Code would be invented, and **an invented floor denies real
-runs.** What the engine can honestly do is start collecting the fact, so the
-first version-dependent failure arrives with the version already in the
-record.
-
-## What was refused
-
-- **A compatibility table for Claude Code.** It would be fiction, and fiction
-  that blocks work.
-- **Re-adding a plugin version to express compatibility.** See ADR-003 for why
-  that field cannot come back.
+**Refused.** A Claude Code compatibility table (fiction that blocks work), and
+re-adding a plugin version to carry compatibility (ADR-003).
