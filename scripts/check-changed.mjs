@@ -19,7 +19,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, ensureReportDir } from './spec-flow-config.mjs';
+import { loadConfig, prepareReport } from './spec-flow-config.mjs';
 import { resolveBase, changedFiles, scopeMatchesNothing } from './changed-files.mjs';
 import { runUnscopedChecks, summary } from './unscoped-checks.mjs';
 import { engineRevision } from './engine-revision.mjs';
@@ -101,7 +101,7 @@ if (files.length === 0) {
 // related to these sources"; and an empty diff is a fact about the diff, not
 // about whether the suite passes.
 console.log(`--- ${config.verify.test_name} ---`);
-ensureReportDir(root, config);
+prepareReport(root, config);
 const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), { cwd: root, stdio: 'inherit' });
 const testRc = testRes.status ?? 1;
 console.log('');

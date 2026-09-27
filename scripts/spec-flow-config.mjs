@@ -25,7 +25,7 @@
  * to run.
  */
 
-import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The list of readable formats has one home, and it is the file that reads
@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 // then rejected at the gate, which is the drift this import exists to refuse.
 // Safe to import at module scope for the same reason unscoped-checks.mjs is:
 // both ship inside this package, so neither is ever present without the other.
-import { FORMATS as VALID_REPORT_FORMATS } from './test-report.mjs';
+import { FORMATS as VALID_REPORT_FORMATS, readReport } from './test-report.mjs';
 
 /** The contract this reader understands. A file declaring anything else stops the run. */
 export const SUPPORTED_VERSION = 1;
@@ -269,37 +269,47 @@ function validate(config, source) {
 }
 
 /**
- * Creates the directory `trace.report.path` points into, before the suite runs.
+ * Readies `trace.report.path` for the suite that is about to write it: the
+ * directory exists, and no report from an earlier run is left in it.
  *
  * **Every caller that spawns `verify.test` must call this first**, and there
  * are two — the gate and `check-changed` — which already have to agree command
  * for command, so this is one more thing they cannot be allowed to differ on.
  *
- * The engine owns this because the engine causes it. `init` appends the
- * reporter flag itself now, so a runner that will not create its own output
- * directory gets handed a path that does not exist and dies on the adopter's
- * first run, holding a command this package wrote. Runners disagree about
- * this — some create it, some do not — and which ones is exactly the kind of
- * per-runner behaviour that does not belong in a table.
+ * The directory, because a runner that will not create its own output
+ * directory dies on a path `init` handed it, and an empty directory is not a
+ * thing git stores — so it is made at RUN time, in every clone, CI included.
  *
- * Doing it at RUN time rather than at `init` time is the whole point: an empty
- * directory is not a thing git stores, so one created during setup is gone from
- * the next clone and CI meets the same ENOENT with nobody around to read it.
+ * The stale report, because spec-trace binds requirements to whatever that
+ * file names. A suite that stops writing it — a reporter flag dropped from
+ * `verify.test`, a reporter removed from the runner's own config — would
+ * otherwise leave the previous run's file there, and every requirement it
+ * named would read as proven by tests that did not run this time. Removed
+ * here, that becomes the missing-report refusal `readReport` already words.
+ *
+ * Only a file that READS as a report naming at least one test case is
+ * removed. That is the only kind that can stand in as stale proof, and the
+ * path is the adopter's to write: one that names anything else — a typo, a
+ * source file — must not cost them that file on every gate.
  *
  * @param {string} root Absolute path to the consuming repo.
  * @param {object} config A loaded contract.
  */
-export function ensureReportDir(root, config) {
-  const path = config?.trace?.report?.path;
-  if (!path) return;
-  const dir = dirname(isAbsolute(path) ? path : join(root, path));
+export function prepareReport(root, config) {
+  const report = config?.trace?.report;
+  if (!report?.path) return;
+  const file = isAbsolute(report.path) ? report.path : join(root, report.path);
   try {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dirname(file), { recursive: true });
   } catch {
     // Not fatal here: the suite is about to run and will say so far more
     // clearly than this could, and a report that never lands is already a
     // refusal spec-trace knows how to explain.
   }
+
+  const previous = readReport(report, root);
+  if (previous.error || previous.names.length + previous.skipped === 0) return;
+  rmSync(file, { force: true });
 }
 
 /** @param {string} root Absolute path to the repo whose contract this reads. */

@@ -48,6 +48,11 @@ const RED = ['node', '-e', 'process.exit(1)'];
 // against a real report through the real gate.
 const JUNIT_PROVES = '<testsuites><testcase name="REQ-FIX-001 the fix"/></testsuites>\n';
 const JUNIT_SKIPS = '<testsuites><testcase name="REQ-FIX-001 the fix"><skipped/></testcase></testsuites>\n';
+// A `verify.test` stand-in that writes `body` as its report, the way a real
+// suite does on every run. The gate removes the previous report before the
+// suite, so a case that seeds one and runs a suite writing nothing is testing
+// a report no run produced.
+const suiteWriting = (body) => ['node', '-e', `require("fs").writeFileSync("reports/junit.xml", ${JSON.stringify(body)})`];
 const FIX_SPEC = '<!-- spec-scope: modules/fix -->\n\n# Fix\n\n### REQ-FIX-001 — the fix\n\nThe system is fixed.\n';
 
 function run(cmd, args, opts = {}) {
@@ -146,18 +151,12 @@ async function fixture({
   // The real spec-trace.mjs, exercised end to end instead of stubbed — for
   // the cases that test the SEAM between the two changes that touched this
   // hook together: B16's notice protocol and B18's report readers. `report`
-  // is `{format, path}` written into `trace.report`; `reportBody` is the file
-  // spec-trace will read, so cases control what a real emitter would have
-  // written without needing one installed. `specs` are the capability specs
-  // that make the requirement real rather than vacuous — an empty specs_dir
-  // passes trivially and would prove nothing about either change.
+  // is `{format, path}` written into `trace.report`; what spec-trace reads is
+  // whatever `test` writes there — see `suiteWriting`. `specs` are the
+  // capability specs that make the requirement real rather than vacuous — an
+  // empty specs_dir passes trivially and would prove nothing about either
+  // change.
   report = null,
-  reportBody = '',
-  // Whether `reportBody` is committed at baseline. Off for the one case whose
-  // subject is the report the SUITE writes: seeding it makes the file tracked
-  // and unchanged, which is the one arrangement in which it cannot dirty
-  // anything — so a case about that dirt has to start without it.
-  seedReport = true,
   specs = {},
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
@@ -278,14 +277,6 @@ async function fixture({
   for (const [rel, content] of Object.entries(specs)) {
     mkdirSync(dirname(join(repoDir, rel)), { recursive: true });
     writeFileSync(join(repoDir, rel), content);
-  }
-  // Written at baseline, not staged separately: the report is what the
-  // SUITE would have left behind before the gate ever runs, not an artifact
-  // of this branch's diff — a real `verify.test` overwrites it on every gate
-  // invocation, same as here.
-  if (report && seedReport) {
-    mkdirSync(dirname(join(repoDir, report.path)), { recursive: true });
-    writeFileSync(join(repoDir, report.path), reportBody);
   }
   await git('add', '-A');
   await git('commit', '-qm', `baseline on ${baseBranch}`);
@@ -744,12 +735,10 @@ await Promise.all([
   check('the report the suite writes does not read as a dirty tree at the next stop', async () => {
     const built = await fixture({
       report: { format: 'junit', path: 'reports/junit.xml' },
-      // The whole point: the suite produces it, nothing seeds it. Committed at
-      // baseline it would be tracked and unchanged, which is the one shape in
-      // which this bug is invisible.
-      seedReport: false,
+      // The suite produces it and nothing commits it: tracked and unchanged is
+      // the one shape in which this bug is invisible.
       specs: { 'specs/fix.md': FIX_SPEC },
-      test: ['node', '-e', `require("fs").writeFileSync("reports/junit.xml", ${JSON.stringify(JUNIT_PROVES)})`],
+      test: suiteWriting(JUNIT_PROVES),
     });
     try {
       const first = await runGate(built);
@@ -785,7 +774,7 @@ await Promise.all([
     withFixture(
       {
         report: { format: 'junit', path: 'reports/junit.xml' },
-        reportBody: JUNIT_PROVES,
+        test: suiteWriting(JUNIT_PROVES),
         specs: { 'specs/fix.md': FIX_SPEC },
       },
       (r) => {
@@ -813,7 +802,7 @@ await Promise.all([
     withFixture(
       {
         report: { format: 'junit', path: 'reports/junit.xml' },
-        reportBody: JUNIT_SKIPS,
+        test: suiteWriting(JUNIT_SKIPS),
         specs: { 'specs/fix.md': FIX_SPEC },
       },
       (r) => {
@@ -836,6 +825,62 @@ await Promise.all([
         if (/reported no tests at all/.test(r.failureLog)) {
           return `a report holding one real, skipped test case was reported as though it said nothing at all: ${r.failureLog}`;
         }
+        return null;
+      },
+    ),
+  ),
+
+  // The report is gitignored output, so it outlives the run that wrote it.
+  // A milestone that stops the suite writing it — here `verify.test` loses its
+  // reporter, which in a real repo is as often a reporter dropped from the
+  // runner's own config — must not be judged by the previous milestone's
+  // file: that file names a test this run never ran.
+  check('a report the suite no longer writes is not proof — the previous run\'s file does not stand in for it', async () => {
+    const built = await fixture({
+      report: { format: 'junit', path: 'reports/junit.xml' },
+      specs: { 'specs/fix.md': FIX_SPEC },
+      test: suiteWriting(JUNIT_PROVES),
+    });
+    try {
+      const first = await runGate(built);
+      if (!/result=pass/.test(first.history)) return `the first milestone, whose suite writes the report, did not pass: ${first.history}`;
+
+      const contractPath = join(built.repoDir, '.spec-flow', 'config.json');
+      const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+      contract.verify.test = NOOP;
+      writeFileSync(contractPath, JSON.stringify(contract, null, 2));
+      const git = (...args) => run('git', args, { cwd: built.repoDir });
+      await git('add', '--', '.spec-flow/config.json');
+      await git('commit', '-qm', 'the suite stops writing its report');
+
+      const second = await runGate(built);
+      if (/result=pass/.test(second.history.split('\n').pop())) {
+        return `the gate passed on a report written by the PREVIOUS run — REQ-FIX-001 reads as proven by a test this run never executed: ${second.history}`;
+      }
+      if (!rejected(second)) return `the gate did not reject the milestone: ${JSON.stringify(second.payload)}`;
+      if (!/does not exist/.test(second.failureLog)) {
+        return `the refusal does not say the report was never written, which is what a human has to fix: ${second.failureLog}`;
+      }
+      return null;
+    } finally {
+      rmSync(built.engineDir, { recursive: true, force: true });
+      rmSync(built.repoDir, { recursive: true, force: true });
+    }
+  }),
+
+  // The removal above deletes a path the ADOPTER wrote, before every suite.
+  // Pointed at anything that is not a report — a typo, a source file — it
+  // must leave that file alone and let the refusal say what is wrong.
+  check('a report path naming a file that is not a report never loses that file', () =>
+    withFixture(
+      {
+        report: { format: 'junit', path: 'a.ts' },
+        specs: { 'specs/fix.md': FIX_SPEC },
+      },
+      (r, repoDir) => {
+        if (!existsSync(join(repoDir, 'a.ts'))) return 'the gate deleted a.ts, a tracked source file the report path happened to name';
+        if (readFileSync(join(repoDir, 'a.ts'), 'utf8') !== 'export const a = 1;\n') return 'the gate changed a.ts';
+        if (!rejected(r)) return `a report path naming a source file passed the gate: ${JSON.stringify(r.payload)}`;
         return null;
       },
     ),

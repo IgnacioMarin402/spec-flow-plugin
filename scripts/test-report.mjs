@@ -164,7 +164,8 @@ export function readReport(report, root) {
     return {
       error:
         `trace.report.path points at ${path}, which does not exist after the suite ran. ` +
-        `The report is written BY your test command, so this usually means the reporter flag is missing from verify.test rather than that the tests failed.`,
+        `The report is written BY your test command, so this usually means nothing in it writes the report — the reporter flag is missing from verify.test, or the reporter was removed from the runner's own config — rather than that the tests failed. ` +
+        `A report left over from an earlier run is removed before each suite, so it cannot stand in for this one.`,
     };
   }
 

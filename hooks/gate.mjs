@@ -38,7 +38,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readOwnedPhase, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
-import { loadConfig, ensureReportDir } from '../scripts/spec-flow-config.mjs';
+import { loadConfig, prepareReport } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
 import { resolveBase, changedFiles, scopeMatchesNothing } from '../scripts/changed-files.mjs';
 import { engineRevision } from '../scripts/engine-revision.mjs';
@@ -484,7 +484,7 @@ await run(
     // Appending changed source files either matches nothing, a false RED that
     // burns an Opus REPLAN on a milestone that touched no test file, or
     // silently narrows coverage to whichever test shares a path segment.)
-    ensureReportDir(root, config);
+    prepareReport(root, config);
     const testRes = spawnSync(config.verify.test[0], config.verify.test.slice(1), {
       cwd: root,
       encoding: 'utf8',

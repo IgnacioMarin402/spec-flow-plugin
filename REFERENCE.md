@@ -87,7 +87,9 @@ engine reads it.
 
 You add the reporter flag to `verify.test` — `--reporter=junit`,
 `--junitxml=`, whatever yours spells it — and nothing else. The engine parses
-the file itself and no code is yours to write.
+the file itself and no code is yours to write. The gate and `spec-flow check`
+remove the previous report before each suite, so a suite that stops writing it
+is refused, never judged by the last run's file.
 
 This works without the engine knowing your runner because **the format answers
 the question, not the tool**: `<skipped/>` is an element in the JUnit schema and
