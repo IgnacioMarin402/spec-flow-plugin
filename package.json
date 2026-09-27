@@ -24,7 +24,7 @@
     ".claude-plugin"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "check": "node scripts/no-repo-refs.mjs",

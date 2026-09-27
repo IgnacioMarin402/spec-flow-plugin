@@ -20,22 +20,21 @@ jobs:
     name: node ${{ matrix.node }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     # Two axes, and each one closed a gap between what this repo CLAIMS and
-    # what it ran.
+    # what it ran. See ADR-019.
     #
-    # `engines.node` declares `>=20` and `preflight` DENIES a run below it. A
-    # single job on 22 meant the floor the engine imposes was the one version
-    # never executed — the check was armed against a number nothing had tried.
+    # The first `node` entry must be the floor `engines.node` declares:
+    # `preflight` DENIES a run below it, so that is the version the engine
+    # enforces against other people. Nothing binds this list to that field —
+    # a floor moved in one and not the other passes every check here.
     #
-    # The README calls for macOS or Linux and says Windows is untested rather
-    # than unsupported. It was measured passing there, so the honest move is to
-    # measure it every time instead of hedging in prose; `hooks.json` paths,
-    # `spawnSync` without a shell and every `\`-vs-`/` assumption in the
-    # fixtures live exactly where a POSIX-only matrix cannot see them.
+    # Both OS legs, because `hooks.json` paths, `spawnSync` without a shell and
+    # every `\`-vs-`/` assumption in the fixtures live exactly where a
+    # POSIX-only matrix cannot see them.
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22, 24]
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
 
@@ -67,11 +66,9 @@ jobs:
       # It also covers the shim branch that production only reaches on the
       # platform this workflow runs as half its matrix (ADR-011).
       #
-      # `node --test` with no path argument, because every other spelling
-      # depends on something the matrix varies. `test/*.test.mjs` is expanded
-      # by the SHELL on ubuntu and by node itself only from 21 on, so on
-      # windows + node 20 — a cell this matrix now has — it reaches node as a
-      # literal string and finds no file. Discovery has no such seam.
+      # `node --test` with no path argument, not a glob: a glob argument is
+      # expanded by the shell on one runner and by node on the other, which
+      # makes it the spelling whose meaning this matrix varies.
       - name: Unit tests
         run: npm run unit:check
 

@@ -59,8 +59,8 @@ A test naming an id no spec declares fails the same way.
 - Claude Code, and a git repo where you work on a branch off your base branch
 - A Node project with test and lint commands. Other stacks are not supported
   ([ADR-007](decisions/007-the-supported-scope-is-node.md))
-- Node 20+ — a run refuses to start below it
-- Linux or Windows; CI runs both on every supported Node
+- Node 22+ — a run refuses to start below it
+- Linux or Windows; CI runs both on Node 22 and 24
   ([ADR-019](decisions/019-ci-runs-the-floor-it-imposes.md))
 
 ## Install
