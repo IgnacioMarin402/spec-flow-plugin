@@ -36,7 +36,7 @@ const failures = [];
 const BANNED = ['Nest', 'JS'].join('');
 
 // The surfaces the check claims. Written out, not imported — see the header.
-const SCANNED_DIRS = ['hooks', 'scripts', 'commands', 'agents', '.claude/skills', 'skills', 'decisions'];
+const SCANNED_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'LICENSE', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
 /**

@@ -20,6 +20,7 @@
     "hooks",
     "commands",
     "agents",
+    "modes",
     "skills",
     ".claude-plugin"
   ],

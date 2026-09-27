@@ -144,11 +144,19 @@ const NOT_ROUTED = {
   ARCHIVED: 'a confirmation of the move; an unarchived specflow/<SLUG>/ is caught by phase-guard when `done` is written, which is a check rather than a prompt',
 };
 
-const declared = returnBlocks(readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8'));
+// The spec-writer's MODE=TRIAGE and MODE=FOLD live in `modes/`, where it reads
+// them from; their return blocks are this agent's as much as MODE=SPEC's are.
+const MODES = join(ROOT, 'modes');
+const specWriterModes = readdirSync(MODES)
+  .filter((f) => f.startsWith('spec-writer-') && f.endsWith('.md'))
+  .sort();
+const declared = returnBlocks(
+  [readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8'), ...specWriterModes.map((f) => readFileSync(join(MODES, f), 'utf8'))].join('\n'),
+);
 
 if (declared.blocks === 0) {
   problems.push(
-    'agents/spec-writer.md declares no `STATUS:` return block. They are anchored to a fenced block opening with `STATUS:`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.',
+    'agents/spec-writer.md and modes/spec-writer-*.md declare no `STATUS:` return block. They are anchored to a fenced block opening with `STATUS:`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.',
   );
 }
 
@@ -198,8 +206,12 @@ for (const field of gatedFields) {
   // and the word an agent's prose will be using instead of the field name.
   const subject = field.replace(/^require_/, '').replace(/_field$/, '').replace(/_/g, ' ');
 
-  for (const file of readdirSync(AGENTS).filter((f) => f.endsWith('.md')).sort()) {
-    const text = readFileSync(join(AGENTS, file), 'utf8');
+  const contracts = [
+    ...readdirSync(AGENTS).filter((f) => f.endsWith('.md')).sort().map((f) => `agents/${f}`),
+    ...specWriterModes.map((f) => `modes/${f}`),
+  ];
+  for (const file of contracts) {
+    const text = readFileSync(join(ROOT, file), 'utf8');
     if (text.includes(field)) continue; // the condition is stated somewhere in this contract
 
     // Paragraph, not sentence: the assertion and its subject routinely sit in
@@ -211,7 +223,7 @@ for (const field of gatedFields) {
       if (!lower.includes('spec-trace') || !lower.includes(subject)) continue;
       if (!/\bfails?\b|\brejects?\b|\brefuses?\b/.test(lower)) continue;
       problems.push(
-        `agents/${file} tells its reader that spec-trace fails over "${subject}", and never names \`${field}\` — the contract field that decides whether that check runs at all. It is off by default, so the sentence is false in most repos, and an agent cannot discover that from inside a run: the only evidence would be a gate that never fires. State the condition, or say what actually always checks it.`,
+        `${file} tells its reader that spec-trace fails over "${subject}", and never names \`${field}\` — the contract field that decides whether that check runs at all. It is off by default, so the sentence is false in most repos, and an agent cannot discover that from inside a run: the only evidence would be a gate that never fires. State the condition, or say what actually always checks it.`,
       );
       break;
     }
