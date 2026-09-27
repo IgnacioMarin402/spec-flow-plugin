@@ -122,6 +122,87 @@ for (const [emitter, format, text] of EMITTERS) {
   });
 }
 
+// node 24.13.1 — `node --test --test-reporter=tap`, over:
+//   it('REQ-A-001 ran', () => {});
+//   it.todo('REQ-A-002 placeholder with no body');
+//   it.todo('REQ-A-003 todo whose body fails', () => { assert.fail('not implemented'); });
+//   it('REQ-A-004 parses a # TODO marker in its input', () => {});
+//   it.skip('REQ-A-005 skipped', () => {});
+// The suite exited 0. Only the absolute paths in `location` and `stack` were
+// rewritten to `/v/`, by script; no `ok`/`not ok` line was touched. `String.raw`
+// because the emitter's `\#` is the case, and a template literal eats it.
+const NODE_TAP_TODO = String.raw`TAP version 13
+# Subtest: REQ-A-001 ran
+ok 1 - REQ-A-001 ran
+  ---
+  duration_ms: 0.5376
+  type: 'test'
+  ...
+# Subtest: REQ-A-002 placeholder with no body
+ok 2 - REQ-A-002 placeholder with no body # TODO
+  ---
+  duration_ms: 0.4106
+  type: 'test'
+  ...
+# Subtest: REQ-A-003 todo whose body fails
+not ok 3 - REQ-A-003 todo whose body fails # TODO
+  ---
+  duration_ms: 0.7449
+  type: 'test'
+  location: '/v/t.test.mjs:5:4'
+  failureType: 'testCodeFailure'
+  error: 'not implemented'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'fail'
+  stack: |-
+    TestContext.<anonymous> (file:///v/t.test.mjs:5:59)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1103:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:785:18)
+    Test.postRun (node:internal/test_runner/test:1232:19)
+    Test.run (node:internal/test_runner/test:1160:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:785:7)
+  ...
+# Subtest: REQ-A-004 parses a \# TODO marker in its input
+ok 4 - REQ-A-004 parses a \# TODO marker in its input
+  ---
+  duration_ms: 0.0685
+  type: 'test'
+  ...
+# Subtest: REQ-A-005 skipped
+ok 5 - REQ-A-005 skipped # SKIP
+  ---
+  duration_ms: 0.8503
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 2
+# duration_ms 76.452
+`;
+
+// The same runner's JUnit reporter marks both todos `<skipped type="todo">`,
+// so this is also the check that TAP and JUnit agree about one suite.
+check('node 24 --test (TAP 13): a TODO is not proof, with a body or without, passing or failing', () => {
+  const r = read('tap', NODE_TAP_TODO);
+  if (r.error) return `refused a valid report: ${r.error}`;
+  const got = r.names.join('|');
+  if (/REQ-A-002/.test(got)) return `a bodiless it.todo was reported as executed, so a placeholder proves its requirement: ${got}`;
+  if (/REQ-A-003/.test(got)) {
+    return `a todo whose body FAILED was reported as executed — the suite exited 0, so nothing else would say the requirement is unmet: ${got}`;
+  }
+  if (!/REQ-A-001/.test(got)) return `the test that ran was dropped: ${got}`;
+  if (!/REQ-A-004/.test(got)) return `an escaped \\# in a test's name was read as a directive, so a test that ran reads as absent: ${got}`;
+  if (r.skipped !== 3) return `expected the skip and both todos counted as not-run, got skipped=${r.skipped}`;
+  return null;
+});
+
 // ---- the shapes a hand-written fixture would not have produced ------------
 
 check('a skipped case does not suppress the cases before it', () => {
@@ -171,7 +252,7 @@ check('entities in a test name are decoded', () => {
   return null;
 });
 
-check('TAP: a failing test counts, a skipped one does not, and TODO still ran', () => {
+check('TAP: a failing test counts, and neither a SKIP nor a TODO does', () => {
   const tap = `TAP version 13
 not ok 1 - REQ-A-001 failed but ran
 ok 2 - REQ-A-002 skipped # SKIP later
@@ -183,8 +264,19 @@ ok 3 - REQ-A-003 todo # TODO known gap
   const got = r.names.join('|');
   if (!/REQ-A-001/.test(got)) return `a failing TAP line read as not-run: ${got}`;
   if (/REQ-A-002/.test(got)) return `a # SKIP line was reported as executed: ${got}`;
-  if (!/REQ-A-003/.test(got)) return `a # TODO line read as not-run, but it executed: ${got}`;
+  if (/REQ-A-003/.test(got)) return `a # TODO line was reported as executed: ${got}`;
   if (!/REQ-A-004/.test(got)) return `an indented subtest was dropped: ${got}`;
+  return null;
+});
+
+// Emitters escape a `#` inside a name as `\#` — the node 24 capture above
+// shows it — so only an unescaped `#` opens a directive.
+check('TAP: an escaped \\# SKIP inside a test name is part of the name', () => {
+  const r = read('tap', 'TAP version 13\nok 1 - REQ-A-001 prints a \\# SKIP line verbatim\n1..1');
+  if (r.error) return r.error;
+  if (!r.names.some((n) => n.includes('REQ-A-001'))) {
+    return `the name was read as a SKIP directive, so a test that ran reads as skipped: ${JSON.stringify(r)}`;
+  }
   return null;
 });
 

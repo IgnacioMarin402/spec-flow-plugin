@@ -386,7 +386,7 @@ if (!reportFailed && (reportedLines.length > 0 || reportSkipped > 0)) {
     if (!proofs.has(id)) {
       problems.push(
         `${id} (${req.spec}) has no test that RAN. Add a test under ${req.scope ?? 'the capability'}/${CONFIG.trace.proof_dir} whose name contains ${id}, or delete the requirement — an unproven requirement is a wish, not a spec. ` +
-          `Note that a test which exists but was skipped counts as absent here: it is reported by nothing, which is exactly what makes skipping useless as a way to silence this.`,
+          `Note that a test which exists but was skipped or marked todo counts as absent here: it is reported by nothing, which is exactly what makes skipping useless as a way to silence this.`,
       );
     }
   }

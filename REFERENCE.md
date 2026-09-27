@@ -91,8 +91,8 @@ the file itself and no code is yours to write.
 
 This works without the engine knowing your runner because **the format answers
 the question, not the tool**: `<skipped/>` is an element in the JUnit schema and
-`# SKIP` is a directive in the TAP spec, so a test that did not run is
-identifiable in a file whoever wrote it. **The READER therefore knows no
+`# SKIP` and `# TODO` are directives in the TAP spec, so a test that did not run
+is identifiable in a file whoever wrote it. **The READER therefore knows no
 runner** — that half is ADR-005, and ADR-002 before it.
 
 Which *flag* produces that file is per-runner knowledge, and it lives on the

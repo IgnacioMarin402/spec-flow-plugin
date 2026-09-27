@@ -19,6 +19,8 @@
 // A FAILED test counts as executed. The question this answers is whether a test
 // bearing the requirement's id ran at all; whether it passed is `verify.test`'s
 // exit code, which the gate judges separately and which blocks on its own.
+// That split holds only while the exit code sees every failure, which is why a
+// TODO never counts: it is the one marking that takes a failure out of it.
 import { readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
@@ -109,9 +111,15 @@ function readJunit(xml) {
  * Leading whitespace is significant to TAP's subtest nesting and irrelevant
  * here: a nested `ok` is still a test that ran.
  *
- * `# TODO` is deliberately NOT excluded. A todo test executed; the directive
- * says its failure is tolerated, which is a statement about the result, not
- * about whether it ran.
+ * `# TODO` is excluded exactly like `# SKIP`, and is not proof. A `not ok`
+ * under TODO leaves the suite's exit code at 0, so counting it would bind a
+ * requirement to a test that FAILED with nothing else left to say so; and
+ * `it.todo('REQ-…')` with no body is reported `ok … # TODO` without running
+ * anything. JUnit emitters report the same test as `<skipped>`, so both
+ * formats give the same verdict for the same suite.
+ *
+ * The directive must follow an UNESCAPED `#`. Emitters write a `#` inside a
+ * test's name as `\#`, so `ok 4 - parses a \# TODO marker` is a test that ran.
  */
 function readTap(text) {
   const names = [];
@@ -122,14 +130,12 @@ function readTap(text) {
     if (!match) continue;
 
     const rest = match[3] ?? '';
-    // The directive is separated from the description by an unescaped `#`.
-    const directive = /#\s*(SKIP|TODO)\b/i.exec(rest);
-    if (directive && directive[1].toUpperCase() === 'SKIP') {
+    if (/(?<!\\)#\s*(SKIP|TODO)\b/i.test(rest)) {
       skipped += 1;
       continue;
     }
 
-    const name = (directive ? rest.slice(0, directive.index) : rest).trim();
+    const name = rest.trim();
     if (name) names.push(name);
   }
   return { names, skipped };
