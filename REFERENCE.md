@@ -1,7 +1,8 @@
 # Reference
 
 Look-up material. For what spec-flow is and how to install it, see the
-[README](README.md).
+[README](README.md). The reasoning behind each rule is in
+[`decisions/`](decisions/README.md).
 
 - [The contract](#the-contract) — every field of `.spec-flow/config.json`
 - [Four rules the contract cannot express](#four-rules-the-contract-cannot-express)
@@ -21,171 +22,89 @@ Look-up material. For what spec-flow is and how to install it, see the
 
 ## The contract
 
-Everything the engine needs to know about your repo, at
-`.spec-flow/config.json`. Missing or malformed stops the run with a message
-naming what to add — there is no fallback that guesses a test runner or a
-proof directory for a repo it has never seen.
-
-`spec-flow init` generates this file from your repo and reports what it could
-not determine. Use the tables below to fill those in, or to change what it
-wrote. To re-read the contract as the engine sees it at any time:
+Everything the engine knows about your repo, at `.spec-flow/config.json`.
+Missing or malformed stops the run with a message naming what to add; nothing
+guesses a runner or a directory. `spec-flow init` generates it and reports what
+it could not determine. To see it as the engine reads it:
 
 ```bash
-node node_modules/spec-flow-plugin/scripts/spec-flow-config.mjs
+node <plugin-or-clone>/scripts/spec-flow-config.mjs
 ```
 
 ### `verify`
 
 | key | required | what it is |
 |---|---|---|
-| `scope_globs` | yes | Which files count as in-scope, e.g. `["*.ts"]`. **git pathspecs, not npm globs** — see below |
-| `lint` | yes | argv that lints, autofix on. Receives changed file paths appended |
-| `lint_no_fix` | yes | Same, report only. Used by `spec-flow check --no-fix` |
-| `test` | yes | argv that runs the suite. Invoked with **no** extra arguments |
+| `scope_globs` | yes | Which files count as in scope, e.g. `["*.ts"]`. **git pathspecs**: `*` already crosses `/`, so `"*.ts"` covers every depth. `**` is refused — `"**/*.ts"` would drop the repo root |
+| `lint` | yes | argv that lints, autofix on. Changed file paths are appended |
+| `lint_no_fix` | yes | Same, report only (`spec-flow check --no-fix`) |
+| `test` | yes | argv that runs the whole suite, with **no** extra arguments |
 | `test_name` | yes | Names the runner in log sections, e.g. `"vitest"` |
 | `lint_name` | yes | Names the linter in log sections |
 | `lint_config_hint` | yes | Where your lint rules live, quoted back when a rule fires |
 | `base_ref` | no | The ref this branch is judged against. Omit to auto-resolve |
 
-**`scope_globs` are handed to git, and git's `*` already crosses `/`.** So
-`"*.ts"` matches a file at any depth, which is what you want and what `init`
-writes. `"**/*.ts"` — the form npm, bundler configs and `.gitignore` taught
-everyone — means something else here: at least one directory, so every file in
-the repo root falls out of scope. The contract **refuses** any pattern
-containing `**`, naming the form that works.
-
-The refusal exists because the failure is silent. An empty scope is not an
-error anywhere: `lint` is simply never invoked, and the gate records `lint=-`,
-which is exactly what a milestone that honestly changed nothing in scope
-records. The gate closes the other half — a pattern of the right shape that
-still matches nothing the repo tracks (a renamed directory, an extension the
-project does not use) blocks as `fail:scope`.
+A pattern that matches nothing the repo tracks blocks the gate as `fail:scope`,
+since lint could then never run.
 
 ### `trace`
 
 | key | required | what it is |
 |---|---|---|
 | `specs_dir` | no | Where capability specs live. Default `specs` |
-| `report` | no | `{format, path}` of the test report the engine reads. `format` is `junit` or `tap` |
-| `executed_tests` | no | Argv whose output names the tests that RAN, one per line. The alternative to `report` |
-| `proof_dir` | yes | Directory a new test goes in, e.g. `test` |
-| `proof_suffix` | yes | What a test file is called here, e.g. `.test.ts` |
-| `not_a_capability` | no | Filenames under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
+| `report` | no | `{format, path}` of the report your suite writes; `format` is `junit` or `tap` |
+| `executed_tests` | no | argv printing the tests that RAN, one per line. The alternative to `report` |
+| `proof_dir` | yes | Where a new test goes, e.g. `test` — guidance for the agents, not what counts as proof |
+| `proof_suffix` | yes | What a test file is called, e.g. `.test.ts` |
+| `not_a_capability` | no | Files under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
 | `require_skills_field` | no | Fail a live milestone with no `Skills:` field. Default `false` |
 
 #### What makes a requirement proven
 
-A requirement is proven when a test **that actually ran** names its id. Declare
-one source for that, and only one — the contract refuses both.
+A requirement is proven when a test **that ran** reports a name containing its
+id. Declare one source, not both.
 
-**`report` — the default.** Your test command already writes a report; the
-engine reads it.
+- **`report`** (the default): add your runner's reporter flag to `verify.test`
+  and name the file. The engine parses JUnit XML and TAP itself —
+  `<skipped/>`, `# SKIP` and `# TODO` say a test did not count, whoever wrote
+  the file ([ADR-005](decisions/005-a-report-format-is-not-a-runner.md)). `init`
+  proposes the flag for the Node runners it knows
+  ([ADR-007](decisions/007-the-supported-scope-is-node.md)). The gate and
+  `spec-flow check` remove the previous report before each suite, so a suite
+  that stops writing it is refused, never judged by the last run's file.
+- **`executed_tests`** (the escape hatch, for a runner with no standard
+  report): `spec-flow init --translator` scaffolds
+  `.spec-flow/tests-that-ran.mjs` with one marked hole; it exits non-zero until
+  filled and is never overwritten.
 
-```json
-"report": { "format": "junit", "path": "reports/junit.xml" }
-```
+Rules either way:
 
-You add the reporter flag to `verify.test` — `--reporter=junit`,
-`--junitxml=`, whatever yours spells it — and nothing else. The engine parses
-the file itself and no code is yours to write. The gate and `spec-flow check`
-remove the previous report before each suite, so a suite that stops writing it
-is refused, never judged by the last run's file.
+- **Names carry the id.** `describe > REQ-USER-001_rejects` and
+  `test_REQ_USER_001_rejects` both bind (`_` is read as `-`); `REQ-USER-0011`
+  never reads as `REQ-USER-001`.
+- **A test that did not run is not proof.** `it.skip`, `test.todo`,
+  `describe.skip`, a `--grep` that leaves it out and a runtime `t.skip()` all
+  end absent from the report.
+- **The body is not checked.** A test with the id and no assertion passes the
+  gate; the engine reads no source
+  ([ADR-020](decisions/020-a-tagged-test-is-judged-not-measured.md)).
+  `MODE=FOLD` reads each new requirement's test once per change and reports weak
+  ones on its `GAPS:` line, without gating.
+- **Nothing to prove, nothing checked.** With no source declared, or a report
+  not written yet, `spec-trace` says so and passes — until a requirement
+  exists, when an unreadable source is refused.
+- **An empty `specs_dir` passes until the first `SHIPPED` change** that names a
+  requirement; after that it fails, because the fold claimed its deltas landed
+  there.
 
-This works without the engine knowing your runner because **the format answers
-the question, not the tool**: `<skipped/>` is an element in the JUnit schema and
-`# SKIP` and `# TODO` are directives in the TAP spec, so a test that did not run
-is identifiable in a file whoever wrote it. **The READER therefore knows no
-runner** — that half is ADR-005, and ADR-002 before it.
-
-Which *flag* produces that file is per-runner knowledge, and it lives on the
-generator side: under [ADR-007](decisions/007-the-supported-scope-is-node.md)
-`init` ships a table of reporter flags for the Node runners it supports, and
-says so when yours is not one of them. It proposes the path marked `REVIEW`,
-because a path it inferred is not a path it read.
-
-**`executed_tests` — the escape hatch.** For a runner with no standard report:
-argv whose stdout names the tests that ran, one per line.
-
-```json
-"executed_tests": ["node", ".spec-flow/tests-that-ran.mjs"]
-```
-
-`spec-flow init --translator` scaffolds that file with the contract and one
-marked hole, and it exits non-zero until you fill it — an unfinished translator
-reporting nothing would turn every requirement unproven, which is the failure
-this check exists to catch arriving through the file meant to prevent it. `init`
-never overwrites it once written, `--force` included.
-
-Two properties either source must have, and the second is the one worth
-checking:
-
-- **Names carry the id**, since it is matched inside them. An id may sit
-  against underscores — `describe > REQ-USER-001_rejects` and
-  `test_REQ_USER_001_rejects` both bind, the second because `_` is also read as
-  `-` — but a fourth digit does not, so `REQ-USER-0011` is never read as
-  `REQ-USER-001`.
-- **A skipped test must not appear.** That absence is what makes skipping
-  useless as a way to silence this check, and it holds however the skip was
-  written: `it.skip`, `test.todo`, `describe.skip`, a runner's `--grep` leaving
-  the test unselected, and a runtime `t.skip()` all end in the same place —
-  reported by nothing.
-
-**What the binding cannot see is the test's body.** A test whose reported name
-carries the id and whose body asserts nothing passes — measured, on a green
-gate, with the requirement unimplemented. The engine reads no source code
-(ADR-001), so this is not a gap it can close by looking harder, and it is not
-one the report can close either: the JUnit schema's `assertions` attribute is
-populated by none of the runners in scope, and `time` does not separate the
-cases — mocha reports `time="0"` for tests that genuinely ran. So the
-judgement is placed where a model can make it and the cost is one pass per
-change: `MODE=FOLD` opens each added requirement's test, asks whether it would
-still pass with the requirement unimplemented, and reports through `GAPS:`.
-It reports rather than gates, because a reading of whether an assertion is
-meaningful is not the kind of claim that should stop a run on its own.
-[ADR-020](decisions/020-a-tagged-test-is-judged-not-measured.md)
-
-**Traceability is off while there is nothing to prove**, and the gate still
-lints and runs your suite. Two things put you there, and a fresh install is
-normally the second: declaring neither source, or declaring one that has not
-produced anything yet — the report your test command does not write until you
-add the reporter flag. `spec-trace` says which, and passes. It stops being
-allowed the moment a requirement exists: from then on an unreadable source is
-refused rather than passed, because an opt-out that outlives its own
-precondition is a disarmed check, and a requirement it *could* not prove is
-never reported as one it *did* not prove.
-
-`spec-trace` reads its source after the suite, and separates the ways proof can
-be absent instead of collapsing them — a report that was never written, a report
-holding nothing, a report whose every case was skipped, and a requirement with
-no test are four different messages. Run `spec-flow check` rather than
-`spec-flow trace` alone: the first runs your suite before the checks, the second
-reads whatever the last run left.
-
-`proof_dir` and `proof_suffix` no longer decide what counts as proof. They kept
-their other job — telling the planner and implementer where a new test goes and
-what it is called — so set them to where your tests actually live. A test the
-runner reports proves its requirement wherever it sits; getting these wrong now
-costs consistency, not a blocked gate.
-
-**An empty `specs_dir` passes, but only until your first ship.** With no
-capability specs there are no requirements, so "every requirement is proven"
-is true of the empty set. That is correct while adopting — capability specs
-are written *by* the flow, as milestones fold their deltas in, so requiring
-them before the first run completes would block adoption on an artifact the
-run produces.
-
-The grace ends at the first change stamped `**Status:** SHIPPED`. That stamp
-is the fold asserting its deltas landed in `specs_dir`, so SHIPPED with an
-empty spec layer is two records contradicting each other and `spec-trace`
-fails. If you hit that and your specs do exist, check `trace.specs_dir` —
-they are somewhere this contract does not look. `REJECTED` and `SUPERSEDED`
-assert nothing landed, so they keep the grace.
+`spec-trace` separates a report never written, a report holding nothing, a
+report whose every case was skipped, and a requirement with no test. Run
+`spec-flow check`, which runs your suite first; `spec-flow trace` alone reads
+whatever the last run left.
 
 ### Writing a capability spec
 
-`spec-trace` enforces three rules a spec must follow, and `spec-flow init`
-writes them into `specs/README.md` so the file the agents defer to actually
-exists. In short:
+`init` writes these rules into `specs/README.md`:
 
 ```markdown
 <!-- spec-scope: modules/user -->
@@ -197,36 +116,18 @@ exists. In short:
 The system sends a single-use link, valid for one hour.
 ```
 
-- **The id prefix comes from the filename.** `specs/user.md` declares
-  `REQ-USER-` ids, `specs/user-profile.md` declares `REQ-USER-PROFILE-`. A
-  mismatch fails.
-- **Exactly three digits**: `REQ-USER-001`, not `REQ-USER-1`.
-- **The scope marker is required**, naming the code the spec is about.
-
-Requirements are `###` headings with the id first; the separator after it may
-be an em dash, a hyphen or a colon. Ids are permanent — never renumbered,
-never reused. Every requirement needs a test that **runs** and whose reported
-**name** contains its id — where that test's file lives is a convention your
-repo sets, not something this check decides.
+- The id prefix comes from the filename: `specs/user-profile.md` declares
+  `REQ-USER-PROFILE-`.
+- Exactly three digits. Ids are permanent — never renumbered or reused.
+- The scope marker is required. Requirements are `###` headings, id first.
 
 ### Declaring a delta
 
-A change spec under `specflow/<SLUG>/` says what it does to `specs/` in three
-shapes, and only two of them are provable. `ADDED` fails the gate when the new
-id has no test that ran; `REMOVED` fails it when a test still reports an id no
-spec declares. `CHANGED` is checked by nothing on its own — the id already
-exists and already has a test, so the binding holds before the edit and after
-it, whatever the body now says.
-
-The suite covers most of that gap: change the behaviour, change the code, and
-a test asserting the old behaviour goes red. What it does not cover is a
-`CHANGED` that **widens**. Add a clause to an existing requirement and nothing
-breaks, because nothing that used to pass stopped passing — the clause is now
-claimed by `specs/` and proven by nobody.
-
-So a behaviour claim that appears, disappears or changes is written as
-`REMOVED` on the old id plus `ADDED` on a new one, and `CHANGED` is reserved
-for the two edits that move no proof. It must name which:
+A change spec declares what it does to `specs/`. `ADDED` fails when the new id
+has no test that ran; `REMOVED` fails when a test still reports an id no spec
+declares. A claim that appears, disappears or changes is `REMOVED` + `ADDED` on
+a new id. `CHANGED` is only for edits that move no proof, and names which
+([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 
 ```markdown
 - CHANGED REQ-USER-001 (wording)    — means what it meant; the text is clearer
@@ -234,14 +135,11 @@ for the two edits that move no proof. It must name which:
                                       already exists and is already proven
 ```
 
-`(correction)` is legal only in a `/spec-fix` brief — case 3, the one that
-flow stops for a human on. `spec-trace` fails a `CHANGED` with no kind, an
-unrecognised kind, or `(correction)` anywhere else. Live change specs only;
-archived ones predate the rule. See ADR-009.
+`(correction)` is legal only in a `/spec-fix` brief (case 3).
 
 ### `extra_checks`
 
-Your own project checks, run at every gate and again at `done`. Each entry:
+Your own checks, run at every gate and again at `done`.
 
 | key | required | what it is |
 |---|---|---|
@@ -252,14 +150,13 @@ Your own project checks, run at every gate and again at `done`. Each entry:
 | `hint` | no | Appended to the block message when it fails |
 | `class` | no | `"lint/trace"` (route as an edit, default) or `"behaviour"` (route as a re-plan) |
 
-A check whose `cmd` names a repo-local script you have not written yet is
-skipped, not failed — a repo mid-adoption is not blocked by its own pending
-check. A check that names a binary or inline code is always run.
+A `cmd` naming a repo-local script that does not exist yet is skipped, not
+failed.
 
 ### `unscoped_denied`
 
-What the engine redirects when an agent tries to run the whole suite
-mid-milestone instead of the scoped form.
+What is redirected when an agent runs the whole suite mid-milestone. A
+consistency guard for context size, not a security boundary.
 
 | key | what it is |
 |---|---|
@@ -269,220 +166,88 @@ mid-milestone instead of the scoped form.
 | `scoped_alternative` | What to run instead, quoted in the denial |
 | `scoped_examples` | Concrete allowed invocations, shown in the denial |
 
-This is a consistency guard, not a security boundary — it is evadable and says
-so in its own source. It exists to keep whole-suite output out of an agent's
-context, not to stop a determined agent.
-
 ---
 
 ## Four rules the contract cannot express
 
-**`.claude/state/` must be gitignored.** The gate writes there on every run.
-Tracked, the tree is never clean again and the gate's quiescence guard skips
-every run after the first — forever, silently. The gate filters that path out
-of its own dirty check as a second line of defense; gitignoring it is what
-keeps `git status` legible.
-
-Committing `phase` specifically does something else, and the engine now
-refuses it outright: a phase under version control arms every hook for every
-session that clones the repo, so ending a turn would run that repo's own
-`verify.lint` and `verify.test` with nothing typed. **A phase git tracks reads
-as no phase at all** — every hook is transparent, and `session-start` leaves
-the file alone rather than dirtying it.
-[ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)
-
-**Do not add `--passWithNoTests`** (or any equivalent) to `verify.test`. A
-flag that makes an empty run exit 0 makes *every* run that matches nothing
-exit 0 — a green gate over zero executed tests.
-
-**`verify.test` must finish inside 1800s.** The gate is a `command` hook on
-`Stop`; a hook that hits its timeout is canceled, renders no decision, and a
-Stop hook with no decision **allows the stop**. That happens a layer above the
-gate's own process, so nothing inside it can block or report at the time. If
-your suite can approach thirty minutes, declare a smoke subset here and leave
-the exhaustive run to CI.
-
-It is at least no longer silent. The gate writes a `result=running` line to
-`gate-history.log` before it spawns anything, and every outcome replaces that
-line — so a `running` line that survives is proof the invocation which wrote
-it was killed. The next armed gate finds it, records `fail:killed`, and blocks
-once with what to do about it. The stop it happened on was still allowed and
-that milestone was still unverified; what changed is that you find out.
-
-**The engine assumes a feature-branch workflow, and now checks the
-assumption.** Scope is the merge-base diff with your base branch, so work
-committed directly onto the base branch resolves a base equal to HEAD: the
-diff is empty by construction, and `verify.lint` — the one scoped check — has
-nothing to run on, for that milestone and every one after it. The suite,
-spec-trace and the extra checks are unscoped and do run, so this was never a
-disarmed gate; it was one check quietly sitting out a whole run while
-`lint=-` in the history said so in a way nothing read.
-
-The gate now **blocks** on it instead, naming both repairs: do the run's work
-on its own branch, or declare `base_ref`. This is the same argument the
-section below makes for refusing to fall back to `HEAD` — that comparing HEAD
-against itself is indistinguishable from "this milestone touched nothing" —
-applied to the case where the fallback is not a fallback but the honest
-answer.
+- **Gitignore `.claude/state/`.** Tracked, the tree is never clean and the gate
+  skips every run after the first. A *committed* `phase` reads as no phase at
+  all, so a cloned repo cannot arm the engine
+  ([ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)).
+- **No `--passWithNoTests`** (or equivalent) in `verify.test`: it turns a run
+  that matched nothing into a green one.
+- **`verify.test` finishes inside 1800s.** A Stop hook that times out is
+  cancelled, and a cancelled Stop hook allows the stop. The gate writes
+  `result=running` first, so the next gate finds the survivor, records
+  `fail:killed` and blocks once. Declare a smoke subset if your suite is slower
+  ([ADR-008](decisions/008-the-suite-is-never-scoped-to-the-diff.md)).
+- **Work on a branch off your base.** Scope is the diff against the base; work
+  committed onto the base branch has an empty diff, so the gate blocks as
+  `fail:base` rather than let lint sit out the run.
 
 ---
 
 ## The base branch
 
-Resolved in this order: `verify.base_ref`, then `refs/remotes/origin/HEAD`,
-then `origin/main`, `main`, `origin/master`, `master`, `origin/develop`,
-`develop`, `origin/trunk`, `trunk`.
+Resolved in order: `verify.base_ref`, `refs/remotes/origin/HEAD`, then
+`origin/main`, `main`, `origin/master`, `master`, `origin/develop`, `develop`,
+`origin/trunk`, `trunk`.
 
-If none resolves, `preflight` **refuses to start the run** at the first
-subagent, and the gate **blocks** if a run is somehow already underway. Both
-name the field to add. `spec-flow init` reports it too, at setup.
-
-If one resolves but resolves to **HEAD itself**, only the gate blocks —
-`preflight` deliberately does not. At run start the two situations are the
-same commit: a correctly created feature branch sits at its base's tip until
-its first commit, so refusing there would refuse every properly set up run.
-By the time the gate judges a milestone the tree is clean, and nothing
-committed above the base means either the base is the branch you are on or
-the milestone produced nothing.
-
-It does not fall back, because the only available fallback — comparing HEAD
-against itself — yields an empty changed-file list, which is indistinguishable
-from "this milestone touched nothing". Declare `base_ref` for a release
-branch, a fork's upstream, or a shallow CI checkout that fetched no other ref.
+None resolves → `preflight` refuses the run, and the gate blocks one already
+underway. Resolves to **HEAD itself** → only the gate blocks (a fresh feature
+branch sits at its base until its first commit, so `preflight` cannot tell).
+There is no fallback: comparing HEAD with itself is indistinguishable from
+"nothing changed". Declare `base_ref` for a release branch, a fork, or a
+shallow CI checkout. Both refusals write `fail:base`; `files=-` means the base
+could not be named, `files=0` means it resolved to HEAD.
 
 ---
 
 ## The second config file
 
-Two settings live outside the contract, at `.claude/spec-flow.config.json`:
+`.claude/spec-flow.config.json` — preferences, not facts about the repo:
 
 ```json
-{
-  "max_opus_calls": 6,
-  "agents": { "reviewer": "sonnet" }
-}
+{ "max_opus_calls": 6, "agents": { "reviewer": "sonnet" } }
 ```
 
-Neither is an architectural fact about the repo, which is what
-`.spec-flow/config.json` holds and why these are not in it. That file is also
-versioned, so a cost knob there would move `contract_version` for everyone.
+- **`max_opus_calls`** (default 6) caps planner + architect calls per run, by
+  role, whatever tier they run on. Past it the spawn is denied and the
+  orchestrator summarises for a human. Counter: `.claude/state/opus_calls`.
+- **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
+  `fable`. A hook applies it to the spawn; an unknown agent or tier denies the
+  spawn ([ADR-014](decisions/014-a-project-routes-tiers-not-versions.md)).
+- **No `effort`**: a spawn discards it silently. Three agents declare their own;
+  the other two take the session's `effortLevel`
+  ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md)).
+- **A concrete model version** is session-wide, set in the project's
+  `.claude/settings.json` as `{"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "<id>"}}`
+  ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
 
-**`max_opus_calls`** caps planner + architect calls per run and defaults to 6.
-When it runs out the spawn is denied and the orchestrator is told to summarize
-for a human — which is what the budget is for. The counter is
-`.claude/state/opus_calls`. It counts those two ROLES whatever tier they are
-routed to: what runs away is the escalation loop, not one model (ADR-014).
-
-**`agents`** re-routes an agent to a different model tier. Optional, and
-absent means the routing each agent's own frontmatter ships. The value is one
-of `opus`, `sonnet`, `haiku`, `fable` — a **tier**, never a version. A spawn
-accepts nothing else, so pinning a concrete version is session-wide through
-`ANTHROPIC_DEFAULT_*_MODEL` and is not something this engine wraps (ADR-013,
-ADR-014).
-
-`hooks/model-route.mjs` applies it by rewriting the spawn, so the orchestrator
-never passes a model itself and cannot forget to. A re-route leaves one line
-per agent in `.claude/state/model-routes.log`, because otherwise a spawn on a
-different model is indistinguishable from an ordinary one.
-
-An entry naming an agent that does not exist, or a tier that is not one of the
-four, **denies the spawn** and says which entry is wrong. A routing block that
-reads as though it works and routes nothing is the failure this engine exists
-to close. The denial reaches only spawns of this plugin's own agents, so it
-cannot block unrelated work in a repo that merely has the plugin installed.
-
-`spec-flow models` prints the resolved answer with the source of every value,
-and is the only place all three layers appear at once. Run it after editing
-this file: it reads the result back through the same code the spawn hook uses,
-so "I wrote it" and "it applies" stop being two separate claims.
-
-There is no `effort` here, and that is measured rather than assumed: a spawn
-silently discards the field — sent alongside four other keys holding invalid
-values, the schema complained about `isolation`, the one it knows, and dropped
-the rest without a word. A contract offering it would validate, write, transmit
-and do nothing. Three agents declare their own effort in the frontmatter this
-plugin ships; the other two take the session's, which `effortLevel` in the
-project's own settings sets. See ADR-014 and ADR-015.
-
-**Pinning an actual version** is a different axis and not this engine's: a tier
-is per agent, a version is per session, and Claude Code sets it from the
-project's `.claude/settings.json`:
-
-```json
-{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "<a full model id>" } }
-```
-
-The id is whatever `/model` lists, and it is deliberately not spelled out
-here — an example naming one would be stale within a release, which is the rot
-this repo's own checks refuse. That pin changes what `opus` means everywhere in
-the session, your own turns included. `spec-flow models` reports it and names
-the file it came from.
-
-**None of it resets.** Every value above lives in a file the engine reads
-fresh: the routing on each spawn, the settings at session start. Opening a new
-conversation does not restore defaults. What *does* reset is anything set for
-the current session only — `/model` switched in the picker, or a session-only
-effort level. Put it in a file and it survives.
+`spec-flow models` prints what each agent will run on and which layer decided
+it, through the same code the spawn hook uses. None of this resets between
+conversations; only `/model` and session-only effort do.
 
 ---
 
 ## Versions
 
-Two versions matter, and the engine treats them differently on purpose.
-
-**Node — a floor, and it is enforced.** `package.json`'s `engines.node` is the
-single declaration; `preflight` reads it and refuses to start a run on
-anything below it, before any agent has been spent. Only the major version is
-compared, and only when both parse — a floor the engine cannot compare against
-confidently is not one worth denying a run over.
-
-The refusal happens *inside* a run only. A subagent spawned in a repository
-that never adopted this engine is never denied over a floor only this engine
-declares.
-
-**Claude Code — recorded, not checked.** Every gate invocation writes
-`cc=<version>` into `.claude/state/gate-history.log`, from
-`CLAUDE_CODE_VERSION`, or `cc=?` where the harness does not expose it.
-
-Nothing gates on it, and that is the honest position rather than a gap.
-Declaring a supported range means having evidence about versions outside it,
-and this project has none: it has been run by someone who always uses the
-latest, so every claim about an older Claude Code would be invented — and an
-invented floor denies real runs. What the engine can do instead is start
-collecting the fact, so the first time something breaks, the version that
-broke it is already in the record rather than reconstructed from memory.
-
-If you hit a version-dependent failure, `gate-history.log` is where the
-evidence to fix this section will come from.
-
-**The engine itself — a commit, recorded, not checked.** The same line carries
-`engine=<sha>`: the revision of the copy that judged that milestone, resolved
-from the plugin install's own git checkout. It reads `v<version>` on the rare
-copy with no revision to resolve, and the `v` is what tells you which you are
-looking at. It was `package.json`'s version until ADR-018, which is to say it
-read `0.1.0` on every line ever written — a field recording nothing.
-[ADR-018](decisions/018-the-engine-records-a-revision-not-a-version.md)
+- **Node** — a floor, enforced: `preflight` refuses a run below
+  `package.json`'s `engines.node`, inside a run only.
+- **Claude Code** — recorded, not checked: `cc=` on every gate-history line
+  ([ADR-004](decisions/004-versions-checked-versus-recorded.md)).
+- **The engine** — `engine=` on the same line: the commit of the copy that
+  judged, or `v<version>` when no commit resolves
+  ([ADR-018](decisions/018-the-engine-records-a-revision-not-a-version.md)).
 
 ## Staying current
 
-Neither `plugin.json` nor the marketplace's entry for `spec-flow` declares a
-`version`, and that is deliberate. Claude Code resolves a plugin's version, to
-decide whether an update exists, from the first of these that is set:
-`plugin.json`'s `version` → the marketplace entry's `version` → the git commit
-SHA of the source. Leaving both fields out lets it fall to the SHA, so every
-push to `main` is a real version change — `/plugin marketplace update` (or
-`claude plugin update spec-flow`) picks it up.
-
-The alternative — a hand-maintained `version` field, bumped on every release —
-shipped that way for the plugin's first nine PRs and nobody bumped it once, so
-every install stayed pinned to `0.1.0` regardless of what landed. See ADR-003
-for why that field is not coming back.
-
-**Claude Code can also fetch it for you, and by default does not.** Background
-auto-update is on for Anthropic's own marketplaces and off for every
-third-party one, this included. Turn it on per install under `/plugin` →
-**Marketplaces**, or for everyone who opens a repository by declaring the
-marketplace in its `.claude/settings.json`:
+Neither `plugin.json` nor the marketplace entry declares a `version`, so Claude
+Code falls through to the git SHA and every push to `main` is an update
+([ADR-003](decisions/003-no-plugin-version-field.md)). Run
+`/plugin marketplace update`, or turn on background auto-update, which is off by
+default for third-party marketplaces — per install under `/plugin` →
+**Marketplaces**, or for a repo in its `.claude/settings.json`:
 
 ```json
 {
@@ -495,102 +260,32 @@ marketplace in its `.claude/settings.json`:
 }
 ```
 
-Claude Code then refreshes shortly after a session starts and says when a
-plugin changed, so the update lands on the next launch or on `/reload-plugins`.
+That entry needs this folder trusted (not a parent), registers the marketplace
+without installing the plugin, and is replaced whole by a higher-precedence
+file defining the same name. A headless `claude -p` session never uses it.
 
-Three caveats, and the first is the one that surprises:
-
-- **The entry needs THIS folder trusted**, not a parent. Trusting a parent
-  offers no dialog for it, and a `claude -p` or SDK session never uses a
-  repository's entry at all — so a headless run gets no marketplace from here.
-- **It registers the marketplace; it does not install the plugin.** Naming it
-  in `enabledPlugins` does not either, for a plugin from an external source.
-  The first `claude plugin install` is still each person's to run, and Claude
-  Code prints the command.
-- **The name is a key, and the highest-precedence file wins it whole.** A
-  second file defining the same marketplace name replaces the entry rather
-  than merging fields into it.
-
-**The second half does not follow.** The devDependency is a git spec, so it
-moves when its `#<commit>` moves or, unpinned, when the lockfile is refreshed.
-Updating the plugin and leaving the dependency behind is how the two halves end
-up on different commits (ADR-016), and nothing detects it for you.
+The optional devDependency does not follow: it is a git spec and moves when you
+move it. Nothing detects the two halves on different commits
+([ADR-016](decisions/016-one-repository-one-distribution.md)).
 
 ---
 
 ## Project skills
 
-Your skills live where Claude Code puts them — `.claude/skills/` — and this
-plugin adds no file of its own to index them. It does not need one: Claude
-Code lists every skill's name and description to the model automatically, so
-the agents can see what your project ships without being told.
+Claude Code already lists every skill's name and description to the agents, and
+this plugin adds no index. The agents ship with no `skills:` frontmatter — which
+skills exist is your codebase's business — and `planner` and `implementer`
+carry the `Skill` tool.
 
-The agents ship with **no** `skills:` frontmatter, by choice rather than by
-limitation: preloading has to name specific skills, and a skill encodes how
-one codebase is built — which is exactly what this engine has no business
-knowing. `implementer` and `planner` carry the `Skill` tool instead, and load
-what they need.
+The routing happens at plan time: each `milestones/Mk.md` has a `Skills:` field
+the planner fills (`none` when nothing applies), and the implementer loads what
+it names **before its first edit**. The reviewer checks the field;
+`spec-trace` fails a missing one only with `trace.require_skills_field: true`,
+which cannot be inferred because skills also arrive from plugins and from
+`~/.claude/skills/`.
 
-**The routing happens at plan time, not mid-work.** Each `milestones/Mk.md`
-carries a `Skills:` field, and the planner fills it while reading the whole
-milestone with nothing written yet. The implementer loads what that field
-names **before its first edit**. `/spec-fix` does the same in the work order
-it writes itself. `none` is the answer when nothing applies, and the only one
-a project shipping no skills will ever write.
-
-**Nothing is required of a project that does not use skills.** The reviewer
-checks the field the same way it checks `Spec deltas`, `Tests` and every other
-milestone field — that is where plan completeness is judged. `spec-trace` will
-*fail* a live milestone whose field is missing or empty only where the
-contract sets `trace.require_skills_field: true`; a bare `Skills:` is treated
-as the absent field it is, since it answers none of the questions the field
-exists to answer.
-
-That switch is off by default, and cannot be inferred. Skills reach a session
-from the project's `.claude/skills/`, from installed plugins, and from the
-user's own `~/.claude/skills/`, so no file this engine reads says whether a
-project routes them — and a default that guesses wrong does not degrade, it
-fails a gate over a field the project was never going to use. Inferring it
-from whether some milestone already names a skill was rejected for a sharper
-reason: that arms the check from an absence, so the first milestone that
-should have routed one and did not is exactly the milestone that arms
-nothing.
-
-That ordering is the point, and it is worth being exact about what on-demand
-loading actually costs, because it is not blindness. Claude Code lists every
-skill's **name and description** to the model automatically, so an agent
-always knows what is available and roughly when each applies. Two things it
-does not have: the skill's *body*, which is where the actual procedure lives,
-and any statement that a given milestone **requires** a given skill.
-Descriptions drive invocation when the model judges it relevant; the `Skills:`
-field turns that "when relevant" into an instruction, decided by the planner
-and checked by `spec-trace`.
-
-So the weakness is timing rather than ignorance. The implementer decides
-whether a skill applies after it has already framed the problem its own way,
-which is the point at which a wrong frame is cheapest to form and dearest to
-undo. Moving the decision to the planner does not restore preloading; it moves
-the judgement to the one agent reading the whole milestone with nothing
-written yet, and records the answer where the implementer cannot skip it.
-
-The implementer keeps the on-demand path as a fallback, for a milestone
-written by hand or one whose routing missed something, and reports the miss in
-its `NOTES:` so the gap is visible rather than absorbed.
-
-To get preloading back, add your own `.claude/agents/implementer.md` with a
-`skills:` line. That override works, and is documented: when several subagents
-share a name, Claude Code uses the higher-priority location, and the order is
-managed settings (1) → `--agents` CLI flag (2) → `.claude/agents/` (3) →
-`~/.claude/agents/` (4) → **a plugin's `agents/` directory (5, lowest)**. A
-project-level definition therefore wins over anything this plugin ships,
-cleanly and by design.
-
-Two constraints if you write one. A plugin subagent silently ignores the
-`hooks`, `mcpServers` and `permissionMode` frontmatter fields — none of the
-agents here use them, but a copy of one is not bound by that limit once it
-lives in your project. And if another installed plugin also ships an agent
-named `implementer`, the bare name is ambiguous; the scoped `plugin:agent`
-form disambiguates.
+To preload instead, add your own `.claude/agents/implementer.md` with a
+`skills:` line: a project agent outranks a plugin's.
 
 ---
 
@@ -600,8 +295,8 @@ form disambiguates.
 |---|---|
 | `/spec-flow <requirement>` | Full pipeline: spec, plan, review, implement, fold |
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
-| `/spec-flow:models` | Show which tier each agent will run on and which layer decided it. `<agent> <tier>` sets one, `<agent> default` clears it |
-| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — what this plugin ships, before any project override. `spec-writer` and `implementer` take the session's effort on purpose (ADR-015) |
+| `/spec-flow:models` | Which tier each agent runs on and who decided. `<agent> <tier>` sets one, `<agent> default` clears it |
+| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
 
 ---
 
@@ -611,40 +306,23 @@ form disambiguates.
 |---|---|
 | `spec-flow init` | Generate `.spec-flow/config.json` and scaffold. `--force` to overwrite |
 | `spec-flow check` | Lint changed files + full suite + unscoped checks. `--no-fix` to report only |
-| `spec-flow trace` | `spec-trace` alone: the requirement/proof binding |
+| `spec-flow trace` | `spec-trace` alone |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
-| `spec-flow status` | Where the live run is, what the gate last said, and what it has cost so far |
-| `spec-flow models` | Which tier each agent will run on here, and which layer decided it. Non-zero when the routing block is unusable |
+| `spec-flow status` | Where the live run is, what the gate last said, what it has cost |
+| `spec-flow models` | Which tier each agent runs on here, and which layer decided it |
 | `spec-flow telemetry --mark` | Record the telemetry offset at the start of a run |
 | `spec-flow telemetry <SLUG>` | Archive this run's slice into the change folder |
 
-The orchestrator runs `telemetry` itself at intake and at DONE. Without it the
-logs stay in gitignored state and `stats` has nothing to read.
+**Inside a session none of this is needed**: every hook, command and agent
+resolves through `${CLAUDE_PLUGIN_ROOT}`. The CLI is for a terminal without
+Claude Code and for CI.
 
-**None of this is needed inside a session, and that is the first thing to
-know.** Every hook, command and agent resolves through
-`${CLAUDE_PLUGIN_ROOT}` — including `init`, `check`, `stats`, `models` and
-`telemetry` — so `/spec-flow` runs on the plugin alone. Measured on a repo with
-no `node_modules` at all: the gate reports a pass and the other eleven hooks exit
-clean. What follows is for the two places that have no plugin, a terminal
-without Claude Code and your CI.
+The short `spec-flow` name exists once the optional devDependency is installed:
+`npm install --save-dev github:IgnacioMarin402/spec-flow-plugin#<commit-or-tag>`.
+Nothing is published to npm, and `spec-flow` on npm is an unrelated package.
+Without it, run the same scripts by path, from your repo's root:
 
-**Three routes, one repository.** `spec-flow <command>` exists once the
-OPTIONAL dependency is installed — `npm install --save-dev
-github:IgnacioMarin402/spec-flow-plugin`, which links a binary named
-`spec-flow`. It buys the short name and, in CI, an `npm ci` that resolves from
-your lockfile rather than re-fetching. **Nothing is published to a registry**
-(see ADR-016): the git spec is what keeps this dependency and the plugin on one
-version axis instead of two. `spec-flow` on npm is an unrelated project, so a
-repo that has not installed this one and runs `npx spec-flow` gets that
-instead. Append `#<commit-or-tag>` to the spec to pin CI rather than follow
-`main`.
-
-Without it — or in a repo that is not a Node package at all — the same scripts
-run by path out of a clone, or straight out of the installed plugin. Nothing is
-installed either way, because the engine has no runtime dependencies:
-
-| `spec-flow …` | by path, from your repo's root |
+| `spec-flow …` | by path |
 |---|---|
 | `init` | `node <clone>/scripts/init.mjs` |
 | `check` | `node <clone>/scripts/check-changed.mjs` |
@@ -652,14 +330,7 @@ installed either way, because the engine has no runtime dependencies:
 | `stats` | `node <clone>/scripts/specflow-stats.mjs` |
 | `telemetry` | `node <clone>/scripts/telemetry-snapshot.mjs` |
 
-`<clone>` can be the plugin's own directory, and inside a session that is the
-better answer: it is the copy the gate itself will run, so there is no second
-revision to drift. The deny hook names that exact path when it redirects an
-implementer, for the same reason.
-
-No arguments, no environment variables: every script resolves the repo from
-`CLAUDE_PROJECT_DIR` or the working directory. A clone follows `main`, so pin it
-to a commit if you would rather CI not pick up whatever has landed.
+`<clone>` can be the installed plugin's own directory — the copy the gate runs.
 
 ---
 
@@ -667,141 +338,77 @@ to a commit if you would rather CI not pick up whatever has landed.
 
 | hook | event | fires on | what it does |
 |---|---|---|---|
-| `session-start` | `SessionStart` | — | Resets a phase left at `implement`/`blocked` for 6h+ to `idle` |
-| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses to start a run whose contract does not load or whose base branch does not resolve |
+| `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
+| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, and an unearned `done` |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
-| `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing by rewriting the spawn's model |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
-| `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written, while it is still in context |
-| `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types so `opus-budget` can charge a `SendMessage` |
-| `run-trace` | `PostToolUse` | `Write`, `Edit`, `Read`, `Bash`, `Task`, `Agent` | The run's observable timeline. Enforces nothing |
-| `gate` | `Stop` | — | The external gate |
+| `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing to the spawn |
+| `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
+| `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
+| `run-trace` | `PostToolUse` | `Write`, `Edit`, `Read`, `Bash`, `Task`, `Agent` | The run's timeline. Enforces nothing |
+| `token-trace` | `Stop` | — | Token accounting from the session transcript. Enforces nothing |
+| `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
-Only `gate`, `lint-on-write` and `no-gate-cmds` are armed exclusively by the
-`implement` phase. `preflight`, `opus-budget`, `arm-gate` and `phase-guard`
-stand down only outside a run. `model-route` is the one enforcement hook with
-no phase at all: a budget counts what a run spends and has to stand down
-outside one, while routing is the project's standing answer to what an agent
-runs on, so a one-off question to the architect reaches the model the project
-chose. `register-agent`, `run-trace` and `session-start` never enforce
-anything.
-
-`preflight` runs first among the spawn hooks on purpose: it is the earliest
-point at which a run can be refused, and refusing there costs nothing. It is
-also the only place the contract is checked *before* the expensive calls — the
-gate is the next one, and by then a planner and an implementer have already
-run. It fails open on its own crash, like every hook but the gate; only a
-check that genuinely failed denies.
+`gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
+`preflight`, `opus-budget`, `arm-gate` and `phase-guard` stand down outside a
+run. `model-route` applies whenever a project routes. Every hook but the gate
+fails open on its own crash.
 
 ---
 
 ## Phases
 
-The spine of a run is `.claude/state/phase`. Every hook reads it to decide
-whether it is armed.
+`.claude/state/phase` is the spine: every hook reads it to decide whether it is
+armed.
 
-| phase | written by | what it arms |
+| phase | written by | arms |
 |---|---|---|
-| `spec` | orchestrator, at intake | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
-| `plan` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
-| `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
-| `implement` | orchestrator — or `arm-gate`, if it forgot | **the gate**, **lint-on-write**, **the command deny**, `preflight`, Opus budget, `phase-guard` |
-| `blocked` | **the gate itself**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `implement` | orchestrator, or `arm-gate` if it forgot | **the gate**, **lint-on-write**, **the command deny**, plus the above |
+| `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
 | `done` | orchestrator, if `phase-guard` allows | nothing |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
 
-**Standing the flow down.** Writing `idle` into `.claude/state/phase` disarms
-every hook at once — the gate, the write-time linter, the whole-repo command
-deny, `preflight` and the Opus budget:
-
-```bash
-printf 'idle' > .claude/state/phase
-```
-
-That is a human's call, and it is deliberately not offered to the agents: no
-denial message quotes it, and nothing else guards the write the way `phase-guard`
-guards `done` — `idle` is in the vocabulary, so it passes. Use it to take the repo back mid-run; re-run `/spec-flow` to
-resume.
-
-**This vocabulary is a closed set, and `phase-guard` enforces it.** Every
-hook falls through to "not my business" on a value it does not recognise, so
-inventing a phase like `triage` would run the flow with the gate, the
-write-time linter, the command deny, `preflight` and the Opus budget **all
-disarmed at once**. A write of any other value is denied, naming the
-vocabulary — the rule used to live in four documents and nothing checked it.
-
-The guard reads the value it is denying, and only that: a `Write`/`Edit` of
-the phase file, or a `printf`/`echo` redirected into it. A command that merely
-mentions the file is allowed, because a guard that denies on a guess blocks
-real work to enforce a rule about a value nobody wrote.
-
-**A phase belongs to one session.** When `phase-guard` allows a phase write it
-records the writing session's id in `.claude/state/phase.session`. Two Claude
-Code sessions in one repo — an IDE one and a terminal one — otherwise share the
-phase, the attempt counter and the Opus budget, so the second judges the
-first's milestone and spends its budget.
-
-The seal is read by **the gate and the Opus budget only** — the two hooks that
-decide something, and the two that are certain to fire in the orchestrating
-session. The rest fire inside subagents too, where honouring a seal would risk
-standing the write-time linter down on every implementer write. So a second
-session in the same repo is still linted on write and still denied a whole-repo
-run; it just cannot render a verdict or spend a budget.
-
-Both checks fail **closed**: no seal, no session id in the payload, or a `git`
-that could not be asked all leave the phase armed. Only a seal naming a
-different, known session disarms anything — a hook that stood down because it
-was unsure would be the failure this engine exists to close.
-[ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)
+- **The vocabulary is closed.** Any other value would disarm every hook at
+  once, so `phase-guard` denies it.
+- **`done` is earned**: every unscoped check green and no unarchived
+  `specflow/<SLUG>/`.
+- **A phase belongs to one session.** `phase-guard` records the writer in
+  `.claude/state/phase.session`; the gate and the Opus budget ignore a phase
+  sealed by another session. Both checks fail closed
+  ([ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)).
+- **To stand a run down yourself**: `printf 'idle' > .claude/state/phase`.
 
 ---
 
 ## `.claude/state/`
 
-Gitignored working files. Delete any of them to reset that piece of state.
+Gitignored working files; delete one to reset that piece of state.
 
 | file | what it holds |
 |---|---|
-| `phase` | The current phase. The spine of the run |
-| `phase.session` | Which Claude Code session owns that phase. Delete it to let any session pick the run up |
+| `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
 | `opus_calls` | Planner + architect calls this run |
-| `model-routes.log` | One line per agent the project re-routed, deduped |
+| `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
+| `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, token counts |
+| `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
 | `agent-registry` | Session id → agent type |
-| `run-offset` | Telemetry line counts at intake, set by `telemetry --mark` |
-| `gate-history.log` | One line per gate invocation. `running` while it judges, replaced by the outcome; a surviving `running` means that invocation was killed |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes and per-model token counts, each tagged with the session that produced it |
-| `token-offset` | How far into the session transcript the token accounting has read. Absent, the first stop of an armed run counts the whole session so far — the intake included, and anything else done in that session before the run started. Delete it to re-count the whole transcript into one line |
-| `gate-failure.log` | Last failure, truncated — what the planner reads |
-| `gate-failure.full.log` | Same, untruncated — what a human reads |
-| `lint-on-write-unmatched.log` | Linter invocations that failed to spawn |
-| `run-trace-unmatched.log` | Subagent returns with no `STATUS:` line |
-| `opus-budget-unmatched.log` | Payloads the budget could not attribute |
-| `register-agent-unmatched.log` | Spawns whose session id was not found |
-| `token-trace-unmatched.log` | Stops whose token usage could not be read, by shape. A cost of zero with lines here means the reader broke, not that the run was cheap |
-| `phase-guard-unmatched.log` | Programs that wrote the phase file in a form the guard could not read |
-
-The `*-unmatched.log` files are how each hook reports its own blind spots. A
-hook that fails open silently is indistinguishable from one that had nothing
-to do; these are what make the difference readable.
+| `model-routes.log` | One line per re-routed agent |
+| `*-unmatched.log` | What each hook could not read — how a hook that fails open reports its blind spots |
 
 ---
 
 ## What an install costs
 
-Measured on `10bfbdf` with `claude plugin details spec-flow`, immediately after
-a real `marketplace add` + `install`. A dated observation rather than a standing
-claim: these move when an agent's instructions do.
+Measured on `10bfbdf` with `claude plugin details spec-flow`, after a real
+install; a dated observation, not a standing claim. The hooks cost no model
+context — the checks run outside the model.
 
 ```
-Component inventory
-  Skills (2)  spec-fix, spec-flow
-  Agents (5)  architect, planner, spec-writer, reviewer, implementer
-  Hooks (4)   SessionStart, PreToolUse, PostToolUse, Stop
-              (harness-only — no model context cost)
-
 Always-on:   ~580 tok   added to every session
 
   component    always-on  on-invoke
@@ -814,28 +421,14 @@ Always-on:   ~580 tok   added to every session
   spec-flow          ~60      ~5.6k
 ```
 
-Two things worth reading off it. **`Hooks (4)` counts EVENTS, not files** — ten
-hook scripts are registered across those four events, and `npm run paths:check`
-is what keeps those two numbers honest. And **the hooks cost no model context at
-all**: the checks that decide whether a milestone passes run entirely outside the
-model, which is the property the whole design rests on.
-
-The always-on ~580 tokens is what an installed-but-unused plugin costs a
-session. Everything else is paid only when a command or agent actually fires.
-
 ---
 
 ## How a run unfolds
 
-Nothing coordinates a run but `.claude/state/phase` — no queue, no daemon, no
-shared memory between agents. A subagent finishes, the orchestrator's turn
-ends, and a `Stop` hook runs the checks outside the model and either allows
-the stop or blocks with the instruction for what to do next.
-
-- **The orchestrator never writes code.** It routes. Everything that produces
-  an artifact is a subagent on the model tier its job needs.
-- **The gate is not a step in the pipeline** — it is what happens when the
-  pipeline stops. Its block message *is* the next instruction.
+Nothing coordinates a run but `.claude/state/phase`. A subagent finishes, the
+orchestrator's turn ends, and the `Stop` hook runs the checks outside the model
+and either allows the stop or blocks with the next instruction. The
+orchestrator never writes code; the gate's block message *is* the next step.
 
 ### `/spec-flow` — a feature
 
@@ -870,17 +463,15 @@ flowchart TD
     G2 -->|"green"| D["DONE — phase done, <br/> archive the telemetry, print the stats"]
 ```
 
-Each milestone gets a **fresh** implementer session, but every follow-up
-within that milestone goes back to the *same* session — a new session re-reads
-the plan and every touched file from a cold context, and that repeated
-re-reading across retries is where most of a run's token cost goes.
+A milestone gets a **fresh** implementer session; every retry within it goes
+back to the *same* session, because re-reading from a cold context is where
+most of a run's tokens go.
 
 ### `/spec-fix` — a defect
 
-A feature is an open question about what the system should do. A defect is a
-closed question: the system already claims a behaviour and something disagrees
-with the claim, so the job is finding **which side is wrong**. That is triage,
-not planning — which is why this flow drops the planner and the reviewer.
+A defect is a closed question — which side is wrong, the code or its
+requirement — so this flow triages instead of planning, and drops the planner
+and the reviewer.
 
 ```mermaid
 flowchart TD
@@ -908,10 +499,8 @@ flowchart TD
     F --> D["DONE"]
 ```
 
-Only cases 3 and 5 stop for a human. Rewriting a requirement so it agrees with
-the code is indistinguishable, from the diff alone, from rewriting it so it
-agrees with the *bug*. A surviving failure goes back to **triage**, not to a
-planner: a fix whose test will not go green is usually aimed at the wrong case.
+Only cases 3 and 5 stop for a human: a diff cannot tell a requirement rewritten
+to match the code from one rewritten to match the bug.
 
 ### The gate
 
@@ -926,7 +515,7 @@ flowchart TD
     JUDGED -->|"no"| WAKE["skip-dirty, then BLOCK — <br/> nothing is coming to judge this commit <br/> (once per commit)"]
     JUDGED -->|"yes"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing <br/> (10 in a row wakes the run once)"]
     DIRTY -->|"clean"| SEEN{"has this commit's sha <br/> already passed?"}
-    SEEN -->|"yes, repeat stop"| QUIET["allow the stop — no decision, <br/> print one notice for the human. <br/> NOTHING is spawned: same tree, <br/> same verdict, attempts already at 0"]
+    SEEN -->|"yes, repeat stop"| QUIET["allow the stop, one notice, <br/> nothing spawned"]
     SEEN -->|"no"| BASE{"base branch <br/> resolvable?"}
     BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
     BASE -->|"resolves to HEAD"| BLK2
@@ -941,66 +530,15 @@ flowchart TD
     CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
 ```
 
-- **A dirty tree is not judged, and does not always pass in silence** (ADR-012).
-  Implementers run in the background, so a `Stop` can fire mid-write; judging
-  that snapshot manufactures failures. Two shapes are not that, and each wakes
-  the run once. A tree still dirty on a commit **no gate has ever judged**
-  means the orchestrator committed, ended its turn expecting a verdict, and the
-  leftover dirt is what stops one being reached — no further `Stop` is coming,
-  so counting them would wait forever. A tree that stays dirty for ten stops in
-  a row is the other. Both exist because a skip is not a failure, so without
-  them the only trace is a log nobody opens.
-- **spec-trace runs after the suite, and that ordering is load-bearing.** It
-  establishes which requirements are proven by asking your contract's
-  `trace.executed_tests` what actually ran, so it has to judge *this*
-  invocation's test run. Ahead of the suite it would read a stale report — or
-  none at all on a fresh clone — and a report that says nothing is a refusal,
-  so the gate would block on the ordering rather than on the code. The same
-  reason `spec-flow check` runs your suite before the checks and
-  `spec-flow trace` alone does not.
-- **Lint is scoped to the changed files, tests never are** — and an empty
-  scope does not skip the suite either. `lint(file)` is a predicate about one
-  file; a suite's outcome is a property of the system.
-- **An empty scope is checked for its cause, not accepted.** Three things
-  produce one, and only the first is a fact about the milestone: the diff
-  touched nothing in scope (passes), the base resolved to HEAD (`fail:base`),
-  or `scope_globs` cannot match anything the repo tracks (`fail:scope`). The
-  last two are permanent — `lint` would never run again, for any milestone —
-  while the history's `lint=-` reads the same in all three.
-- **An unresolvable base is a refusal, not an empty scope.** "Nothing changed"
-  and "I could not tell" must never produce the same outcome, because one of
-  them is a pass. A base that resolves *to HEAD* is refused for the same
-  reason: work committed straight onto the base branch has an empty diff by
-  construction, so the scoped linter never runs for the whole run. Both write
-  `result=fail:base`, and a human repairs them differently — declare
-  `verify.base_ref`, or move the work onto its own branch — so **`files=` is
-  what tells them apart in the history**: `-` where the base could not be named
-  and nothing was ever counted, `0` where it was counted and was empty.
-- **A pass blocks once per commit, not once per stop** (ADR-010). Blocking on
-  every stop over an unchanged tree would thrash — an implementer that
-  reported early, a human who said nothing in between, each firing another
-  round — so the gate checks its own history for a `result=pass` already
-  recorded against the current sha before deciding to wake anyone again.
-- **The failure class decides the route, not the severity.** A traceability
-  gap is usually a test that proves the requirement and never named it — an
-  edit, not a re-think.
-- **It fails closed, alone among the hooks.** A `Stop` hook that exits without
-  printing *allows the stop*, so an unhandled throw would report a clean
-  milestone rather than skip the gate.
-
-**A test that does not run is not proof.** Proof comes from the report your
-runner writes — the tests that actually ran — so a skipped test is absent from
-it and its requirement reads as unproven. That holds for `it.skip`,
-`test.todo`, `describe.skip` and a runtime skip alike, because none of them
-ends up in a report of what executed. Skipping is the cheapest way to silence a
-red suite, and this is the check that makes it useless.
-
-**The engine reads no source code.** The supported scope is Node
-([ADR-007](decisions/007-the-supported-scope-is-node.md)), but within it the
-engine has no opinion about your framework, your layout or your architecture:
-it runs the commands your contract names and reads lines. Requirement
-ids are bound from the test names your runner reports, so what the id has to
-survive is your runner's naming, not a parser's idea of what a test looks
-like.
-
----
+- **A dirty tree is not judged** — a background implementer may be mid-write —
+  but it wakes the run once on a commit no gate has judged, and after ten
+  dirty stops in a row ([ADR-012](decisions/012-a-dirty-tree-on-an-unjudged-commit-wakes-the-run.md)).
+- **spec-trace runs after the suite**, so it judges this run's report.
+- **Lint is scoped to the changed files; the suite never is**, not even on an
+  empty scope ([ADR-008](decisions/008-the-suite-is-never-scoped-to-the-diff.md)).
+- **A pass blocks once per commit**, not once per stop
+  ([ADR-010](decisions/010-a-green-gate-wakes-the-run.md)).
+- **The failure class decides the route**: a traceability gap is usually a test
+  that never named its requirement — an edit, not a re-plan.
+- **It fails closed**: an unhandled throw blocks, because a Stop hook that
+  prints nothing allows the stop.
