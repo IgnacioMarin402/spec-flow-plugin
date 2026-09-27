@@ -30,6 +30,9 @@ const commands = {
   // live run is right now, which is the question you have while it is running
   // and the one a Stop hook's own channel cannot reach you with (ADR-010).
   status: '../scripts/status.mjs',
+  // The step an unfinished run resumes at — what `/spec-flow:resume` acts on,
+  // and worth reading from a terminal before a session spends anything on it.
+  resume: '../scripts/resume.mjs',
   // Reachable from a terminal and not only through `/spec-flow:models`,
   // because the question it answers — what will this agent actually run on —
   // is one you ask while editing the config, which is not a moment you are

@@ -296,6 +296,7 @@ To preload instead, add your own `.claude/agents/implementer.md` with a
 | `/spec-flow <requirement>` | Full pipeline: spec, plan, review, implement, fold |
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
 | `/spec-flow:models` | Which tier each agent runs on and who decided. `<agent> <tier>` sets one, `<agent> default` clears it |
+| `/spec-flow:resume [<SLUG>]` | Picks up a run a dead session left, at the step the disk says it reached ([ADR-024](decisions/024-a-run-resumes-from-what-is-on-disk.md)) |
 | agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
 
 ---
@@ -309,6 +310,7 @@ To preload instead, add your own `.claude/agents/implementer.md` with a
 | `spec-flow trace` | `spec-trace` alone |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
 | `spec-flow status` | Where the live run is, what the gate last said, what it has cost |
+| `spec-flow resume [<SLUG>]` | The step an unfinished run resumes at, and the evidence for it |
 | `spec-flow models` | Which tier each agent runs on here, and which layer decided it |
 | `spec-flow telemetry --mark` | Record the telemetry offset at the start of a run |
 | `spec-flow telemetry <SLUG>` | Archive this run's slice into the change folder |
@@ -328,6 +330,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `check` | `node <clone>/scripts/check-changed.mjs` |
 | `trace` | `node <clone>/scripts/spec-trace.mjs` |
 | `stats` | `node <clone>/scripts/specflow-stats.mjs` |
+| `resume` | `node <clone>/scripts/resume.mjs` |
 | `telemetry` | `node <clone>/scripts/telemetry-snapshot.mjs` |
 
 `<clone>` can be the installed plugin's own directory — the copy the gate runs.
