@@ -93,7 +93,7 @@ function spec(id = 'REQ-USER-001', title = 'the user can do the thing', scope = 
 
 /**
  * A `trace.executed_tests` command reporting exactly these lines as the tests
- * that RAN — the port B1 replaces source-parsing with.
+ * that RAN — the proof source ADR-001 puts in place of parsing source.
  *
  * The engine's whole contract here is "lines naming a test that executed", so
  * a fixture can express any runner's output by writing the lines directly.
@@ -190,12 +190,7 @@ async function withRepo(files, assert) {
 }
 
 await Promise.all([
-  // ==== B1: proof comes from what the runner REPORTED as executed ============
-  //
-  // These five cases are the red half of B1. Four of them describe the port
-  // that replaces source-parsing; the first describes a defect the current
-  // static walk has TODAY, in plain TypeScript, with no other language
-  // involved — which is why it leads.
+  // ==== proof comes from what the runner REPORTED as executed (ADR-001) ======
 
   // A dependency directory is not in NEVER_WALK unless someone thought of its
   // name. `venv` was not thought of, and neither were `site-packages`,

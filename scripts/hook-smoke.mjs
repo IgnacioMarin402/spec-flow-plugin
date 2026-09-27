@@ -443,7 +443,7 @@ t('session-start resets a stale phase', (repo) => {
   return null;
 });
 
-// ---- B5: the engine refuses a Node it does not support, and only in a run --
+// ---- the engine refuses a Node it does not support, and only in a run ------
 //
 // The second case is the one worth having. A version check is easy to write in
 // the wrong place, and ahead of the phase guard this hook would deny subagents
@@ -474,7 +474,7 @@ t('preflight denies a run on a Node below the declared floor', (repo) => {
   }
 });
 
-// ---- B7: the position a resume needs survives, and a reset reports it ------
+// ---- the position a resume needs survives, and a reset reports it ----------
 //
 // The two facts that made a run resumable lived only in the orchestrator's
 // context. These assert they now live on disk, and — the half that is easy to

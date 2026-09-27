@@ -149,8 +149,8 @@ async function fixture({
   baseRef = undefined,
   stayOnBase = false,
   // The real spec-trace.mjs, exercised end to end instead of stubbed — for
-  // the cases that test the SEAM between the two changes that touched this
-  // hook together: B16's notice protocol and B18's report readers. `report`
+  // the cases that test the seam between the gate's pass protocol (ADR-010)
+  // and the report readers (ADR-005). `report`
   // is `{format, path}` written into `trace.report`; what spec-trace reads is
   // whatever `test` writes there — see `suiteWriting`. `specs` are the
   // capability specs that make the requirement real rather than vacuous — an
