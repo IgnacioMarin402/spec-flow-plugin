@@ -347,8 +347,8 @@ Without it, run the same scripts by path, from your repo's root:
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing to the spawn |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
-| `run-trace` | `PostToolUse` | `Write`, `Edit`, `Read`, `Bash`, `Task`, `Agent` | The run's timeline. Enforces nothing |
-| `token-trace` | `Stop` | — | Token accounting from the session transcript. Enforces nothing |
+| `run-trace` | `PostToolUse`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` | The run's timeline, and each subagent's return. Enforces nothing |
+| `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.

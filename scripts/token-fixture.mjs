@@ -5,14 +5,15 @@
  * `token-trace.mjs` reads a file this engine does not write — Claude Code's
  * session transcript — so every field it depends on is an OBSERVATION about
  * another program, and the whole risk sits there. These cases pin the shape
- * that was read off a real transcript: `message.usage`, `message.model` and a
- * top-level `isSidechain`. When a future build moves one, this is what says
+ * that was read off a real transcript: `message.usage`, `message.model`,
+ * `message.id`, a top-level `isSidechain`, and each subagent in a file of its
+ * own beside the session's. When a future build moves one, this is what says
  * so, rather than a silent zero in a report someone is about to act on.
  *
- * **This is a guard on new behaviour, not proof of a defect.** Every case
- * here passes on the commit that introduced it; nothing regressed to catch.
- * Said out loud because the two are worth the same only until someone reads
- * a green suite as evidence that something was broken and is now fixed.
+ * **Two kinds of case, worth the same only until someone reads a green suite
+ * as evidence that something was broken and is now fixed.** The ones under
+ * "what Claude Code writes" each fail on the engine before their fix: they
+ * prove a defect. Every other case guards behaviour, and passes both ways.
  *
  *   node scripts/token-fixture.mjs [engine-root]
  */
@@ -57,13 +58,16 @@ function makeRepo(phase = 'implement') {
  * The model NAMES are deliberately not real ones, and not only because ADR-013
  * keeps version ids out of this repo: the hook treats the value as opaque, and
  * an id nobody could special-case is what proves it.
+ *
+ * @param {{ model?: string, sidechain?: boolean, out?: number, input?: number, cacheRead?: number, cacheWrite?: number, think?: number, id?: string }} [fields]
  */
-const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10, cacheRead = 0, cacheWrite = 0, think = 0 } = {}) =>
+const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10, cacheRead = 0, cacheWrite = 0, think = 0, id } = {}) =>
   `${JSON.stringify({
     type: 'assistant',
     isSidechain: sidechain,
     timestamp: '2026-08-31T00:00:00.000Z',
     message: {
+      ...(id === undefined ? {} : { id }),
       role: 'assistant',
       model,
       usage: {
@@ -78,6 +82,15 @@ const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10
 
 function transcript(repo, lines) {
   const path = join(repo, 'transcript.jsonl');
+  writeFileSync(path, lines.join(''));
+  return path;
+}
+
+/** A subagent's own transcript, where the harness puts it: beside the session's. */
+function subagentTranscript(sessionPath, name, lines) {
+  const dir = join(sessionPath.replace(/\.jsonl$/, ''), 'subagents');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `agent-${name}.jsonl`);
   writeFileSync(path, lines.join(''));
   return path;
 }
@@ -133,7 +146,76 @@ check('two models in one turn are two lines — a whitespace-split log cannot ho
   return models.size === 2 && lines.length === 2 ? '' : `expected two lines naming two models, got ${lines.length}:\n${lines.join('\n')}`;
 });
 
+// ---- what Claude Code writes -----------------------------------------------
+//
+// Each case here failed on the engine before its fix.
+
+check('a subagent transcript beside the session transcript is counted, as a sidechain', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ out: 100 })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ out: 30, sidechain: true }), entry({ out: 70, sidechain: true })]);
+  const { lines } = stop(repo, t);
+  const sub = lines.find((l) => field(l, 'sidechain') === 'true');
+  if (!sub) return `no subagent line — every subagent the flow spawns is missing from the cost:\n${lines.join('\n')}`;
+  return field(sub, 'out') === '100' && field(sub, 'msgs') === '2' ? '' : `the subagent line reported out=${field(sub, 'out')} msgs=${field(sub, 'msgs')}, want 100 and 2`;
+});
+
+check('a message written over several lines is counted once', () => {
+  const repo = makeRepo();
+  const block = { id: 'msg_1', out: 100, input: 3, cacheRead: 60000, cacheWrite: 900 };
+  const t = transcript(repo, [entry(block), entry(block), entry(block)]);
+  const { lines } = stop(repo, t);
+  const got = Object.fromEntries(['msgs', 'in', 'cache_read', 'cache_write', 'out'].map((k) => [k, field(lines[0] ?? '', k)]));
+  const want = { msgs: '1', in: '3', cache_read: '60000', cache_write: '900', out: '100' };
+  const wrong = Object.entries(want).filter(([k, v]) => got[k] !== v);
+  return wrong.length === 0 ? '' : `one message read as ${got.msgs}: ${wrong.map(([k, v]) => `${k} want ${v}, got ${got[k]}`).join('; ')}`;
+});
+
+check("a message's output is the largest count its lines carry, not their sum", () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ id: 'msg_1', out: 3, think: 0 }), entry({ id: 'msg_1', out: 150, think: 120 })]);
+  const { lines } = stop(repo, t);
+  return field(lines[0] ?? '', 'out') === '150' && field(lines[0] ?? '', 'think') === '120'
+    ? ''
+    : `out=${field(lines[0] ?? '', 'out')} think=${field(lines[0] ?? '', 'think')}, want 150 and 120`;
+});
+
+check('a message whose lines straddle two stops is counted once', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ id: 'msg_1', out: 3, cacheRead: 5000 })]);
+  stop(repo, t);
+  appendFileSync(t, entry({ id: 'msg_1', out: 40, cacheRead: 5000 }) + entry({ id: 'msg_2', out: 7, cacheRead: 5100 }));
+  const { lines } = stop(repo, t);
+  if (lines.length !== 2) return `expected a second line, got ${lines.length}:\n${lines.join('\n')}`;
+  const got = Object.fromEntries(['msgs', 'cache_read', 'out'].map((k) => [k, field(lines[1], k)]));
+  const want = { msgs: '1', cache_read: '5100', out: '44' };
+  const wrong = Object.entries(want).filter(([k, v]) => got[k] !== v);
+  return wrong.length === 0 ? '' : `the second stop re-counted the first message: ${wrong.map(([k, v]) => `${k} want ${v}, got ${got[k]}`).join('; ')}`;
+});
+
+check('each subagent transcript keeps its own offset', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ out: 100 })]);
+  const sub = subagentTranscript(t, 'a0123456789abcdef', [entry({ out: 30, sidechain: true })]);
+  stop(repo, t);
+  appendFileSync(sub, entry({ out: 5, sidechain: true }));
+  const { lines } = stop(repo, t);
+  if (lines.length !== 3) return `expected one new line for the subagent's delta, got ${lines.length} in all:\n${lines.join('\n')}`;
+  return field(lines[2], 'sidechain') === 'true' && field(lines[2], 'out') === '5' ? '' : `the delta line is wrong: ${lines[2]}`;
+});
+
 // ---- the offset ------------------------------------------------------------
+
+check('an offset saved in the one-transcript shape is honoured, not re-read from 0', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ out: 100 })]);
+  writeFileSync(join(repo, '.claude/state/token-offset'), `${JSON.stringify({ path: t, bytes: readFileSync(t).length })}\n`);
+  appendFileSync(t, entry({ out: 7 }));
+  const { lines } = stop(repo, t);
+  if (lines.length !== 1) return `expected one line, got ${lines.length}:\n${lines.join('\n')}`;
+  return field(lines[0], 'out') === '7' ? '' : `reported out=${field(lines[0], 'out')}, want 7 — 107 means the saved offset was dropped`;
+});
+
 
 check('a second stop over an unchanged transcript writes nothing', () => {
   const repo = makeRepo();

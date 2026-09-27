@@ -329,8 +329,9 @@ say('');
 // follow-up returns to that session by SendMessage. Both halves of that are
 // already observable, with no new instrumentation:
 //
-//   - `agent type=...` is written on a Task/Agent return, and SendMessage is
-//     not in run-trace's matcher, so every such line is a FRESH session.
+//   - `agent type=...` is written at an agent's FIRST stop only — a session
+//     resumed by SendMessage stops again under the same id and is not
+//     written twice — so every such line is a FRESH session.
 //   - a fresh session re-reads what the previous one already had, so the same
 //     path read twice inside one milestone is what the cold start cost.
 //
@@ -467,6 +468,7 @@ if (tokenLines.length === 0) {
 
   const total = (field, filter = () => true) => rows.filter(filter).reduce((sum, r) => sum + r[field], 0);
   say(`  total: in ${human(total('in'))}, out ${human(total('out'))}, cache_read ${human(total('cache_read'))}, cache_write ${human(total('cache_write'))}`);
+  say('  out and think are floors: some messages never get their final count written.');
 
   // The number the budget cannot see. A spawn is charged once whatever it
   // costs, so cost-per-spawn is the only thing that can say whether a cap in
@@ -481,7 +483,7 @@ if (tokenLines.length === 0) {
   } else if (subagentOut === 0 && spawns > 0) {
     say(`  ${spawns} spawn(s) recorded and no subagent tokens with them.`);
     warn.push(
-      `${spawns} subagent spawn(s) are in this trace and no token line is marked sidechain. Either this build does not flag a subagent's messages in the transcript or the spawns predate token-trace.mjs — treat the per-spawn cost as unmeasured, not as zero.`,
+      `${spawns} subagent spawn(s) are in this trace and no token line is marked sidechain. Either the spawns predate token-trace.mjs reading subagent transcripts, or this build keeps them somewhere other than <session>/subagents/ — treat the per-spawn cost as unmeasured, not as zero.`,
     );
   }
 }

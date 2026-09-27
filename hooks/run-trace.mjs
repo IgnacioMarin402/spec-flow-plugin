@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * PostToolUse hook on Write|Edit|Read|Bash|Task|Agent — the run's observable
- * timeline.
+ * PostToolUse hook on Write|Edit|Read|Bash, and SubagentStop — the run's
+ * observable timeline.
  *
  * This hook enforces NOTHING. It exists because the flow's change policy
  * only accepts a failing run as grounds for changing the flow, and several of
@@ -78,10 +78,65 @@ function traceTest(input, res, testName) {
   return `test verdict=${verdict} target=${target}`;
 }
 
-/** What a subagent returned — for the reviewer, that IS the open question. */
-function traceAgent(input, res, payload, missLog) {
-  const type = [input.subagent_type, input.subagentType, input.agent_type].find((v) => typeof v === 'string') ?? '?';
-  const text = typeof res === 'string' ? res : JSON.stringify(res ?? '');
+/**
+ * The report a stopped subagent handed back — the text its caller received.
+ *
+ * A build that delivers reports through `SubagentHandback` ends the agent on a
+ * line like "Report delivered", so `last_assistant_message` alone finds no
+ * STATUS there; the report is the handback's `message`, in the agent's own
+ * transcript. Without a handback, the last message IS the report.
+ */
+function handedBack(payload) {
+  const path = typeof payload.agent_transcript_path === 'string' ? payload.agent_transcript_path : '';
+  if (path) {
+    try {
+      const lines = readFileSync(path, 'utf8').split('\n');
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        if (!lines[i].includes('"SubagentHandback"')) continue;
+        let entry;
+        try {
+          entry = JSON.parse(lines[i]);
+        } catch {
+          continue;
+        }
+        const content = Array.isArray(entry?.message?.content) ? entry.message.content : [];
+        const call = content.findLast((c) => c?.type === 'tool_use' && c.name === 'SubagentHandback');
+        if (typeof call?.input?.message === 'string') return call.input.message;
+      }
+    } catch {
+      /* unreadable: fall back to the payload's own copy of the last message */
+    }
+  }
+  return typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message : '';
+}
+
+/** Whether this agent's return is already on a line — see traceReturn(). */
+function alreadyTraced(traceFile, agentId) {
+  try {
+    return new RegExp(` agent_id=${agentId}(\\s|$)`, 'm').test(readFileSync(traceFile, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What a subagent returned — for the reviewer, that IS the open question.
+ *
+ * Read at SubagentStop, never off the spawn's tool response: that response
+ * echoes the PROMPT ahead of the report, and the orchestrator's prompts name
+ * the statuses they expect back, so the first `STATUS:` in it is the question
+ * rather than the answer. A background spawn's response is a launch receipt.
+ *
+ * One line per agent, at its FIRST stop: a session resumed by SendMessage
+ * stops again under the same id, and `specflow-stats.mjs` reads every
+ * `agent type=` line as a fresh spawn.
+ */
+function traceReturn(payload, traceFile, missLog) {
+  const type = String(payload.agent_type ?? '?').replace(/\s+/g, '-');
+  const agentId = typeof payload.agent_id === 'string' && /^[\w-]+$/.test(payload.agent_id) ? payload.agent_id : '';
+  if (agentId && alreadyTraced(traceFile, agentId)) return '';
+
+  const text = handedBack(payload);
   const status = /STATUS:\s*([A-Z_]+)/.exec(text);
   if (status) {
     // `SKILL_MISS:` mirrors `STATUS:` on purpose — a skill the milestone
@@ -100,14 +155,14 @@ function traceAgent(input, res, payload, missLog) {
       .map((m) => m[1].trim().replace(/\s+/g, '-'))
       .filter(Boolean);
     const missField = misses.length > 0 ? ` skill_miss=${[...new Set(misses)].join(',')}` : '';
-    return `agent type=${type} status=${status[1]}${missField}`;
+    return `agent type=${type} status=${status[1]}${missField}${agentId ? ` agent_id=${agentId}` : ''}`;
   }
 
   appendUnique(
     missLog,
     JSON.stringify({
       payload_keys: Object.keys(payload).sort(),
-      response_keys: res && typeof res === 'object' ? Object.keys(res).sort() : typeof res,
+      report: text ? 'no STATUS line' : 'empty',
     }),
   );
   return '';
@@ -132,7 +187,9 @@ await run(async () => {
   const res = payload.tool_response ?? payload.tool_result ?? payload.tool_output ?? payload.response ?? {};
 
   let line = '';
-  if (/^(Write|Edit|MultiEdit)$/.test(tool)) {
+  if (payload.hook_event_name === 'SubagentStop') {
+    line = traceReturn(payload, traceFile, missLog);
+  } else if (/^(Write|Edit|MultiEdit)$/.test(tool)) {
     // `*.ts` -> `.ts`: the trace matches a suffix, the contract declares a
     // glob. No contract read -> no suffix to match, so this event traces
     // nothing rather than assuming a language. Never fatal: this hook must
@@ -154,8 +211,6 @@ await run(async () => {
       /* keep it empty — traceTest() then declines to trace, see its own guard */
     }
     line = traceTest(input, res, testName);
-  } else if (/^(Task|Agent)$/.test(tool)) {
-    line = traceAgent(input, res, payload, missLog);
   }
 
   if (!line) return;
@@ -171,8 +226,9 @@ await run(async () => {
   // measurement. Only a `k=v`-safe value is written at all — this log is read
   // back by a whitespace split.
   //
-  // On an `agent type=` line the id belongs to the SPAWNER, not to the agent
-  // being spawned: a payload carries the session that made the tool call.
+  // On an `agent type=` line the id belongs to the SPAWNER: a SubagentStop
+  // payload carries the session the agent was spawned from, and the agent
+  // itself is `agent_id=`.
   const id = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && /^[\w-]+$/.test(v));
 
   appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''} ${line}\n`);

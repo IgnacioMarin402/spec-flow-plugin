@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Stop hook — what a turn actually cost, in tokens, read from the transcript
+ * Stop hook — what a turn actually cost, in tokens, read from the transcripts
  * Claude Code was already writing.
  *
  * This hook enforces NOTHING. It exists because the one budget in this engine
@@ -25,6 +25,18 @@
  * timestamp. A reader built around the current turn would undercount every
  * turn instead, silently.
  *
+ * **A subagent's messages are not in the session transcript.** Each subagent
+ * gets its own file, `<session>/subagents/agent-<id>.jsonl`, beside the
+ * session's `<session>.jsonl`; a reader of the one file sees no subagent at
+ * all. Every stop reads them all, each from its own offset.
+ *
+ * **A message is counted once, not once per line.** One line is written per
+ * content block, each repeating the message's usage: the input side is the
+ * same on every line of a message and the output side only grows, so input is
+ * counted at a message's first line and output at the largest value any of its
+ * lines carries. `out` and `think` are floors all the same — some messages
+ * never get their final count written, and keep the one they started with.
+ *
  * **Attribution is by model and sidechain, not by agent role.** A sidechain
  * message names no agent, and deriving one from which spawn was in flight
  * would be a guess written down as a fact. The roles map onto tiers
@@ -32,7 +44,7 @@
  * sidechain to a role is a correlation, and correlation belongs in the
  * report, where it can say it is unsure. `specflow-stats.mjs` reads these.
  */
-import { openSync, readSync, fstatSync, closeSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
+import { openSync, readSync, fstatSync, closeSync, appendFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
 import { projectDir, stateDir, readPhase, readPayload, writeFile, run } from './lib/io.mjs';
@@ -52,11 +64,48 @@ const COUNTERS = {
   think: (u) => u.output_tokens_details?.thinking_tokens,
 };
 
+/** The counters that grow across a message's lines; the rest are fixed at its first. */
+const GROWING = ['out', 'think'];
+
 const num = (v) => (Number.isFinite(v) ? v : 0);
 
+/** The session's transcript, then each of its subagents' — see the header. */
+function transcripts(sessionPath) {
+  const dir = join(sessionPath.replace(/\.jsonl$/, ''), 'subagents');
+  let subagents = [];
+  try {
+    subagents = readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .sort()
+      .map((f) => join(dir, f));
+  } catch {
+    /* none yet: the directory appears with the first subagent */
+  }
+  return [sessionPath, ...subagents];
+}
+
 /**
- * The bytes appended to `path` since the offset in `state`, and the offset to
- * remember next time.
+ * The offsets saved at the last stop, by transcript path — or `null` when the
+ * file exists and cannot be read, which unreadBytes() treats differently from
+ * having none.
+ */
+function readOffsets(offsetFile) {
+  if (!existsSync(offsetFile)) return {};
+  try {
+    const saved = JSON.parse(readFileSync(offsetFile, 'utf8'));
+    if (saved?.files && typeof saved.files === 'object') return saved.files;
+    // `{path, bytes}` is ONE transcript's offset — the shape still on disk
+    // wherever a revision that read only the session transcript last ran.
+    if (typeof saved?.path === 'string') return { [saved.path]: { bytes: saved.bytes } };
+  } catch {
+    /* unreadable — below */
+  }
+  return null;
+}
+
+/**
+ * The bytes appended to `path` since its saved offset, the offset to remember
+ * next time, and whether the read carried on from that offset.
  *
  * Reads from an offset rather than the whole file: Stop fires at every turn
  * end and a transcript only grows, so a full read is work that scales with
@@ -70,47 +119,37 @@ const num = (v) => (Number.isFinite(v) ? v : 0);
  * (a new session, a compaction), which must be read from the start rather
  * than from an offset that now points into the middle of a line.
  */
-function unreadBytes(path, offsetFile) {
+function unreadBytes(path, saved, offsetsUnreadable) {
   let fd;
   try {
     fd = openSync(path, 'r');
     const size = fstatSync(fd).size;
 
     // An offset that EXISTS and cannot be read is not the same as no offset at
-    // all, and the difference decides a number. With no file, this transcript
+    // all, and the difference decides a number. With none, this transcript
     // has never been counted and reading from 0 is the only correct answer;
     // with a corrupt one, some prefix is already on a line in run-trace.log
     // and re-reading from 0 appends those bytes a second time. So the corrupt
     // case skips its slice and resynchronises, losing a count rather than
     // inventing one — the rule this file's header states.
-    let from = 0;
-    if (existsSync(offsetFile)) {
-      try {
-        const saved = JSON.parse(readFileSync(offsetFile, 'utf8'));
-        // Reading from 0 is right in both of the first two cases and wrong in
-        // the third, which is the distinction worth keeping straight: a
-        // different path and an offset past the end are both NEW CONTENT this
-        // log has never seen, while an offset that will not parse means some
-        // prefix is already counted and cannot be identified.
-        if (saved.path !== path) from = 0;
-        else if (!Number.isInteger(saved.bytes)) return { text: '', next: size, resynced: true };
-        else if (saved.bytes > size) from = 0;
-        else from = saved.bytes;
-      } catch {
-        return { text: '', next: size, resynced: true };
-      }
+    if (offsetsUnreadable || (saved !== undefined && !Number.isInteger(saved?.bytes))) {
+      return { text: '', next: size, continued: false, resynced: true };
     }
+    // A path with no saved offset and an offset past the end are both NEW
+    // CONTENT this log has never seen, which is why both read from 0.
+    const continued = saved !== undefined && saved.bytes <= size;
+    const from = continued ? saved.bytes : 0;
 
-    if (from === size) return { text: '', next: from };
+    if (from === size) return { text: '', next: from, continued };
 
     const buf = Buffer.allocUnsafe(size - from);
     const read = readSync(fd, buf, 0, buf.length, from);
     const text = buf.toString('utf8', 0, read);
 
     const lastNewline = text.lastIndexOf('\n');
-    if (lastNewline === -1) return { text: '', next: from };
+    if (lastNewline === -1) return { text: '', next: from, continued };
 
-    return { text: text.slice(0, lastNewline), next: from + Buffer.byteLength(text.slice(0, lastNewline + 1), 'utf8') };
+    return { text: text.slice(0, lastNewline), next: from + Buffer.byteLength(text.slice(0, lastNewline + 1), 'utf8'), continued };
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
@@ -138,9 +177,16 @@ function noteMiss(state, what) {
   }
 }
 
-/** Usage summed per `model|sidechain`, over the transcript lines in `text`. */
-function tally(text) {
-  const groups = new Map();
+/**
+ * Usage summed per `model|sidechain` into `groups`, over the transcript lines
+ * in `text`. Returns the message the slice ended inside, as `{id, out, think}`,
+ * for the next slice of the same file to carry on from.
+ *
+ * `carry` is that value from the previous slice: a message whose lines
+ * straddle two stops has its input counted already.
+ */
+function tally(text, groups, carry) {
+  let last = carry;
 
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -161,13 +207,29 @@ function tally(text) {
 
     const key = `${message.model}|${entry.isSidechain === true}`;
     const group = groups.get(key) ?? { model: message.model, sidechain: entry.isSidechain === true, msgs: 0, ...Object.fromEntries(Object.keys(COUNTERS).map((name) => [name, 0])) };
+    groups.set(key, group);
+
+    // A message's lines are consecutive among the lines that carry usage, so
+    // the previous one is the only message a line can continue. A line with
+    // no id is its own message.
+    const id = typeof message.id === 'string' ? message.id : null;
+    if (id !== null && last?.id === id) {
+      for (const name of GROWING) {
+        const value = num(COUNTERS[name](usage));
+        if (value > last[name]) {
+          group[name] += value - last[name];
+          last[name] = value;
+        }
+      }
+      continue;
+    }
 
     group.msgs += 1;
     for (const [name, pick] of Object.entries(COUNTERS)) group[name] += num(pick(usage));
-    groups.set(key, group);
+    last = id === null ? null : { id, ...Object.fromEntries(GROWING.map((name) => [name, num(COUNTERS[name](usage))])) };
   }
 
-  return [...groups.values()];
+  return last;
 }
 
 await run(async () => {
@@ -194,24 +256,48 @@ await run(async () => {
     return;
   }
 
-  let slice;
-  try {
-    slice = unreadBytes(path, offsetFile);
-  } catch (err) {
-    noteMiss(state, { transcript_unreadable: err?.code ?? 'unknown' });
-    return; // see the header — a missing count is never a zero
+  const saved = readOffsets(offsetFile);
+  if (saved === null) noteMiss(state, { offset_unreadable: 'resynchronised, one slice not counted' });
+
+  const groups = new Map();
+  const offsets = {};
+  for (const file of transcripts(path)) {
+    const before = saved?.[file];
+    let slice;
+    try {
+      slice = unreadBytes(file, before, saved === null);
+    } catch (err) {
+      // The session's own transcript is the stop's subject: without it,
+      // nothing this stop could say is known — see the header.
+      if (file === path) {
+        noteMiss(state, { transcript_unreadable: err?.code ?? 'unknown' });
+        return;
+      }
+      noteMiss(state, { subagent_transcript_unreadable: err?.code ?? 'unknown' });
+      if (before !== undefined) offsets[file] = before; // keep its place for the next stop
+      continue;
+    }
+
+    if (slice.resynced && saved !== null) noteMiss(state, { offset_unreadable: 'resynchronised, one slice not counted' });
+
+    const carry =
+      slice.continued && typeof before?.id === 'string'
+        ? { id: before.id, ...Object.fromEntries(GROWING.map((name) => [name, num(before[name])])) }
+        : null;
+    const last = tally(slice.text, groups, carry);
+    offsets[file] = { ...(last ?? {}), bytes: slice.next };
   }
 
-  if (slice.resynced) noteMiss(state, { offset_unreadable: 'resynchronised, one slice not counted' });
-
-  const groups = tally(slice.text);
-
-  // The offset advances even when the slice held no usage record. What was
+  // The offsets advance even when a slice held no usage record. What was
   // read has been read; leaving it behind would re-scan the same bytes at
-  // every stop for the rest of the session.
-  writeFile(offsetFile, `${JSON.stringify({ path, bytes: slice.next })}\n`);
+  // every stop for the rest of the session. Only this session's transcripts
+  // are kept: another session's offset would never be read again.
+  writeFile(offsetFile, `${JSON.stringify({ files: offsets })}\n`);
 
-  if (groups.length === 0) return;
+  // A group opened only by the tail of a message counted at an earlier stop,
+  // whose output did not grow, has nothing to report.
+  const lines = [...groups.values()].filter((g) => g.msgs > 0 || Object.keys(COUNTERS).some((name) => g[name] > 0));
+  if (lines.length === 0) return;
 
   const id = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && /^[\w-]+$/.test(v));
   const stamp = `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''}`;
@@ -219,7 +305,7 @@ await run(async () => {
   // One line per group rather than one line with every model on it: this log
   // is read back by a whitespace split into `k=v` pairs, which has no way to
   // express a repeated key.
-  for (const g of groups) {
+  for (const g of lines) {
     const counts = Object.keys(COUNTERS).map((name) => `${name}=${g[name]}`).join(' ');
     appendFileSync(join(state, 'run-trace.log'), `${stamp} tokens model=${g.model} sidechain=${g.sidechain} ${counts} msgs=${g.msgs}\n`);
   }
