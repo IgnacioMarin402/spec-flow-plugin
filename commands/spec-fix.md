@@ -11,13 +11,13 @@ What it does **not** drop: the external gate, the spec-trace check, and the arch
 
 ## Phase discipline — reuse the vocabulary, never extend it
 
-You manage phase via `.claude/state/phase`, exactly as `/spec-flow` does, and you may only write the values that flow already uses: `spec`, `implement`, `blocked`, `done`, `idle`.
+You manage phase via `.claude/state/phase`, exactly as `/spec-flow` does, and you may only write the values that flow already uses: `spec`, `implement`, `done`, `idle`. (`blocked` is in the vocabulary too, but only the gate writes it.)
 
 This is not a style preference. Every enforcement hook decides whether it is armed by matching that file against a **closed set** of values — the gate, the write-time linter and the whole-repo command deny all run only on `implement`, the Opus budget and `preflight` stand down on `idle|done`, session-start resets any stale run phase. Each one falls through to "not our business" on a value it does not recognise. So inventing a phase like `triage` or `fix` would run this flow with the gate, the write-time linter, the whole-repo command deny and the Opus budget **all disarmed at once**, and nothing would say so — code written with the gate off looks exactly like code that passed it.
 
 Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
 
-`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, or an unarchived `specflow/<SLUG>/` say otherwise. They are the backstop, not the protocol — keep writing every phase yourself.
+`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, an unarchived `specflow/<SLUG>/`, or a current commit the gate has not passed say otherwise. `idle` is denied from `implement`, and elsewhere until the change is stamped and archived; `blocked` is denied to anything but the gate. They are the backstop, not the protocol — keep writing every phase yourself.
 
 ## 0. Init — intake
 

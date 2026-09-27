@@ -245,7 +245,7 @@ function validate(config, source) {
 
   if (problems.length > 0 && source === 'defaults') {
     problems.push(
-      'No .spec-flow/config.json was found at all, so none of the above has a value — this project has not written a contract for this engine yet. See the plugin README for the minimal file to start from.',
+      'No .spec-flow/config.json was found at all, so none of the above has a value — this project has not written a contract for this engine yet. Run the plugin\'s scripts/init.mjs from the repo root to generate one (see the plugin README).',
     );
   }
 

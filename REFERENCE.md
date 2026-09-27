@@ -341,7 +341,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
 | `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, and an unearned `done` |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, and a `blocked` the gate did not write |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing to the spawn |
@@ -373,8 +373,12 @@ armed.
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
   once, so `phase-guard` denies it.
-- **`done` is earned**: every unscoped check green and no unarchived
-  `specflow/<SLUG>/`.
+- **A run does not end itself without a verdict**
+  ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
+  `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,
+  and a gate pass on the current commit. `idle` is denied from `implement`, and
+  from `spec`/`plan`/`review` until the change is stamped and archived; from
+  `blocked` it is allowed. `blocked` is written only by the gate.
 - **A phase belongs to one session.** `phase-guard` records the writer in
   `.claude/state/phase.session`; the gate and the Opus budget ignore a phase
   sealed by another session. Both checks fail closed

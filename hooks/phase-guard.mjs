@@ -11,18 +11,18 @@
  * at once**, silently. Code written with the gate off looks exactly like code
  * that passed it.
  *
- * One question in two halves:
+ * One question — is this transition legitimate? — asked of three kinds of
+ * write:
  *
- *   1. Is the value a phase this engine knows? An unrecognised one is denied,
- *      with the vocabulary, before it disarms anything.
- *   2. If the value is `done`, is it EARNED? `done` disarms everything the
- *      same way, only legitimately, so it is checked rather than trusted:
- *      every unscoped check green (unscoped-checks.mjs declares them), and no
- *      unarchived change folder left in `specflow/` (the FOLD step ran).
- *
- * Both halves ask whether a transition is legitimate, which is why they are
- * one hook rather than two that must agree about how a phase write is
- * recognised.
+ *   1. A value outside the vocabulary is denied before it disarms anything.
+ *   2. `blocked` is the gate's own hand-off to a human, written by the gate
+ *      at its cap; a tool writing it is denied.
+ *   3. A write that ENDS a run is decided from evidence on disk, never from
+ *      the value (ADR-022). `done` needs every unscoped check green, no live
+ *      `specflow/<SLUG>/`, and a gate pass on the current commit. `idle` is
+ *      never a step from `implement`, needs the change recorded first from
+ *      `spec`/`plan`/`review`, and is free from `blocked`, where a human is
+ *      already in the loop.
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
  * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
@@ -36,9 +36,37 @@
  */
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, appendLine, run } from './lib/io.mjs';
+import { spawnSync } from 'node:child_process';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
+
+/** Change folders under `specflow/` that were never stamped and archived. */
+function liveChanges(root) {
+  const dir = join(root, 'specflow');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((e) => e !== 'archive' && statSync(join(dir, e)).isDirectory());
+}
+
+/**
+ * Whether a gate has passed the current commit: true, false, or null when git
+ * cannot say. The same short sha and the same `result=pass` test the gate uses
+ * to decide a commit was already judged, so the two cannot disagree about
+ * what a pass for this commit is.
+ */
+function gatePassedHead(root) {
+  const res = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  if (res.status !== 0) return null;
+  const sha = res.stdout.trim();
+  return readFileOrDefault(join(stateDir(root), 'gate-history.log'), '')
+    .split('\n')
+    .some((l) => l.split(' ')[1] === sha && / result=pass /.test(l));
+}
+
+function deny(message) {
+  process.stderr.write(`[spec-flow] Denied: ${message}\n`);
+  process.exit(2); // PreToolUse denial protocol
+}
 
 /**
  * The whole vocabulary. Kept here as the one executable copy — the tables in
@@ -129,7 +157,7 @@ await run(async () => {
   // stand it down on exactly the write that transfers the phase to this
   // session: the write would go through unguarded, and the seal would keep
   // naming a session that no longer decides anything. The tracked half still
-  // applies, because half two below runs the repo's own unscoped checks.
+  // applies, because the `done` check below runs the repo's own unscoped checks.
   const phase = readPhase(root);
   if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown/committed -> transparent
 
@@ -149,7 +177,7 @@ await run(async () => {
 
   if (!written) return; // not a readable phase write -> see this file's header
 
-  // ---- half one: is this a phase at all? ----------------------------------
+  // ---- is this a phase at all? ---------------------------------------------
   if (!PHASES.includes(written)) {
     process.stderr.write(
       `[spec-flow] Denied: '${written}' is not a phase this engine knows.\n\n` +
@@ -165,18 +193,47 @@ await run(async () => {
     process.exit(2); // PreToolUse denial protocol
   }
 
-  // Past half one, so this write is going through: the session making it is
-  // the one driving the phase from here, and every hook that arms reads the
-  // seal to tell its own run's state from a second session's (ADR-017).
-  // Claimed only for a write that is ALLOWED — a denied one changes nothing,
-  // so transferring the phase on it would seal a transition that never
-  // happened.
-  if (written !== 'done') {
-    claimPhase(root, payload.session_id);
-    return; // a known phase that disarms nothing on its own
+  if (written === 'blocked') {
+    deny(
+      `'blocked' is written by the gate itself, at its attempt cap — it is how the gate hands a run to a human. ` +
+        `Written by anything else it disarms the gate without that having happened. If you need a human, say so ` +
+        `and end your turn; the gate still judges what is committed.`,
+    );
   }
 
-  // ---- half two: is `done` earned? ----------------------------------------
+  // ---- a write that ends the run is decided from evidence (ADR-022) -------
+  // From `blocked` the gate's cap has already put a human in the loop, so
+  // standing down there is their call and is not second-guessed.
+  if (written === 'idle' && phase !== 'blocked') {
+    if (phase === 'implement') {
+      deny(
+        `writing 'idle' while the phase is 'implement'. No step of /spec-flow or /spec-fix ends a run from here: ` +
+          `'idle' disarms the gate with nothing judged, and the next stop passes in silence. If the gate failed, ` +
+          `follow its message — it routes the fix and the re-plan, and at its cap writes 'blocked' itself. If a ` +
+          `human asked to abandon the run, standing it down is theirs to do, from their own terminal.`,
+      );
+    }
+    const live = liveChanges(root);
+    if (live.length > 0) {
+      deny(
+        `writing 'idle' with a change still live in specflow/: ${live.join(', ')}. Both flows record a dropped ` +
+          `change before standing down: stamp \`**Status:** REJECTED <YYYY-MM-DD> — <reason>\` under the heading ` +
+          `of its spec.md, move the folder to specflow/archive/, then write 'idle'.`,
+      );
+    }
+  }
+
+  // This write is going through: the session making it is the one driving the
+  // phase from here, and every hook that arms reads the seal to tell its own
+  // run's state from a second session's (ADR-017). Claimed only for a write
+  // that is ALLOWED — a denied one changes nothing, so transferring the phase
+  // on it would seal a transition that never happened.
+  if (written !== 'done') {
+    claimPhase(root, payload.session_id);
+    return;
+  }
+
+  // ---- is `done` earned? ----------------------------------------------------
   const failures = [];
 
   // Degrades quietly on a bad contract: this guard's job is refusing an
@@ -192,16 +249,23 @@ await run(async () => {
     /* contract unreadable: leave the unscoped-check half silent, per the header above */
   }
 
-  // Any directory under specflow/ other than archive/ is a change that never
-  // got folded — shipped code with an unarchived change spec is an unfinished run.
-  const specflowDir = join(root, 'specflow');
-  if (existsSync(specflowDir)) {
-    const unarchived = readdirSync(specflowDir).filter(
-      (e) => e !== 'archive' && statSync(join(specflowDir, e)).isDirectory(),
+  // A folder under specflow/ other than archive/ is a change that never got
+  // folded — shipped code with an unarchived change spec is an unfinished run.
+  const unarchived = liveChanges(root);
+  if (unarchived.length > 0) {
+    failures.push(`--- unarchived changes in specflow/ ---\n${unarchived.join('\n')}`);
+  }
+
+  // The checks above re-read the repo; only the gate ran the suite. A run
+  // whose last commit it failed, or never judged, is not finished however
+  // green spec-trace reads — spec-trace counts a failed test as executed.
+  const passed = gatePassedHead(root);
+  if (passed !== true) {
+    failures.push(
+      passed === null
+        ? `--- the current commit ---\ngit could not name HEAD, so nothing can say a gate passed it.`
+        : `--- the current commit ---\nthe gate has not passed it: no line in .claude/state/gate-history.log records result=pass for HEAD.`,
     );
-    if (unarchived.length > 0) {
-      failures.push(`--- unarchived changes in specflow/ ---\n${unarchived.join('\n')}`);
-    }
   }
 
   if (failures.length === 0) {
@@ -209,15 +273,13 @@ await run(async () => {
     return;
   }
 
-  process.stderr.write(
-    `[spec-flow] Denied: writing 'done' into .claude/state/phase, and the run is not ` +
-      `actually finished. 'done' disarms every hook, so it has to be earned, not ` +
-      `declared:\n${failures.join('\n')}\n\n` +
-      `Route by what failed: a spec-trace gap belongs to the spec-writer session ` +
-      `(FOLD), an unarchived specflow/<SLUG>/ means step 5 never ran — invoke ` +
-      `spec-writer in MODE=FOLD — and any other check the project declared goes back ` +
-      `to the implementer of the milestone that broke it, with the hint that check ` +
-      `carries in .spec-flow/config.json.\n`,
+  deny(
+    `writing 'done' into .claude/state/phase, and the run is not actually finished. 'done' disarms every ` +
+      `hook, so it has to be earned, not declared:\n${failures.join('\n')}\n\n` +
+      `Route by what failed: a spec-trace gap belongs to the spec-writer session (FOLD); an unarchived ` +
+      `specflow/<SLUG>/ means step 5 never ran — invoke spec-writer in MODE=FOLD; a commit the gate has not ` +
+      `passed needs committing and a turn ended so the gate judges it; any other check the project declared goes ` +
+      `back to the implementer of the milestone that broke it, with the hint that check carries in ` +
+      `.spec-flow/config.json.`,
   );
-  process.exit(2); // PreToolUse denial protocol: stderr + exit 2, unlike a Stop hook's JSON-on-stdout
 });

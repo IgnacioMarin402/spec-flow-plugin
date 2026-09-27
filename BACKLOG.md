@@ -6,15 +6,6 @@ the fix and green after.
 
 ## Open
 
-### B34 — a run can end itself without a verdict
-
-The gate arms on `.claude/state/phase`, which the model it judges writes.
-Measured: after `GATE FAILED`, writing `idle` is allowed by `phase-guard` and
-the next Stop passes silently, with no history line; `done` checks spec-trace
-and the archive but not the last gate verdict, so it was allowed over
-`result=fail:behaviour test=1`. **Done:** those two writes denied by a
-hook-smoke case that fails today.
-
 ### B35 — the contract is editable mid-run
 
 `.spec-flow/config.json` decides what the gate runs, and nothing stops a

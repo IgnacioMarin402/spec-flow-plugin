@@ -85,6 +85,15 @@ function makeRepo({ phase = 'implement', withContract = true, git = true, commit
   return repo;
 }
 
+/** One gate-history line judging the repo's current HEAD, in the gate's own shape. */
+function seedGateHistory(repo, result) {
+  const sha = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+  writeFileSync(
+    join(repo, '.claude/state/gate-history.log'),
+    `2026-01-01T00:00:00Z ${sha} cc=? engine=smoke phase=implement attempt=0 result=${result} lint=0 test=0 spec=0 files=1\n`,
+  );
+}
+
 function runHook(hook, payload, repo, engineRoot = ENGINE) {
   return spawnSync('node', [join(engineRoot, 'hooks', hook)], {
     input: JSON.stringify(payload),
@@ -557,8 +566,8 @@ t('phase-guard denies an invented phase written with Write, not just Bash', (rep
   return null;
 });
 
-t('phase-guard allows every phase the engine actually knows', (repo) => {
-  for (const value of ['spec', 'plan', 'review', 'implement', 'blocked', 'idle']) {
+t('phase-guard allows every phase the orchestrator writes mid-run', (repo) => {
+  for (const value of ['spec', 'plan', 'review', 'implement']) {
     const r = runHook(
       'phase-guard.mjs',
       { tool_name: 'Bash', tool_input: { command: `printf '${value}' > .claude/state/phase` } },
@@ -632,12 +641,105 @@ t('phase-guard denies done with an unarchived specflow folder', (repo) => {
 });
 
 t('phase-guard allows an earned done', (repo) => {
+  seedGateHistory(repo, 'pass');
   const r = runHook(
     'phase-guard.mjs',
     { tool_name: 'Bash', tool_input: { command: "printf 'done' > .claude/state/phase" } },
     repo,
   );
   if (r.status !== 0) return `exit ${r.status}, expected 0. stderr: ${r.stderr.slice(0, 300)}`;
+  return null;
+});
+
+// ---- a run does not end itself without a verdict (ADR-022) ---------------
+//
+// The gate arms only on `implement`, and the phase is written by the model it
+// judges. These are the writes that END a run or stand it down looking
+// legitimate; each is decided from evidence on disk, never from the value.
+
+t('phase-guard denies done while the gate has not passed the current commit', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'done' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 2) {
+    return `done was allowed over a commit whose last verdict was fail:behaviour (exit ${r.status}) — the run closes with its last milestone red`;
+  }
+  if (!/gate has not passed/.test(r.stderr)) return `the denial does not say what is missing: ${r.stderr.slice(0, 300)}`;
+  return null;
+});
+
+t('phase-guard denies done when no gate ever judged the current commit', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Write', tool_input: { file_path: '.claude/state/phase', content: 'done' } },
+    repo,
+  );
+  if (r.status !== 2) return `done was allowed with no gate verdict at all (exit ${r.status})`;
+  return null;
+});
+
+t('phase-guard denies idle mid-implement', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'idle' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 2) {
+    return `idle was allowed from implement after a red gate (exit ${r.status}) — the next Stop passes silently and nothing records why`;
+  }
+  return null;
+});
+
+t('phase-guard denies idle over a change folder that was never recorded', (repo) => {
+  mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'idle' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 2) return `idle was allowed with specflow/my-change/ still live (exit ${r.status})`;
+  if (!/my-change/.test(r.stderr)) return `the denial does not name the folder: ${r.stderr.slice(0, 300)}`;
+  return null;
+}, { phase: 'spec' });
+
+// Both protocol paths to `idle` — a spec rejected at sign-off, a /spec-fix
+// case 5 — stamp and archive the change first. A guard, not proof of a
+// defect: this passed before ADR-022 and must keep passing.
+t('phase-guard allows idle once the rejection is archived', (repo) => {
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'idle' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 0) return `the protocol's own rejection path was denied (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
+  return null;
+}, { phase: 'spec' });
+
+// `blocked` is reached only through the gate's cap, so a human is already in
+// the loop. A guard, like the case above.
+t('phase-guard allows idle from blocked', (repo) => {
+  mkdirSync(join(repo, 'specflow', 'my-change'), { recursive: true });
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: "printf 'idle' > .claude/state/phase" } },
+    repo,
+  );
+  if (r.status !== 0) return `a human abandoning a blocked run was refused (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
+  return null;
+}, { phase: 'blocked' });
+
+t('phase-guard denies blocked from anything but the gate', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Write', tool_input: { file_path: '.claude/state/phase', content: 'blocked' } },
+    repo,
+  );
+  if (r.status !== 2) return `a tool wrote blocked (exit ${r.status}) — it disarms the gate as if its cap had been reached`;
   return null;
 });
 

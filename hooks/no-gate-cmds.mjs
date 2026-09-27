@@ -137,11 +137,10 @@ await run(async () => {
       // No disarm recipe here, on purpose. This message is read by an agent
       // mid-milestone far more often than by a human, and writing `idle` into
       // the phase file stands down the gate, the write-time linter, this deny
-      // and the Opus budget at once — with nothing watching that write the way
-      // phase-guard watches `done`. Handing a model the exact command to turn
-      // off the thing that just stopped it is not a guard rail. A human who
-      // genuinely wants a whole-repo run has the README.
-      `A human who needs the whole repo can stand the flow down — see the plugin README.\n`,
+      // and the Opus budget at once. phase-guard denies that write from a tool
+      // mid-implement (ADR-022), but only in the forms it can read, so handing
+      // a model the exact command is still not a guard rail.
+      `A human who needs the whole repo can stand the flow down — see Phases in the plugin's REFERENCE.\n`,
   );
   process.exit(2); // PreToolUse denial protocol
 });
