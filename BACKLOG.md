@@ -31,13 +31,6 @@ seen a real run end to end. **Done:** one real run's snapshot
 read by `specflow-stats` with tokens and attribution populated — or the
 subsystem cut back to `gate-history.log` and the snapshot.
 
-### B38 — `init` exits 1 on the smallest Node project
-
-A repo whose test script is `node --test` gets four `MISSING` fields: `node` is
-read as an interpreter rather than a runner, although `init` appends node's
-own reporter flag correctly. **Done:** an `init-fixture` case on a bare
-`node --test` project that ends green.
-
 ### B39 — the model-routing surface is ahead of its use
 
 Overrides, version pins and effort take about 1,200 lines with fixtures, next to

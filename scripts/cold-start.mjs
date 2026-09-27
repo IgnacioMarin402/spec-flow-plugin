@@ -63,9 +63,8 @@ try {
         version: '1.0.0',
         type: 'module',
         // Through an interpreter on purpose. It is the zero-dependency Node
-        // setup, it is the case where `init` CANNOT name the runner from the
-        // bin, and it is therefore the one that proves the reporter flag is
-        // found from the argv rather than from `test_name`.
+        // setup, and the bin (`node`) names no runner, so it proves both the
+        // runner name and the reporter flag are read from the argv.
         //
         // `lint` runs a script FILE rather than `node -e "…"`, and the
         // difference is not cosmetic. A quoted `-e` body cannot survive the
@@ -156,17 +155,21 @@ try {
   const missing = initOut.split('\n').filter((l) => l.trim().startsWith('MISSING'));
   check(
     'the adopter is asked for a known, bounded set of fields',
-    missing.length > 3 ? `a Node repo is now asked for ${missing.length} fields:\n${missing.join('\n')}` : null,
+    missing.length > 2 ? `a Node repo is now asked for ${missing.length} fields:\n${missing.join('\n')}` : null,
+  );
+
+  check(
+    'init names node\'s own test runner from the argv',
+    initial.verify.test_name === 'node --test' ? null : `test_name is ${JSON.stringify(initial.verify.test_name)}`,
   );
 
   // ---- the adopter fills in what init asked for -----------------------------
   //
-  // Only what init NAMED: the runner and the linter cannot be read off a script
-  // that runs through `node`. Everything else, including the reporter flag,
-  // came from init.
+  // Only what init NAMED: a linter run as `node lint.js` cannot be read off the
+  // script. Everything else, the runner and the reporter flag included, came
+  // from init.
   const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
   contract.verify.scope_globs = ['*.js'];
-  contract.verify.test_name = 'node-test';
   contract.verify.lint_name = 'fixture-lint';
   contract.verify.lint_config_hint = 'package.json';
   writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);

@@ -498,6 +498,34 @@ await Promise.all([
     }),
   ),
 
+  // Node's own runner is `node` plus the flag that makes the invocation a test
+  // run, so the name is knowable — `reporterKey` already knew it to append the
+  // JUnit flag. Leaving it MISSING made `init` exit 1 on the most common
+  // zero-dependency Node setup there is.
+  check('a node --test project finishes, named for the runner and never for node', () =>
+    withRepo(
+      {
+        ...COMPLETE,
+        scripts: { test: 'node --test', lint: 'eslint .', 'lint:fix': 'eslint . --fix' },
+        installedBins: [{ name: 'eslint', pkg: 'eslint', entry: 'bin/eslint.js' }],
+      },
+      async (dir) => {
+        const res = await run([], dir);
+        const missing = res.stdout.split('\n').filter((l) => l.trim().startsWith('MISSING'));
+        if (res.status !== 0 || missing.length > 0) {
+          return `init did not finish a bare node --test project (exit ${res.status}): ${missing.join(' | ') || res.stdout}`;
+        }
+        const c = readContract(dir);
+        if (c.verify.test_name !== 'node --test') return `test_name is "${c.verify.test_name}", not "node --test"`;
+        if (c.unscoped_denied.tools.some((t) => /^node\b/.test(t))) {
+          return `a node name reached unscoped_denied.tools (${c.unscoped_denied.tools.join(', ')}): "node" denies every node command, and "node --test" can never match the single token it is compared with`;
+        }
+        if (!c.verify.test.includes('--test-reporter=junit')) return `the JUnit flag was not appended: ${c.verify.test.join(' ')}`;
+        return null;
+      },
+    ),
+  ),
+
   check('a runtime that really is the runner keeps its name', () =>
     withRepo({ ...COMPLETE, scripts: { test: 'bun test', lint: 'eslint .' } }, async (dir) => {
       await run([], dir);

@@ -289,12 +289,9 @@ const REPORTER_FLAGS = {
 /**
  * Which entry of `REPORTER_FLAGS` this test command is, or null.
  *
- * Not simply `test_name`, and the gap is the most common zero-dependency Node
- * setup there is. `"test": "node --test"` leaves `test_name` MISSING on purpose
- * — the bin is an interpreter, and `test_name` is substring-matched against
- * Bash commands to spot a test run, so "node" there would match nearly
- * everything. The RUNNER is still knowable from the same argv: `--test` is what
- * makes that invocation a test run rather than a script.
+ * Not simply `test_name`: for `"test": "node --test"` the bin is an
+ * interpreter, and the RUNNER is knowable only from the argv — `--test` is
+ * what makes that invocation a test run rather than a script.
  */
 function reporterKey(testArgv, testName) {
   if (testName && REPORTER_FLAGS[testName]) return testName;
@@ -330,6 +327,12 @@ export function buildContract(root) {
     detected.push(`verify.test — from the "test" script: ${test.join(' ')}`);
     if (testScript.named) {
       testName = testScript.bin;
+    } else if (reporterKey(test, '') === 'node') {
+      // The runner is `node` plus the flag that makes the call a test run, so
+      // the pair is its name. run-trace matches it with word boundaries, which
+      // spots `node --test …` and not `node script.mjs`.
+      testName = 'node --test';
+      detected.push('verify.test_name — node --test: node\'s own test runner, named with the flag that makes it one');
     } else {
       missing.push(
         `verify.test_name — the test script runs through "${testScript.bin}", an interpreter rather than a runner, so nothing here can name what actually runs your tests. It labels the gate's log sections and is matched against Bash commands to spot a test run, so a wrong value is worse than an empty one.`,
@@ -471,7 +474,10 @@ export function buildContract(root) {
   }
 
   const denyScripts = ['test', 'lint'].filter((s) => scripts[s]);
-  const denyTools = [testName, lintName].filter(Boolean);
+  // no-gate-cmds compares tools one token at a time, so a multi-token name
+  // like `node --test` could never match — and `node` alone would deny every
+  // node command. The `test` script stays denied either way.
+  const denyTools = [testName, lintName].filter((n) => n && !/\s/.test(n));
 
   const contract = {
     contract_version: 1,
