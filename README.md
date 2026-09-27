@@ -86,8 +86,8 @@ fail, and the gate runs them when a turn ends, not when someone remembers to.
   Nothing refuses to run on another stack, and a contract filled in by hand may
   well work there; it is simply not tested or supported.
   [Why the scope is Node, and what was refused](decisions/007-the-supported-scope-is-node.md)
-- Node 20+ — enforced: a run refuses to start below it, and every check here
-  runs on 20, 22 and 24
+- Node 22+ — enforced: a run refuses to start below it, and every check here
+  runs on 22 and 24
 - **Linux or Windows** — both exercised by CI, on each of those Node versions.
   macOS is not, and nothing refuses to run there: the contract `init` writes is
   the same file on every platform, and this engine has no platform check at
