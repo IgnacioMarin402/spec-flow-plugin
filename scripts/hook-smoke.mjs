@@ -94,11 +94,11 @@ function seedGateHistory(repo, result) {
   );
 }
 
-function runHook(hook, payload, repo, engineRoot = ENGINE) {
+function runHook(hook, payload, repo, engineRoot = ENGINE, env = {}) {
   return spawnSync('node', [join(engineRoot, 'hooks', hook)], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: repo, ...env },
     cwd: tmpdir(),
   });
 }
@@ -1018,10 +1018,37 @@ function withRouting(repo, agents) {
   writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 6, agents }));
 }
 
-t('model-route is transparent when the project declares no routing', (repo) => {
+t('model-route leaves the model alone when the project declares no routing', (repo) => {
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0. stderr: ${r.stderr.slice(0, 200)}`;
-  if (r.stdout.trim()) return `emitted output for a repo that configured nothing: ${r.stdout.slice(0, 200)}`;
+  if (routed(r) && 'model' in routed(r)) return `set a model for a repo that configured nothing: ${r.stdout.slice(0, 200)}`;
+  return null;
+});
+
+t('model-route runs every spawn of this plugin in the background', (repo) => {
+  // ADR-023. A foreground spawn blocks the chat with no sign of progress for
+  // as long as the agent thinks, which is how a working run gets killed as hung.
+  const spawn = { tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:spec-writer', prompt: 'x', run_in_background: false } };
+  const r = runHook('model-route.mjs', spawn, repo, ENGINE, { CLAUDE_CODE_SESSION_ATTENDED: '1' });
+  if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
+  const input = routed(r);
+  if (input?.run_in_background !== true) return `the spawn was left in the foreground: ${r.stdout.slice(0, 200) || '(no rewrite)'}`;
+  if (input.prompt !== 'x') return 'the rewrite dropped the rest of the spawn input';
+  return null;
+});
+
+t('model-route leaves an unattended session in the foreground', (repo) => {
+  // `claude -p` terminates background agents still running 600 s after its
+  // turn ends, and nobody watches its chat. Measured with this variable: 0
+  // under `claude -p`, 1 in an interactive session.
+  const spawn = { tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:spec-writer', prompt: 'x' } };
+  const r = runHook('model-route.mjs', spawn, repo, ENGINE, { CLAUDE_CODE_SESSION_ATTENDED: '0' });
+  if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
+  if (routed(r)?.run_in_background) return `an unattended spawn was sent to the background, where the harness kills it at 600 s: ${r.stdout.slice(0, 200)}`;
+  withRouting(repo, { 'spec-writer': 'opus' });
+  const rerouted = routed(runHook('model-route.mjs', spawn, repo, ENGINE, { CLAUDE_CODE_SESSION_ATTENDED: '0' }));
+  if (rerouted?.model !== 'opus') return 'the re-route was dropped along with the background';
+  if (rerouted.run_in_background) return 'a re-routed unattended spawn was sent to the background';
   return null;
 });
 
@@ -1036,11 +1063,11 @@ t('model-route rewrites the spawn the project re-routed', (repo) => {
   return null;
 });
 
-t('model-route leaves an agent the project did not re-route alone', (repo) => {
+t('model-route leaves the model of an agent the project did not re-route alone', (repo) => {
   withRouting(repo, { reviewer: 'sonnet' });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
-  if (r.stdout.trim()) return `rewrote a spawn nobody re-routed: ${r.stdout.slice(0, 200)}`;
+  if (routed(r) && 'model' in routed(r)) return `re-routed a spawn nobody re-routed: ${r.stdout.slice(0, 200)}`;
   return null;
 });
 
@@ -1048,7 +1075,8 @@ t('model-route treats restating the shipped default as no re-route', (repo) => {
   withRouting(repo, { planner: 'opus' });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
-  if (r.stdout.trim()) return `reported a change nobody made: ${r.stdout.slice(0, 200)}`;
+  if (routed(r) && 'model' in routed(r)) return `reported a change nobody made: ${r.stdout.slice(0, 200)}`;
+  if (existsSync(join(repo, '.claude/state/model-routes.log'))) return 'logged a re-route nobody made';
   return null;
 });
 
