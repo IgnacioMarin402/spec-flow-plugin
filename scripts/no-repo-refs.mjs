@@ -16,9 +16,9 @@
  *   - a "read the archive for precedent" INSTRUCTION couples the engine to
  *     one repo's HISTORY, which is sharper: it passes a token check clean and
  *     then degrades in the worst direction — plan quality becomes a function
- *     of how long the repo has existed. `planner.md` already draws the line
- *     (failure lore yes, solution shape no); this keeps it from being
- *     re-crossed. Deliberately narrower than banning the string
+ *     of how long the repo has existed. `planner.md` keeps the archive out of
+ *     a plan altogether (ADR-026); this keeps that line from being re-crossed.
+ *     Deliberately narrower than banning the string
  *     `specflow/archive`, which is the engine's own convention and appears
  *     throughout doing ordinary archival work. What is banned is recommending
  *     the archive's CONTENTS as a template.

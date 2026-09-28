@@ -217,9 +217,10 @@ could not be named, `files=0` means it resolved to HEAD.
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
   `fable`. A hook applies it to the spawn; an unknown agent or tier denies the
   spawn ([ADR-014](decisions/014-a-project-routes-tiers-not-versions.md)).
-- **No `effort`**: a spawn discards it silently. Three agents declare their own;
-  the other two take the session's `effortLevel`
-  ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md)).
+- **No `effort`**: a spawn discards it silently. Four agents declare their own;
+  the implementer takes the session's `effortLevel`
+  ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md),
+  [ADR-026](decisions/026-anatomy-is-stated-not-learned-from-source.md)).
 - **A concrete model version** is session-wide, set in the project's
   `.claude/settings.json` as `{"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "<id>"}}`
   ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
@@ -287,6 +288,20 @@ which cannot be inferred because skills also arrive from plugins and from
 To preload instead, add your own `.claude/agents/implementer.md` with a
 `skills:` line: a project agent outranks a plugin's.
 
+**Write one skill that says how a module is built here** — its layers, the
+kinds of file each has, how each is named, what a test is called — and keep it
+under a page. The planner loads it before it opens any code and names it in
+every milestone that adds a file, so the implementer loads it before its first
+edit. Without it each agent learns the same thing from the source, in every
+run, in its own cold context: on the run that prompted this, a planner with no
+such statement read 25 files of two modules the change did not touch.
+`spec-flow stats` reports each phase's reads outside the change's scope, which
+is how you tell the statement is missing or incomplete
+([ADR-026](decisions/026-anatomy-is-stated-not-learned-from-source.md)). A
+short statement fits in `CLAUDE.md` instead, which every agent already
+carries. Few skills with short descriptions beat many: every skill's name and
+description is listed in every turn of the agents that carry the `Skill` tool.
+
 ---
 
 ## Commands and agents
@@ -297,7 +312,7 @@ To preload instead, add your own `.claude/agents/implementer.md` with a
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
 | `/spec-flow:models` | Which tier each agent runs on and who decided. `<agent> <tier>` sets one, `<agent> default` clears it |
 | `/spec-flow:resume [<SLUG>]` | Picks up a run a dead session left, at the step the disk says it reached ([ADR-024](decisions/024-a-run-resumes-from-what-is-on-disk.md)) |
-| agents | `spec-writer` (Sonnet), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
+| agents | `spec-writer` (Sonnet, effort medium), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
 
 ---
 

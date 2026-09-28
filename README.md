@@ -85,6 +85,10 @@ skill fills them and proves the result with `check-changed`. Green there means
 green at the gate. Every field is in
 [REFERENCE](REFERENCE.md#what-makes-a-requirement-proven).
 
+Before the first run, write down how a module is built in this repo — in
+`CLAUDE.md`, or as a skill — or every agent learns it from the source, on
+every run ([REFERENCE → Project skills](REFERENCE.md#project-skills)).
+
 The plugin is the whole install. For a terminal without Claude Code, or CI, the
 same engine installs as a pinned devDependency straight from this repository —
 nothing is published to npm, and `spec-flow` on npm is someone else's package

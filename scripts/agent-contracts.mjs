@@ -11,8 +11,8 @@
  * the agents are Markdown, and no fixture executes Markdown.
  *
  * It is not a general "review every field" rule, because some fields do not
- * need one — `Definition of done` is boilerplate every milestone repeats, and
- * checking it would be theatre. What is enforced is that the disagreement is a
+ * need one — `Depends on` is covered by a stronger question on the checklist,
+ * and checking the field itself would be theatre. What is enforced is that the disagreement is a
  * DECISION rather than an oversight: a field is either named in the reviewer's
  * checklist, or listed below with the reason it is not. Adding a field to the
  * template and nothing else turns this red.
@@ -53,9 +53,8 @@ const reviewer = readFileSync(join(AGENTS, 'reviewer.md'), 'utf8');
  * each entry is.
  */
 const NOT_REVIEWED = {
+  Objective: 'what "done" means for a milestone is judged through its deltas and its tests, which are the checkable form of the same claim',
   Steps: 'the reviewer judges whether the plan will bite during implementation, which is these in aggregate; per-step review is the second pass this flow deliberately cut',
-  'Lint/type notes': 'advisory to the implementer, and wrong ones cost a lint cycle rather than a wrong plan',
-  'Definition of done': 'boilerplate every milestone repeats verbatim — the gate defines it, not the planner',
   'Depends on': 'covered by "are milestones correctly ordered and independently testable", which is stronger than the field',
 };
 
@@ -85,7 +84,9 @@ if (!fields || fields.length === 0) {
   );
 } else {
   for (const field of fields) {
-    if (reviewer.toLowerCase().includes(field.toLowerCase())) continue;
+    // Whole words, not a substring: a checklist saying the gate checks
+    // implementation "objectively" does not name `Objective`.
+    if (new RegExp(`\\b${field.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\b`, 'i').test(reviewer)) continue;
     if (field in NOT_REVIEWED) continue;
     problems.push(
       `the planner's milestone template declares "${field}" and agents/reviewer.md never names it. The reviewer is the only pass that reads a milestone before an implementer is spent, so a field nobody checks is a field the planner can silently omit. Add it to the reviewer's checklist, or add it to NOT_REVIEWED in this file with the reason it does not need one.`,

@@ -48,8 +48,6 @@ import { ALIASES, EFFORT_LEVELS } from '../hooks/lib/routing.mjs';
 const INHERITS_EFFORT = {
   implementer:
     'the milestone decides the work, and its difficulty is the plan\'s claim rather than this file\'s — a human who dials their session up for a hard feature should reach the code that feature needs',
-  'spec-writer':
-    'it asks a human when it is unsure instead of thinking harder alone, so its escape hatch is HITL rather than effort; the session\'s level is as good an answer as any this file could invent',
 };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

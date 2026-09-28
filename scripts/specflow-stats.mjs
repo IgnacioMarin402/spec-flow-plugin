@@ -305,7 +305,81 @@ if (agents.length === 0) {
 say('');
 
 // ---- 4. what the run READ, which is the only record of its inputs ----------
+//
+// Split against the CHANGE'S SCOPE — the modules its deltas name and the
+// files its milestones touch — because a count answers "how many" and the
+// question a real run raised was "why those". A planner that opens twenty
+// files of a module the change does not touch is learning how this repo
+// builds a module from its source, which is the read a repo's own statement
+// of its anatomy makes unnecessary (ADR-026). The scope is derived, never
+// guessed: a change whose spec and milestones name nothing readable reports
+// UNKNOWN rather than zero.
 const reads = runs.flatMap((r) => r.trace).filter((e) => e.raw?.includes(' read file='));
+
+/** A path as the scope compares it: forward slashes, no leading `./`, no trailing `/`. */
+const norm = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+
+const rootNorm = norm(root);
+
+/** A read's path relative to this repo, or null when it points outside it. */
+function insideRepo(file) {
+  const p = norm(file);
+  // Drive letters and the paths under them arrive in whichever case the tool
+  // was handed, so the prefix test is case-blind where the filesystem is.
+  const under = process.platform === 'win32' ? p.toLowerCase().startsWith(`${rootNorm.toLowerCase()}/`) : p.startsWith(`${rootNorm}/`);
+  if (under) return p.slice(rootNorm.length + 1);
+  return /^([a-zA-Z]:)?\//.test(p) ? null : p;
+}
+
+/** The change folder a run's artifacts live in, or null when it cannot be told. */
+function changeDir(run) {
+  if (run.name !== '(current)') {
+    return [join(root, 'specflow', 'archive', run.name), join(root, 'specflow', run.name)].find((d) => existsSync(join(d, 'spec.md'))) ?? null;
+  }
+  // The live tier carries no slug: only a single live change folder names it.
+  const live = existsSync(join(root, 'specflow'))
+    ? readdirSync(join(root, 'specflow')).filter((e) => e !== 'archive' && existsSync(join(root, 'specflow', e, 'spec.md')))
+    : [];
+  return live.length === 1 ? join(root, 'specflow', live[0]) : null;
+}
+
+const REQ_ID = /(?<![A-Z0-9])REQ-([A-Z0-9-]+)-\d{3}(?!\d)/g;
+const SCOPE_MARKER = /^<!--\s*spec-scope:\s*(.+?)\s*-->$/m;
+// The field runs to the next top-level field, a heading, or the end of the
+// file. No `m` flag: `$` has to mean the end of the text, not of a line.
+const FILES_FIELD = /(?:^|\n)[-*][ \t]*\**Files to add\/change\**[ \t]*:([\s\S]*?)(?=\n[-*][ \t]*\**[A-Z][^:\n]*\**[ \t]*:|\n#|$)/;
+
+/**
+ * The directories a change is about: what its deltas' capability specs scope
+ * (`<!-- spec-scope: ... -->`, the marker spec-trace binds on) plus the
+ * directory of every path its milestones name. `from` says which of the two
+ * answered, so a scope built from nothing is reported as such.
+ */
+function changeScope(dir, specsDir) {
+  const dirs = new Set();
+  const from = [];
+  const text = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : '');
+
+  const deltas = text(join(dir, 'spec.md')).split(/^## /m).find((s) => /^Requirement deltas/.test(s)) ?? '';
+  for (const cap of new Set([...deltas.matchAll(REQ_ID)].map((m) => m[1].toLowerCase()))) {
+    const marker = SCOPE_MARKER.exec(text(join(root, specsDir, `${cap}.md`)));
+    if (!marker) continue;
+    dirs.add(norm(marker[1]));
+    from.push(`${specsDir}/${cap}.md`);
+  }
+
+  const milestones = join(dir, 'milestones');
+  let named = 0;
+  for (const file of existsSync(milestones) ? readdirSync(milestones).filter((f) => f.endsWith('.md')).sort() : []) {
+    const field = FILES_FIELD.exec(text(join(milestones, file)));
+    for (const [path] of field?.[1].matchAll(/[\w.@-]+(?:\/[\w.@-]+)+\/?/g) ?? []) {
+      named += 1;
+      dirs.add(path.endsWith('/') ? norm(path) : norm(path).split('/').slice(0, -1).join('/'));
+    }
+  }
+  if (named > 0) from.push(`${named} milestone path(s)`);
+  return { dirs: [...dirs].filter(Boolean), from };
+}
 
 say('Reads');
 if (reads.length === 0) {
@@ -322,7 +396,65 @@ if (reads.length === 0) {
     const inPlan = archiveReads.filter((r) => r.phase === 'plan').length;
     say(`  ${archiveReads.length} of them under specflow/archive/${inPlan > 0 ? ` (${inPlan} while planning)` : ''}`);
     if (inPlan > 0) {
-      warn.push(`${inPlan} archived change spec(s) were read during the plan phase. The planner's own instructions allow this for failure lore and forbid it for solution shape — worth checking which one it was, because only the plan's prose can say.`);
+      warn.push(`${inPlan} archived change spec(s) were read during the plan phase. The planner's contract keeps the archive out of a plan (ADR-026): a past change describes one problem's shape, and what generalised from past runs is in the contracts. Worth reading the plan for what it took from there.`);
+    }
+  }
+
+  // ---- against the change's scope, per run ----------------------------------
+  // Read defensively, like section 2: an unreadable contract leaves the
+  // directories that are always in scope at their defaults rather than
+  // taking the section down.
+  let specsDir = 'specs';
+  let proofDir = '';
+  try {
+    const contract = loadConfig(root);
+    specsDir = contract.trace.specs_dir;
+    proofDir = contract.trace.proof_dir;
+  } catch {
+    /* the defaults above; a bad contract is gate.mjs's to report */
+  }
+  const alwaysIn = [specsDir, proofDir, 'specflow', '.spec-flow', '.claude', 'CLAUDE.md'].filter(Boolean).map(norm);
+
+  for (const run of runs) {
+    const runReads = run.trace.filter((e) => e.raw?.includes(' read file=') && e.file);
+    if (runReads.length === 0) continue;
+
+    const label = runs.length > 1 ? `${run.name}: ` : '';
+    const dir = changeDir(run);
+    const scope = dir ? changeScope(dir, specsDir) : null;
+    if (!scope || scope.dirs.length === 0) {
+      const why = dir ? 'its spec names no scoped capability and its milestones name no path' : 'no change folder under specflow/ names this run';
+      say(`  ${label}scope UNKNOWN — ${why}, so nothing here says which reads were outside it.`);
+      continue;
+    }
+    say(`  ${label}scope ${scope.dirs.join(', ')} (from ${scope.from.join(', ')})`);
+
+    const inScope = (rel) => [...alwaysIn, ...scope.dirs].some((d) => rel === d || rel.startsWith(`${d}/`));
+    for (const phase of [...new Set(runReads.map((e) => e.phase ?? '?'))]) {
+      const inPhase = runReads.filter((e) => (e.phase ?? '?') === phase);
+      const outside = new Map();
+      let inside = 0;
+      for (const e of inPhase) {
+        const rel = insideRepo(e.file);
+        if (rel !== null && inScope(rel)) {
+          inside += 1;
+          continue;
+        }
+        // Grouped two segments deep — the module, in most layouts — so the
+        // line names where the reads went rather than listing every file.
+        const key = rel === null ? '(outside the repository)' : rel.split('/').slice(0, 2).join('/');
+        outside.set(key, (outside.get(key) ?? 0) + 1);
+      }
+      const ranked = [...outside].sort((a, b) => b[1] - a[1]);
+      const where = ranked.length > 0 ? ` — ${ranked.slice(0, 5).map(([d, n]) => `${d} x${n}`).join(', ')}` : '';
+      const out = inPhase.length - inside;
+      say(`    ${phase}: ${inPhase.length} read(s), ${out} outside the scope${where}`);
+
+      if (phase === 'plan' && out > inside) {
+        warn.push(
+          `${runs.length > 1 ? `in ${run.name} ` : ''}the planner read more outside the change's scope (${out}) than inside it (${inside})${where}. That is a planner learning how this repo builds a module from its source. A repo that states its anatomy — a skill, or a CLAUDE.md section — is what makes those reads unnecessary, and the planner's contract sends it there first (ADR-026).`,
+        );
+      }
     }
   }
 }

@@ -115,6 +115,23 @@ If the check is not green, say that plainly and say what is failing. A setup
 reported as finished over a red check is the exact failure this engine exists
 to close, arriving through the door meant to prevent it.
 
+## After the contract: say how a module is built here
+
+`init` cannot write this and the engine never reads it, but every agent does:
+the planner before it opens any code, the implementer before its first edit.
+Without it each learns the repo's anatomy from its source, in every run, in
+its own cold context (ADR-026).
+
+Draft it from the module the repo treats as its reference — the one
+`CLAUDE.md` names, or the most complete one — reading one file of each kind.
+For each kind: its path pattern, its layer, how it is named, and which other
+kinds it may import. Add what a test is called and where it goes, which
+`trace.proof_dir` and `trace.proof_suffix` already say. Keep it under a page.
+Put it in `CLAUDE.md` when it is short, or in `.claude/skills/<name>/SKILL.md`
+with a description that says it describes how a module is built, when it needs
+room. Then show it to the user and let them correct it: it is their repo's
+claim about itself, and the planner will trust it over the source.
+
 ## Model routing is a different file, and not your job here
 
 `.claude/spec-flow.config.json` holds preferences rather than facts: the
