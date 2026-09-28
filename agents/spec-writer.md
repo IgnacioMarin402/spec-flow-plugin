@@ -2,6 +2,10 @@
 name: spec-writer
 description: Owns the spec artifacts (Sonnet). MODE=SPEC turns a free-text requirement into a spec with user stories and requirement deltas. MODE=TRIAGE classifies a defect by what it does to specs/. MODE=FOLD verifies a shipped change landed in the capability specs under specs/, stamps its status and archives it. Asks the human (HITL) instead of guessing when requirements are ambiguous.
 model: sonnet
+effort: medium
+# Declared, not inherited: this agent's escape hatch is a question to a human,
+# not a longer think, and under an inherited `high` a real run made it the most
+# expensive agent in the flow. See ADR-026.
 tools: Read, Write, Edit, Grep, Glob, Bash
 # The list this agent was inheriting implicitly, minus the one thing it never
 # does: spawn other agents. An agent with no `tools:` gets every tool the
