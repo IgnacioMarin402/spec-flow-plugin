@@ -11,6 +11,8 @@
  * history line in `hooks/gate.mjs`. All three append space-separated `k=v`
  * pairs after an ISO timestamp, which is what makes one reader enough.
  */
+import { matchAgent } from '../hooks/lib/agent-name.mjs';
+import { shippedAgents } from '../hooks/lib/routing.mjs';
 
 /**
  * `k=v k=v` pairs off a log line, plus the leading ISO timestamp.
@@ -23,6 +25,16 @@ export function parseFields(line) {
   const fields = Object.fromEntries([...line.matchAll(/(\w[\w-]*)=(\S+)/g)].map(([, k, v]) => [k, v]));
   const at = /^(\S+Z)/.exec(line);
   return { at: at ? new Date(at[1]) : null, raw: line, ...fields };
+}
+
+/**
+ * The role an `agent type=` line names. The harness reports a plugin's agents
+ * namespaced — `spec-flow:reviewer` — and every reader compares roles, so the
+ * namespace is dropped here, once. An agent that is none of this plugin's
+ * keeps the name it was reported under.
+ */
+export function roleOf(type) {
+  return matchAgent([String(type)], Object.keys(shippedAgents())) ?? type;
 }
 
 /** The counters `token-trace.mjs` writes, in the order they are reported. */

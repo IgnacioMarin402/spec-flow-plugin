@@ -149,6 +149,23 @@ check('a second implementer spawn inside one milestone is reported and warned', 
   );
 });
 
+// The harness reports a plugin's agents namespaced, and every real trace line
+// carries `spec-flow:<role>`. Written bare, as the cases above are, these
+// sections cannot tell whether they ever fire on a real run.
+check('a namespaced implementer is counted in its milestone', () => {
+  const { out } = report({
+    trace: [agent(1, 'spec-flow:implementer'), read(2, 'x/one.ts'), agent(3, 'spec-flow:implementer')],
+    gate: [pass(5)],
+  });
+  return contains(out, 'milestone 1: 2 implementer session(s)');
+});
+
+check('a namespaced reviewer is the reviewer, so its rubber-stamp check runs', () => {
+  const approved = (minute) => `${stamp(minute)} phase=review agent type=spec-flow:reviewer status=APPROVED`;
+  const { out } = report({ trace: [approved(1), approved(2), approved(3)] });
+  return contains(out, 'reviewer: 3 APPROVED') || contains(out, 'the reviewer approved all 3 plan(s)');
+});
+
 check('the same file read twice inside one milestone counts as a re-read', () => {
   const { out } = report({
     trace: [agent(1, 'implementer'), read(2, 'x/one.ts'), read(3, 'x/one.ts'), read(4, 'x/one.ts')],
