@@ -73,8 +73,8 @@ await run(async () => {
     `[spec-flow] Phase was '${phase}' and untouched for ${Math.floor(ageHours)}h, so it was treated as an abandoned ` +
       `run and reset to 'idle'. The lint/test gate is disarmed.` +
       (slug && milestone
-        ? ` That run was implementing ${milestone} of "${slug}"; its plan is still at specflow/${slug}/, and specflow/${slug}/milestones/${milestone}.md is where it stopped. ` +
-          `To pick it up rather than start over, re-read that milestone, write 'implement' into .claude/state/phase and re-invoke the implementer for it.`
-        : ` If you meant to resume that run, re-run /spec-flow.`),
+        ? ` That run was implementing ${milestone} of "${slug}"; its plan is still at specflow/${slug}/, and specflow/${slug}/milestones/${milestone}.md is where it stopped.`
+        : '') +
+      ` To pick it up rather than start over, run /spec-flow:resume — it reads where the run stopped off disk.`,
   );
 });
