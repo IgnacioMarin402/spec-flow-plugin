@@ -25,7 +25,11 @@ const SPEC = '# Spec — add-cities: cities\n\n## Requirement deltas\n- ADDED   
 const FIX = '# Fix — fix-empty-filter: an empty filter\n\n## Case\n1 UNSPECIFIED\n';
 const PROPOSAL = '# Proposal — add-cities: cities\n\n## Source\nAdd cities.\n';
 const PLAN = '# Plan — add-cities\n';
-const stamped = (text, status) => text.replace(/\n/, `\n\n**Status:** ${status} 2026-09-27\n`);
+/** The stamp a fold or a rejection writes: directly under the heading. */
+const stamped = (text, status) => {
+  const [heading, ...rest] = text.split('\n');
+  return [heading, '', `**Status:** ${status} 2026-09-27`, ...rest].join('\n');
+};
 
 /**
  * A repository in one run state. `files` are committed; `dirty` is written
