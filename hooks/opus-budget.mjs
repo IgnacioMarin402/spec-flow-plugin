@@ -45,6 +45,7 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDir, stateDir, readOwnedPhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
+import { coldResume } from './lib/agent-cache.mjs';
 
 function readRegistry(path) {
   const reg = {};
@@ -120,6 +121,10 @@ await run(async () => {
     }
     return;
   }
+
+  // A resume `stale-resume` is about to deny is not a consult: the fresh spawn
+  // that replaces it is charged, and charging both bills one consult twice.
+  if (String(payload.tool_name ?? '') === 'SendMessage' && coldResume(payload)) return;
 
   let max = 6;
   try {

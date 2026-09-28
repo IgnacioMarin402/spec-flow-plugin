@@ -1143,6 +1143,70 @@ t('model-route leaves a deduped trace of what it re-routed', (repo) => {
   return null;
 });
 
+// ---- stale-resume: an agent whose cache expired is not resumed (ADR-025) ----
+//
+// The shape a run leaves: `<session>.jsonl`, and beside it
+// `<session>/subagents/agent-<id>.jsonl` with its `.meta.json`. `ageMin`
+// backdates the agent's last write; `ttl` is which cache entry it wrote.
+function subagentOnDisk(repo, { id = 'a0123456789abcdef', type = 'spec-flow:spec-writer', ttl = '5m', context = 206000, ageMin = 30 } = {}) {
+  const session = join(repo, 'sess.jsonl');
+  writeFileSync(session, '');
+  const dir = join(repo, 'sess', 'subagents');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `agent-${id}.jsonl`);
+  const cacheCreation = { ephemeral_5m_input_tokens: ttl === '5m' ? 998 : 0, ephemeral_1h_input_tokens: ttl === '1h' ? 998 : 0 };
+  const usage = { input_tokens: 2, cache_read_input_tokens: context - 1000, cache_creation_input_tokens: 998, cache_creation: cacheCreation };
+  writeFileSync(file, `${JSON.stringify({ type: 'assistant', isSidechain: true, message: { id: 'msg_1', model: 'model-alpha', usage } })}\n`);
+  writeFileSync(join(dir, `agent-${id}.meta.json`), JSON.stringify({ agentType: type }));
+  const when = new Date(Date.now() - ageMin * 60_000);
+  utimesSync(file, when, when);
+  return { transcript_path: session, tool_name: 'SendMessage', tool_input: { to: id, message: 'close the gap', summary: 'close the gap' } };
+}
+
+t('stale-resume denies resuming an agent whose cache expired, and says the cost and the way out', (repo) => {
+  const r = runHook('stale-resume.mjs', subagentOnDisk(repo, { ageMin: 30 }), repo);
+  if (r.status !== 2) return `exit ${r.status}, expected 2 — a 30-minute-old spec-writer was resumed, re-sending its whole context`;
+  if (!/206k/.test(r.stderr)) return `the denial does not say what the resume would have re-sent: ${r.stderr}`;
+  if (!/NEW spec-writer/.test(r.stderr)) return `the denial does not name the way out: ${r.stderr}`;
+  return null;
+});
+
+t('stale-resume lets a warm agent be resumed', (repo) => {
+  const r = runHook('stale-resume.mjs', subagentOnDisk(repo, { ageMin: 1 }), repo);
+  return r.status === 0 ? null : `exit ${r.status}: a one-minute-old agent was refused, and a warm retry is the cheap path: ${r.stderr}`;
+});
+
+t('stale-resume reads the TTL off the agent — a 1-hour cache at 30 minutes is warm', (repo) => {
+  const r = runHook('stale-resume.mjs', subagentOnDisk(repo, { ageMin: 30, ttl: '1h' }), repo);
+  return r.status === 0 ? null : `exit ${r.status}: an agent writing 1-hour entries was judged by the 5-minute rule: ${r.stderr}`;
+});
+
+t('stale-resume leaves an agent that is not this plugin’s alone', (repo) => {
+  const r = runHook('stale-resume.mjs', subagentOnDisk(repo, { ageMin: 30, type: 'Explore' }), repo);
+  return r.status === 0 ? null : `exit ${r.status}: another agent's message was denied: ${r.stderr}`;
+});
+
+t('stale-resume stands down outside a run', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+  const r = runHook('stale-resume.mjs', subagentOnDisk(repo, { ageMin: 30 }), repo);
+  return r.status === 0 ? null : `exit ${r.status}: a message outside any run was denied`;
+});
+
+t('stale-resume allows a recipient it cannot see', (repo) => {
+  const payload = subagentOnDisk(repo, { ageMin: 30 });
+  const r = runHook('stale-resume.mjs', { ...payload, tool_input: { to: 'someone-else', message: 'x' } }, repo);
+  return r.status === 0 ? null : `exit ${r.status}: a message was denied over a transcript that does not exist`;
+});
+
+t('opus-budget charges a warm planner resume and not one stale-resume denies', (repo) => {
+  writeFileSync(join(repo, '.claude/state/agent-registry'), 'a0123456789abcdef planner\n');
+  const count = () => (existsSync(join(repo, '.claude/state/opus_calls')) ? readFileSync(join(repo, '.claude/state/opus_calls'), 'utf8').trim() : '0');
+  runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 30, type: 'spec-flow:planner' }), repo);
+  if (count() !== '0') return `a resume stale-resume denies was charged (${count()}): the fresh spawn replacing it bills the same consult twice`;
+  runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
+  return count() === '1' ? null : `a warm planner resume was charged ${count()}, want 1`;
+});
+
 console.log('');
 let bad = 0;
 for (const [n, s] of results) {
