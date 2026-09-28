@@ -36,7 +36,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from './spec-flow-config.mjs';
-import { parseFields as parse, summarizeTokens, tokenRow, human } from './trace-lines.mjs';
+import { parseFields as parse, roleOf, summarizeTokens, tokenRow, human } from './trace-lines.mjs';
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const STATE = join(root, '.claude', 'state');
@@ -91,8 +91,15 @@ function collectRuns() {
   };
 
   return [live, ...archived]
-    .map((r) => ({ name: r.name, gate: r.gate.map(parse), trace: r.trace.map(parse) }))
+    .map((r) => ({ name: r.name, gate: r.gate.map(parse), trace: r.trace.map(parseTrace) }))
     .filter((r) => r.name === '(current)' || r.gate.length > 0 || r.trace.length > 0);
+}
+
+/** A trace line, its agent `type` read as the role it names — see `roleOf`. */
+function parseTrace(line) {
+  const entry = parse(line);
+  if (entry.type) entry.type = roleOf(entry.type);
+  return entry;
 }
 
 const minutesBetween = (a, b) => Math.round((b - a) / 60000);
@@ -325,9 +332,10 @@ say('');
 //
 // A milestone is delimited by a gate PASS: the gate allows the stop and the
 // orchestrator moves on. Inside one milestone the contract in
-// `commands/spec-flow.md` is that the implementer is spawned ONCE and every
-// follow-up returns to that session by SendMessage. Both halves of that are
-// already observable, with no new instrumentation:
+// `commands/spec-flow.md` is that the implementer is spawned once and every
+// follow-up returns to that session by SendMessage while its cache is warm —
+// a cold one is replaced (ADR-025). Both halves are already observable, with
+// no new instrumentation:
 //
 //   - `agent type=...` is written at an agent's FIRST stop only — a session
 //     resumed by SendMessage stops again under the same id and is not
@@ -393,7 +401,7 @@ if (segments.length === 0) {
 
     if (implementers > 1) {
       warn.push(
-        `milestone ${segment.index}${runs.length > 1 ? ` of ${segment.run}` : ''} spawned the implementer ${implementers} times. The flow spawns it once per milestone and returns to that session by SendMessage — a second spawn re-reads the plan and every touched file into a cold context, which is most of what a run costs.`,
+        `milestone ${segment.index}${runs.length > 1 ? ` of ${segment.run}` : ''} spawned the implementer ${implementers} times. The flow returns to one implementer per milestone while its cache is warm; a new one is right only after the previous went cold — a human's answer, a long gate (ADR-025). Any other re-spawn re-read the plan and every touched file into a cold context, which is most of what a run costs.`,
       );
     }
   }
