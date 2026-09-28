@@ -341,13 +341,13 @@ async function fixture({
  * nor the repo, to make sure nothing about the hook depends on being invoked
  * from either.
  */
-async function runGate({ engineDir, repoDir }, sessionId = undefined) {
+async function runGate({ engineDir, repoDir }, sessionId = undefined, extra = {}) {
   const env = { ...process.env, CLAUDE_PROJECT_DIR: repoDir };
   // `{}` unless a case is about ownership: a payload with no `session_id` is
   // the shape every hook has to keep arming on, so it stays the default here
   // too — a fixture that always supplied one could not tell the fail-closed
   // path from the sealed one.
-  const input = JSON.stringify(sessionId === undefined ? {} : { session_id: sessionId });
+  const input = JSON.stringify({ ...(sessionId === undefined ? {} : { session_id: sessionId }), ...extra });
   const res = await run('node', [join(engineDir, 'hooks/gate.mjs')], { cwd: tmpdir(), input, env });
   const histPath = join(repoDir, '.claude/state/gate-history.log');
   const failPath = join(repoDir, '.claude/state/gate-failure.log');
@@ -401,7 +401,7 @@ const judgedHistory = (sha) =>
 async function withFixture(opts, assert) {
   const { engineDir, repoDir } = await fixture(opts);
   try {
-    return assert(await runGate({ engineDir, repoDir }, opts.sessionId), repoDir);
+    return assert(await runGate({ engineDir, repoDir }, opts.sessionId, opts.payload), repoDir);
   } finally {
     rmSync(engineDir, { recursive: true, force: true });
     rmSync(repoDir, { recursive: true, force: true });
@@ -883,6 +883,36 @@ await Promise.all([
         if (!rejected(r)) return `a report path naming a source file passed the gate: ${JSON.stringify(r.payload)}`;
         return null;
       },
+    ),
+  ),
+
+  // ---- a stop while a subagent works ends a turn, not a milestone ----------
+  //
+  // Every spawn runs in the background (ADR-023), so the orchestrator's turn
+  // ends right after one, on a commit the agent has not produced yet. The
+  // payload shape is the one Claude Code 2.1.283 sends on that Stop.
+  check('a stop while a subagent is still running judges nothing', () =>
+    withFixture(
+      { specTrace: 'green', payload: { background_tasks: [{ id: 'a0123456789abcdef', type: 'subagent', status: 'running', agent_type: 'spec-flow:implementer' }] } },
+      (r) => {
+        if (r.blocked) return `the gate judged a commit while its implementer was still running, and told the run what to do next: ${r.payload?.reason ?? r.stdout}`;
+        if (r.history) return `a stop that judged nothing left a verdict in the history: ${r.history}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('a subagent that has finished does not hold the gate', () =>
+    withFixture(
+      { specTrace: 'green', payload: { background_tasks: [{ id: 'a0123456789abcdef', type: 'subagent', status: 'completed' }] } },
+      (r) => (/result=pass/.test(r.history) ? null : `a finished agent kept the gate from judging: ${r.history || '(no history)'}`),
+    ),
+  ),
+
+  check('a background shell does not hold the gate — it may never finish', () =>
+    withFixture(
+      { specTrace: 'green', payload: { background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }] } },
+      (r) => (/result=pass/.test(r.history) ? null : `a running dev server disarmed the gate: ${r.history || '(no history)'}`),
     ),
   ),
 

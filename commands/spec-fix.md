@@ -111,6 +111,7 @@ Then summarize: the triage case, the root cause, files changed, requirements add
 
 ### Rules
 
+- **Every subagent runs in the background** (ADR-023): in an interactive session the `model-route` hook sets it on every spawn of this plugin's agents. When a spawn or a `SendMessage` comes back as launched rather than with a report, end your turn and let its completion notification wake you. Never poll or sleep while it works.
 - Model routing holds: by default `spec-writer` and `implementer` are Sonnet and `architect` is Opus, a project can re-route any of them, and the `architect` is budgeted either way. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
 - The gate is external and authoritative. On failure you re-triage; you do not hand-patch until green.
 - Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `phase-guard` will say so.

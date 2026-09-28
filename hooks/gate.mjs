@@ -128,6 +128,19 @@ await run(
     const phase = readOwnedPhase(root, payload.session_id);
     if (phase !== 'implement') return; // spec/plan/review/blocked/done -> allow the stop, nothing recorded
 
+    // A subagent still running means this stop ends the orchestrator's TURN,
+    // not a milestone: every spawn runs in the background (ADR-023), so a turn
+    // ends right after one, on a commit the agent has not produced yet. A pass
+    // there tells the orchestrator to advance past work still being written;
+    // after a failure the same commit fails again and spends an attempt. The
+    // agent's completion wakes the orchestrator, and the stop after it is
+    // judged. Subagents only: a background shell — a dev server — may never
+    // finish, and must not hold the gate open for good.
+    const running = Array.isArray(payload.background_tasks)
+      ? payload.background_tasks.filter((t) => t?.type === 'subagent' && t?.status === 'running')
+      : [];
+    if (running.length > 0) return; // allow the stop, nothing recorded
+
     const state = stateDir(root);
     const attFile = join(state, 'gate_attempts');
     const logFile = join(state, 'gate-failure.log');
@@ -213,8 +226,9 @@ await run(
     }
 
     // ---- quiescence guard -----------------------------------------------------
-    // Implementer subagents run in the background: the orchestrator's turn can
-    // end — firing Stop — while an implementer is mid-write. A dirty tree is
+    // Subagents run in the background: the orchestrator's turn can end —
+    // firing Stop — while one is mid-write. A payload that lists them was let
+    // through above; this is the guard for one that does not. A dirty tree is
     // therefore not evidence of a failed milestone, it is evidence of an
     // unfinished write, so it is not judged.
     const statusRes = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
@@ -276,7 +290,7 @@ await run(
       if (sha !== '-' && !previous.some((l) => l.split(' ')[1] === sha)) {
         emitBlock(
           `GATE SKIPPED — the working tree is dirty on ${sha}, a commit no gate has ever judged: nothing was linted, tested or traced for it, and this stop was ALLOWED, because a dirty tree is not a failure. ` +
-            `Uncommitted paths: ${dirty.trim().split('\n').length}. If an implementer is still writing, that is what the skip is for — say so and end your turn again; this is reported once per commit, not on every stop. ` +
+            `Uncommitted paths: ${dirty.trim().split('\n').length}. If a subagent is still writing — an implementer, or the spec-writer folding — that is what the skip is for: say so and end your turn again; this is reported once per commit, not on every stop. ` +
             `If none is running, you are waiting for a verdict that will never arrive: run \`git status\`, commit what is left to this milestone's branch, and end your turn so the gate judges a clean tree. ` +
             `A \`git mv\` stages a rename carrying the file's OLD content, so a file edited and then moved needs an explicit \`git add\` — a plain \`git commit\` drops the edit and leaves exactly this. Do not change the phase.`,
         );
@@ -305,8 +319,8 @@ await run(
       if (priorSkips + 1 === MAX_DIRTY_SKIPS) {
         emitBlock(
           `GATE SKIPPED ${MAX_DIRTY_SKIPS} times in a row — the working tree has been dirty at every stop, so this milestone has never been judged: nothing was linted, tested or traced, and each of those stops was ALLOWED because a dirty tree is not a failure. ` +
-            `Uncommitted paths: ${dirty.trim().split('\n').length}. That guard exists for an implementer writing in the background, and this no longer looks like one. ` +
-            `Find out which: if an implementer is still working, let it finish and say nothing. If none is, the work was left uncommitted and no gate will ever see it — commit it to this milestone's branch, then end your turn so the gate runs against a clean tree. Do not change the phase.`,
+            `Uncommitted paths: ${dirty.trim().split('\n').length}. That guard exists for a subagent writing in the background, and this no longer looks like one. ` +
+            `Find out which: if a subagent is still working, let it finish and say nothing. If none is, the work was left uncommitted and no gate will ever see it — commit it to this milestone's branch, then end your turn so the gate runs against a clean tree. Do not change the phase.`,
         );
       }
       return;

@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * PreToolUse on subagent spawn — applies the consuming project's model
- * routing by rewriting the spawn's `model`. See ADR-014.
+ * PreToolUse on subagent spawn — rewrites a spawn of this plugin's agents: the
+ * consuming project's model routing into its `model` (ADR-014), and
+ * `run_in_background: true` into every one an attended session makes
+ * (ADR-023).
  *
  * A hook rather than an instruction to the orchestrator, for the reason
  * `opus-budget.mjs` is one: routing the model remembers to pass is routing
  * that stops happening on the turn it is busy. `hookSpecificOutput.
  * updatedInput` replaces the tool input before the spawn, so the orchestrator
- * never has to know this feature exists.
+ * never has to know this feature exists. Both rewrites live in this one hook
+ * because each sibling is handed the ORIGINAL input: two hooks rewriting one
+ * spawn would each drop the other's field.
  *
  * **No `permissionDecision` is emitted, deliberately.** `updatedInput` is
  * honoured on its own; adding `allow` would also decide the permission
@@ -60,20 +64,29 @@ await run(async () => {
     process.exit(2); // PreToolUse denial protocol
   }
 
-  if (source !== 'project' || !model) return;
+  const reRouted = source === 'project' && Boolean(model);
+  if (reRouted) {
+    // Deduped, so a run of twenty spawns leaves one line per re-routed agent
+    // rather than twenty. Without it a re-route is invisible: the spawn looks
+    // ordinary from the transcript, and the frontmatter still says otherwise.
+    const routeLog = join(stateDir(root), 'model-routes.log');
+    const line = `${agent} -> ${model} (project override; shipped default is ${shipped[agent] ?? 'none'})`;
+    if (!readLinesDeduped(routeLog).has(line)) appendLine(routeLog, line);
+  }
 
-  // Deduped, so a run of twenty spawns leaves one line per re-routed agent
-  // rather than twenty. Without it a re-route is invisible: the spawn looks
-  // ordinary from the transcript, and the frontmatter still says otherwise.
-  const routeLog = join(stateDir(root), 'model-routes.log');
-  const line = `${agent} -> ${model} (project override; shipped default is ${shipped[agent] ?? 'none'})`;
-  if (!readLinesDeduped(routeLog).has(line)) appendLine(routeLog, line);
+  // The background serves a human watching the chat, and only an interactive
+  // session waits for it: `claude -p` terminates background agents still
+  // running 600 s after its turn ends. It runs hooks with
+  // CLAUDE_CODE_SESSION_ATTENDED=0, so an unattended spawn is left as the
+  // orchestrator wrote it. See ADR-023.
+  const attended = process.env.CLAUDE_CODE_SESSION_ATTENDED !== '0';
+  if (!reRouted && !attended) return;
 
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        updatedInput: { ...input, model },
+        updatedInput: { ...input, ...(reRouted ? { model } : {}), ...(attended ? { run_in_background: true } : {}) },
       },
     }),
   );

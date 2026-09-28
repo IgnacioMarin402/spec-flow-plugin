@@ -51,7 +51,15 @@
         ]
       },
       {
-        "matcher": "Write|Edit|Read|Bash|Task|Agent",
+        "matcher": "Write|Edit|Read|Bash",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/run-trace.mjs"] }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
         "hooks": [
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/run-trace.mjs"] }
         ]

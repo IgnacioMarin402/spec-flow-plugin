@@ -94,11 +94,11 @@ function seedGateHistory(repo, result) {
   );
 }
 
-function runHook(hook, payload, repo, engineRoot = ENGINE) {
+function runHook(hook, payload, repo, engineRoot = ENGINE, env = {}) {
   return spawnSync('node', [join(engineRoot, 'hooks', hook)], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: repo, ...env },
     cwd: tmpdir(),
   });
 }
@@ -350,15 +350,76 @@ t('run-trace logs a source write', (repo) => {
   return null;
 });
 
+/** A SubagentStop payload, in the shape Claude Code 2.1.283 delivers it. */
+const subagentStop = (extra = {}) => ({
+  hook_event_name: 'SubagentStop',
+  session_id: 'spawner-session',
+  agent_id: 'a0123456789abcdef',
+  agent_type: 'spec-flow:reviewer',
+  ...extra,
+});
+
+const traceText = (repo) => {
+  const log = join(repo, '.claude/state/run-trace.log');
+  return existsSync(log) ? readFileSync(log, 'utf8') : '';
+};
+
 t('run-trace logs a subagent STATUS', (repo) => {
+  const r = runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: APPROVED' }), repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (!traceText(repo).includes('agent type=spec-flow:reviewer status=APPROVED')) return `log: ${traceText(repo)}`;
+  return null;
+});
+
+t('run-trace takes no status from a spawn — its response echoes the prompt ahead of the report', (repo) => {
+  // The orchestrator's prompts name the statuses they expect back, so the
+  // first STATUS in either response shape is the question, not the answer.
+  const prompt = 'If anything is ambiguous, return STATUS: NEEDS_INPUT.';
+  for (const tool_response of [
+    { isAsync: true, status: 'async_launched', agentId: 'a0123456789abcdef', prompt },
+    { status: 'completed', prompt, agentId: 'a0123456789abcdef', content: [{ type: 'text', text: 'STATUS: SPEC_READY' }] },
+  ]) {
+    const r = runHook('run-trace.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:spec-writer', prompt }, tool_response }, repo);
+    if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  }
+  if (/agent type=/.test(traceText(repo))) return `a spawn's tool response was recorded as the agent's return: ${traceText(repo)}`;
+  return null;
+});
+
+t('run-trace reads a report handed back through SubagentHandback, not the line after it', (repo) => {
+  const transcript = join(repo, 'agent-a0123456789abcdef.jsonl');
+  const entries = [
+    { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'SubagentHandback', input: { message: 'STATUS: SPEC_READY\nSPEC_PATH: specflow/x/spec.md' } }] } },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'Report delivered to the orchestrator via SubagentHandback.' }] } },
+  ];
+  writeFileSync(transcript, entries.map((e) => `${JSON.stringify(e)}\n`).join(''));
   const r = runHook(
     'run-trace.mjs',
-    { tool_name: 'Task', tool_input: { subagent_type: 'reviewer' }, tool_response: 'STATUS: APPROVED' },
+    subagentStop({ agent_type: 'spec-flow:spec-writer', last_assistant_message: entries[1].message.content[0].text, agent_transcript_path: transcript }),
     repo,
   );
-  if (r.status !== 0) return `exit ${r.status}`;
-  const log = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
-  if (!log.includes('agent type=reviewer status=APPROVED')) return `log: ${log}`;
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (!traceText(repo).includes('agent type=spec-flow:spec-writer status=SPEC_READY')) {
+    return `the report the caller received was not recorded: ${traceText(repo) || '(no trace)'}`;
+  }
+  return null;
+});
+
+t('run-trace writes one line per agent — a resumed session stops again under the same id', (repo) => {
+  runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: CHANGES_REQUESTED' }), repo);
+  runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: APPROVED' }), repo);
+  const lines = traceText(repo).split('\n').filter((l) => l.includes('agent type='));
+  if (lines.length !== 1) return `${lines.length} line(s) for one agent; specflow-stats counts each as a fresh spawn:\n${lines.join('\n')}`;
+  if (!lines[0].includes('status=CHANGES_REQUESTED')) return `the line kept is not the first return: ${lines[0]}`;
+  return null;
+});
+
+t('run-trace records the shape of a return that carries no STATUS', (repo) => {
+  const r = runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'all done' }), repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (/agent type=/.test(traceText(repo))) return `a line was written with no status to put on it: ${traceText(repo)}`;
+  const miss = join(repo, '.claude/state/run-trace-unmatched.log');
+  if (!existsSync(miss)) return 'a return the trace could not read left no record of its shape';
   return null;
 });
 
@@ -369,15 +430,11 @@ t('run-trace records a reported skill-routing miss', (repo) => {
   // planner's routing miss often?" answerable at all.
   const r = runHook(
     'run-trace.mjs',
-    {
-      tool_name: 'Task',
-      tool_input: { subagent_type: 'implementer' },
-      tool_response: 'STATUS: IMPLEMENTED\nSKILL_MISS: where does it live\nNOTES: fine',
-    },
+    subagentStop({ agent_type: 'spec-flow:implementer', last_assistant_message: 'STATUS: IMPLEMENTED\nSKILL_MISS: where does it live\nNOTES: fine' }),
     repo,
   );
   if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
-  const line = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  const line = traceText(repo);
   if (!/skill_miss=where-does-it-live/.test(line)) {
     return `the miss did not reach the trace, so no number of runs can answer whether routing misses: ${line}`;
   }
@@ -386,13 +443,9 @@ t('run-trace records a reported skill-routing miss', (repo) => {
 });
 
 t('run-trace writes no skill_miss field when none was reported', (repo) => {
-  const r = runHook(
-    'run-trace.mjs',
-    { tool_name: 'Task', tool_input: { subagent_type: 'implementer' }, tool_response: 'STATUS: IMPLEMENTED' },
-    repo,
-  );
+  const r = runHook('run-trace.mjs', subagentStop({ agent_type: 'spec-flow:implementer', last_assistant_message: 'STATUS: IMPLEMENTED' }), repo);
   if (r.status !== 0) return `exit ${r.status}`;
-  const line = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  const line = traceText(repo);
   if (/skill_miss/.test(line)) return `an empty field was written, which reads as a miss of nothing: ${line}`;
   return null;
 });
@@ -965,10 +1018,37 @@ function withRouting(repo, agents) {
   writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 6, agents }));
 }
 
-t('model-route is transparent when the project declares no routing', (repo) => {
+t('model-route leaves the model alone when the project declares no routing', (repo) => {
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0. stderr: ${r.stderr.slice(0, 200)}`;
-  if (r.stdout.trim()) return `emitted output for a repo that configured nothing: ${r.stdout.slice(0, 200)}`;
+  if (routed(r) && 'model' in routed(r)) return `set a model for a repo that configured nothing: ${r.stdout.slice(0, 200)}`;
+  return null;
+});
+
+t('model-route runs every spawn of this plugin in the background', (repo) => {
+  // ADR-023. A foreground spawn blocks the chat with no sign of progress for
+  // as long as the agent thinks, which is how a working run gets killed as hung.
+  const spawn = { tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:spec-writer', prompt: 'x', run_in_background: false } };
+  const r = runHook('model-route.mjs', spawn, repo, ENGINE, { CLAUDE_CODE_SESSION_ATTENDED: '1' });
+  if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
+  const input = routed(r);
+  if (input?.run_in_background !== true) return `the spawn was left in the foreground: ${r.stdout.slice(0, 200) || '(no rewrite)'}`;
+  if (input.prompt !== 'x') return 'the rewrite dropped the rest of the spawn input';
+  return null;
+});
+
+t('model-route leaves an unattended session in the foreground', (repo) => {
+  // `claude -p` terminates background agents still running 600 s after its
+  // turn ends, and nobody watches its chat. Measured with this variable: 0
+  // under `claude -p`, 1 in an interactive session.
+  const spawn = { tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:spec-writer', prompt: 'x' } };
+  const r = runHook('model-route.mjs', spawn, repo, ENGINE, { CLAUDE_CODE_SESSION_ATTENDED: '0' });
+  if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
+  if (routed(r)?.run_in_background) return `an unattended spawn was sent to the background, where the harness kills it at 600 s: ${r.stdout.slice(0, 200)}`;
+  withRouting(repo, { 'spec-writer': 'opus' });
+  const rerouted = routed(runHook('model-route.mjs', spawn, repo, ENGINE, { CLAUDE_CODE_SESSION_ATTENDED: '0' }));
+  if (rerouted?.model !== 'opus') return 'the re-route was dropped along with the background';
+  if (rerouted.run_in_background) return 'a re-routed unattended spawn was sent to the background';
   return null;
 });
 
@@ -983,11 +1063,11 @@ t('model-route rewrites the spawn the project re-routed', (repo) => {
   return null;
 });
 
-t('model-route leaves an agent the project did not re-route alone', (repo) => {
+t('model-route leaves the model of an agent the project did not re-route alone', (repo) => {
   withRouting(repo, { reviewer: 'sonnet' });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
-  if (r.stdout.trim()) return `rewrote a spawn nobody re-routed: ${r.stdout.slice(0, 200)}`;
+  if (routed(r) && 'model' in routed(r)) return `re-routed a spawn nobody re-routed: ${r.stdout.slice(0, 200)}`;
   return null;
 });
 
@@ -995,7 +1075,8 @@ t('model-route treats restating the shipped default as no re-route', (repo) => {
   withRouting(repo, { planner: 'opus' });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
-  if (r.stdout.trim()) return `reported a change nobody made: ${r.stdout.slice(0, 200)}`;
+  if (routed(r) && 'model' in routed(r)) return `reported a change nobody made: ${r.stdout.slice(0, 200)}`;
+  if (existsSync(join(repo, '.claude/state/model-routes.log'))) return 'logged a re-route nobody made';
   return null;
 });
 

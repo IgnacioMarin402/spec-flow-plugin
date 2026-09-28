@@ -59,7 +59,7 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // route nothing: a version reaches prose through whichever file nobody thought
 // to scan, and a hook header explaining why a budget exists is a natural place
 // to write one.
-const SCAN_DIRS = ['agents', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
+const SCAN_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
 // `ci.yml` is here because this check's own steps are described in it, and a
 // step comment is prose like any other.
 const SCAN_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];

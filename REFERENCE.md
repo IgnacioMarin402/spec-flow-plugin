@@ -344,16 +344,16 @@ Without it, run the same scripts by path, from your repo's root:
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, and a `blocked` the gate did not write |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
-| `model-route` | `PreToolUse` | `Task`, `Agent` | Applies the project's `agents` routing to the spawn |
+| `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
-| `run-trace` | `PostToolUse` | `Write`, `Edit`, `Read`, `Bash`, `Task`, `Agent` | The run's timeline. Enforces nothing |
-| `token-trace` | `Stop` | — | Token accounting from the session transcript. Enforces nothing |
+| `run-trace` | `PostToolUse`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` | The run's timeline, and each subagent's return. Enforces nothing |
+| `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
 `preflight`, `opus-budget`, `arm-gate` and `phase-guard` stand down outside a
-run. `model-route` applies whenever a project routes. Every hook but the gate
+run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
 fails open on its own crash.
 
 ---
@@ -534,6 +534,8 @@ flowchart TD
     CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
 ```
 
+- **Nothing is judged while a subagent is still running** — the stop ends a
+  turn, not a milestone ([ADR-023](decisions/023-every-spawn-runs-in-the-background.md)).
 - **A dirty tree is not judged** — a background implementer may be mid-write —
   but it wakes the run once on a commit no gate has judged, and after ten
   dirty stops in a row ([ADR-012](decisions/012-a-dirty-tree-on-an-unjudged-commit-wakes-the-run.md)).

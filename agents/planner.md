@@ -31,7 +31,7 @@ You are invoked in three modes; the orchestrator tells you which:
 
 ### MODE = PLAN
 Input: an approved `specflow/<KEY>/spec.md`.
-Read the spec and the relevant codebase. Produce the plan **split across files**, one per milestone.
+Read the spec and the code it touches — to decide the plan, not to survey the repo. `Glob` a module to learn its files; `Read` only the ones whose content decides a line of the plan: a path, a seam, a name, a convention. Of a reference module, one file of each kind you will ask the implementer to write is usually enough. `CLAUDE.md` is already in your context, and this engine's own scripts are not yours to read: the contract you plan against is `.spec-flow/config.json`. Produce the plan **split across files**, one per milestone.
 
 `specflow/<KEY>/proposal.md` sits next to it and holds why that shape was chosen and what was rejected. Everything that *binds* your plan is supposed to be in `spec.md` — the deltas, the stories, the constraints.
 
