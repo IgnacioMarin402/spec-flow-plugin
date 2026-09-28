@@ -35,6 +35,12 @@
         "hooks": [
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/model-route.mjs"] }
         ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/stale-resume.mjs"] }
+        ]
       }
     ],
     "PostToolUse": [

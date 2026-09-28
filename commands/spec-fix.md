@@ -43,7 +43,7 @@ The classification is the whole design of this command, so it is worth knowing w
 
 Case 3 is the one that needs a human and the reason this flow has a HITL point at all. Rewriting a requirement so it agrees with the code is indistinguishable, from the diff alone, from rewriting it so it agrees with the *bug* — and the second one quietly converts the source of truth into a description of whatever the system happens to do. A person confirms that the old requirement was wrong. Cases 1, 2 and 4 do not touch anybody's claim about the system, so they run through.
 
-Expect `STATUS: TRIAGED` with a `CASE:` line. If it returns `STATUS: NEEDS_INPUT`, post its `OPEN_QUESTIONS` in this chat and stop your turn to wait (safe: phase is `spec`, the gate does not run). Re-invoke with the answers.
+Expect `STATUS: TRIAGED` with a `CASE:` line. If it returns `STATUS: NEEDS_INPUT`, post its `OPEN_QUESTIONS` in this chat and stop your turn to wait (safe: phase is `spec`, the gate does not run). Invoke a **new** `spec-writer` with the report and the answers (see Rules).
 
 ## 2. HITL — only for case 3 and case 5
 
@@ -75,7 +75,7 @@ Those exact two paths, with those exact names, because the implementer reads exa
 
 ## 4. FIX (subagent: implementer) + GATE LOOP
 
-1. Invoke `implementer` for `M1` with a **new** `Agent` call, passing it `specflow/<SLUG>/plan.md` and `specflow/<SLUG>/milestones/M1.md` — only those two. Remember the id as `IMPL_SESSION`; every later message for this fix goes back to it via `SendMessage`, never a fresh `Agent` call.
+1. Invoke `implementer` for `M1` with a **new** `Agent` call, passing it `specflow/<SLUG>/plan.md` and `specflow/<SLUG>/milestones/M1.md` — only those two. Remember the id as `IMPL_SESSION`; every later message for this fix goes back to it via `SendMessage` while it is warm (see Rules), not to a fresh `Agent` call.
    - `STATUS: NEEDS_ARCHITECT` -> invoke `architect` (new `Agent`) with the questions, then `SendMessage` the guidance to `IMPL_SESSION`. If the architect's `IF_PLAN_WRONG` is not "none", the triage missed something: re-run step 1 rather than patching the work order.
    - `STATUS: BLOCKED` -> re-run the triage with the reason. There is no planner to fall back on here, and that is the point: a fix that cannot be implemented from its work order is usually a fix that was classified wrong.
 2. **Wait for the implementer's completion notification, then commit AND push, then end your turn** so the gate hook runs. The hook — not you — runs lint and tests. Never run them yourself.
@@ -84,7 +84,7 @@ Those exact two paths, with those exact names, because the implementer reads exa
    - *lint only, attempts 1-2*: `SendMessage` the lint output to `IMPL_SESSION`. Do not touch the phase.
    - *a red test, attempt 1*: `SendMessage` the log to `IMPL_SESSION` and have it fix the code. Do not re-triage yet — the gate routes the first red suite back as a direct fix whichever flow is running, and here that matters more than in `/spec-flow`: a re-triage is this flow's only heavy step, and the first red test after a one-milestone fix is usually just the fix being wrong, not the case being wrong.
    - *a red test that survives that, or lint-only from the third attempt*: **re-run the triage** (step 1) with `.claude/state/gate-failure.log`. A fix whose test will not go green is a fix aimed at the wrong case — most often a case 3 that was filed as a case 1.
-   - *attempt cap*: the gate has already written `blocked`. Summarize for the human and stop. On their answer, write `implement` back and `SendMessage` to `IMPL_SESSION`.
+   - *attempt cap*: the gate has already written `blocked`. Summarize for the human and stop. On their answer, write `implement` back and start a **new** implementer for `M1` with `plan.md`, `milestones/M1.md` and their guidance.
    - *pass, the first time the gate reports this commit* (ADR-010): the gate re-invokes you with a `reason` starting `spec-flow: gate PASSED`, naming what to do next. That is not a failure — continue to step 5 without re-running lint or tests. A repeat stop on that same tree is silent instead, so you are not asked twice.
 
 ## 5. FOLD (subagent: spec-writer)
@@ -112,6 +112,7 @@ Then summarize: the triage case, the root cause, files changed, requirements add
 ### Rules
 
 - **Every subagent runs in the background** (ADR-023): in an interactive session the `model-route` hook sets it on every spawn of this plugin's agents. When a spawn or a `SendMessage` comes back as launched rather than with a report, end your turn and let its completion notification wake you. Never poll or sleep while it works.
+- **Resume an agent with `SendMessage` only while its prompt cache is warm** (ADR-025), whatever its role: a subagent's lasts 5 minutes from its last turn, and past it a message re-sends the agent's whole context first. What waited on a human or on a long gate goes to a **new** `Agent` call of that role, with its predecessor's inputs plus the new one. The `stale-resume` hook denies a cold `SendMessage`; spawn the new agent rather than retrying.
 - Model routing holds: by default `spec-writer` and `implementer` are Sonnet and `architect` is Opus, a project can re-route any of them, and the `architect` is budgeted either way. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
 - The gate is external and authoritative. On failure you re-triage; you do not hand-patch until green.
 - Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `phase-guard` will say so.
