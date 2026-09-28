@@ -48,9 +48,28 @@ function decodeEntities(text) {
  * quotes XML, a stack trace, a diff of a fixture. Both are removed before
  * anything below looks for a tag, because a `<testcase` inside a failure
  * message is not a test case and would otherwise be counted as one.
+ *
+ * One pass, left to right, whichever opener comes first: each kind can quote
+ * the other's opener, and stripping one kind before the other lets a quoted
+ * opener swallow real cases up to the next closer of its kind. A section that
+ * never closes runs to the end of the document, as it does for an XML parser —
+ * read as markup instead, a commented-out case would count as executed.
  */
 function stripOpaque(xml) {
-  return xml.replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  let out = '';
+  let at = 0;
+  for (;;) {
+    const comment = xml.indexOf('<!--', at);
+    const cdata = xml.indexOf('<![CDATA[', at);
+    if (comment === -1 && cdata === -1) return out + xml.slice(at);
+
+    const isComment = comment !== -1 && (cdata === -1 || comment < cdata);
+    const start = isComment ? comment : cdata;
+    const end = isComment ? xml.indexOf('-->', start + 4) : xml.indexOf(']]>', start + 9);
+    out += xml.slice(at, start);
+    if (end === -1) return out;
+    at = end + 3;
+  }
 }
 
 /**

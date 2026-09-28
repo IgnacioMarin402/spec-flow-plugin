@@ -234,6 +234,32 @@ check('a failure message that quotes XML does not invent a test case', () => {
   return null;
 });
 
+check('a CDATA opener quoted inside a comment does not swallow the cases after it', () => {
+  // Stripped kind by kind, CDATA first, the quoted opener runs to the next
+  // `]]>` — through a real case — and a test that ran reads as never run.
+  const xml = `<testsuites>
+  <!-- an emitter note quoting <![CDATA[ -->
+  <testcase name="REQ-A-001 real"/>
+  <!-- and its close ]]> -->
+</testsuites>`;
+  const r = read('junit', xml);
+  if (r.error) return r.error;
+  return r.names.some((n) => n.includes('REQ-A-001')) ? null : `a real case between two comments was dropped: ${JSON.stringify(r.names)}`;
+});
+
+check('a comment that never closes hides what follows it', () => {
+  // The dangerous direction: text inside a comment read as markup proves a
+  // requirement with a test that did not run.
+  const xml = `<testsuites>
+  <testcase name="REQ-A-001 real"/>
+  <!-- disabled: <testcase name="REQ-A-002 commented out"/>
+</testsuites>`;
+  const r = read('junit', xml);
+  if (r.error) return r.error;
+  if (r.names.some((n) => n.includes('REQ-A-002'))) return `a case inside an unterminated comment was counted as executed: ${JSON.stringify(r.names)}`;
+  return r.names.some((n) => n.includes('REQ-A-001')) ? null : `the case before the comment was dropped: ${JSON.stringify(r.names)}`;
+});
+
 check('a failing test counts as executed', () => {
   const xml = `<testsuites><testcase name="REQ-A-001 red"><failure message="boom"/></testcase></testsuites>`;
   const r = read('junit', xml);
