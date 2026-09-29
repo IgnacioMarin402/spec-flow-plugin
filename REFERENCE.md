@@ -27,9 +27,9 @@ the repository root. Missing or malformed stops the run with a message naming
 what to add; nothing guesses a runner or a directory. `spec-flow init`
 generates it and reports what it could not determine. Opened at a subdirectory
 of the repository, or at a directory in no repository — a workspace holding
-several — `init`, `preflight`, the gate and `spec-flow check` refuse
-(`fail:root`), and `phase-guard` refuses the phase write that would start a
-run: git spells committed changes from the root, so from a subdirectory every
+several — `init`, `preflight`, the gate (`fail:root` in its history) and
+`spec-flow check` refuse, and `phase-guard` refuses the phase write that would
+start a run: git spells committed changes from the root, so from a subdirectory every
 one would fall out of scope
 ([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md),
 [ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). To see

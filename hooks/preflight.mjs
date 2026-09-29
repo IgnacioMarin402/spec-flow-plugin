@@ -33,17 +33,25 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
-import { loadConfig } from '../scripts/spec-flow-config.mjs';
-import { resolveBase, assertRepoRoot } from '../scripts/changed-files.mjs';
+import { assertCanRun } from './lib/can-run.mjs';
 
-function deny(what, detail) {
+/** What each refusal is headed with; the detail under it is the check's own message. */
+const HEADINGS = {
+  'no-repository': 'this directory is in no git repository.',
+  'not-root': 'this directory is not the root of its repository.',
+  contract: 'the contract could not be read.',
+  base: 'the base branch could not be resolved.',
+};
+
+function deny(what, detail, { initHelps = false } = {}) {
   process.stderr.write(
     `[spec-flow] PREFLIGHT FAILED — ${what}\n\n${detail}\n\n` +
       `Nothing has run yet, which is the point of checking here: the same problem would otherwise ` +
       `surface at the first gate, after the planner and an implementer had already been spent on a ` +
       `milestone this engine could not have verified.\n\n` +
-      `Fix it, then start the run again. \`spec-flow init\` regenerates the contract from this repo; ` +
-      `\`spec-flow init --force\` overwrites an existing one.\n`,
+      `Fix it, then start the run again.` +
+      (initHelps ? ` \`spec-flow init\` regenerates the contract from this repo; \`spec-flow init --force\` overwrites an existing one.` : '') +
+      `\n`,
   );
   process.exit(2); // PreToolUse denial protocol
 }
@@ -100,27 +108,14 @@ await run(async () => {
     return;
   }
 
-  // Ahead of the contract: the one at this directory is not the repository's,
-  // and "the contract could not be read" would send someone to write a second
-  // one where no gate can run it. See ADR-027.
+  // The same check `phase-guard` makes at the write that starts a run
+  // (ADR-028), and in the same order: the repository ahead of the contract,
+  // because the contract at the wrong directory is the wrong contract or none,
+  // and "could not be read" would send someone to write a second one where no
+  // gate can run it (ADR-027).
   try {
-    assertRepoRoot(root);
+    assertCanRun(root);
   } catch (err) {
-    deny('this directory is not the repository root.', err.message);
-    return;
-  }
-
-  let config;
-  try {
-    config = loadConfig(root);
-  } catch (err) {
-    deny('the contract could not be read.', err.message);
-    return;
-  }
-
-  try {
-    resolveBase(root, config);
-  } catch (err) {
-    deny('the base branch could not be resolved.', err.message);
+    deny(HEADINGS[err.kind] ?? 'this engine cannot run here.', err.message, { initHelps: err.kind === 'contract' });
   }
 });

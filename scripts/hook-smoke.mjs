@@ -34,13 +34,13 @@ function writeRun(dir, phase) {
 
 function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false, commit = true } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
-  mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
   if (withContract) {
-    mkdirSync(join(repo, '.spec-flow'), { recursive: true });
-    writeFileSync(join(repo, '.spec-flow/config.json'), contractJson());
+    writeRun(repo, phase);
+  } else {
+    mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
+    writeFileSync(join(repo, '.claude/state/phase'), phase);
   }
-  writeFileSync(join(repo, '.claude/state/phase'), phase);
 
   // A real repo with a base branch, because the engine's scope is a
   // merge-base diff and `preflight` refuses to start a run without one. Off
@@ -197,6 +197,11 @@ t(
     const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
     if (r.status !== 2) return `a run outside any repository was allowed to start — exit ${r.status}`;
     if (!/not inside a git repository/.test(r.stderr)) return `the denial blames something other than the missing repository: ${r.stderr}`;
+    // The heading is what a human reads first, and it must not contradict the
+    // detail under it — nor send them to run `init` in a directory where init
+    // refuses for the same reason.
+    if (!/PREFLIGHT FAILED — this directory is in no git repository/.test(r.stderr)) return `the heading names something other than the missing repository: ${r.stderr.split('\n')[0]}`;
+    if (/spec-flow init` regenerates/.test(r.stderr)) return `the denial sends a human to run init here, where init refuses for the same reason: ${r.stderr}`;
     return null;
   },
   { git: false, phase: 'spec' },
@@ -709,6 +714,51 @@ t(
     return null;
   },
   { phase: '' },
+);
+
+// `blocked` is in the vocabulary and arms every hook that reads the phase, so
+// a tool writing it from `idle` is a run nobody started and no gate capped:
+// preflight and the budget wake over it, and the next implementer spawn has
+// arm-gate carry it to `implement`. The gate's alone means everywhere.
+t(
+  'phase-guard denies blocked outside a run too — it is the gate\'s alone',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'blocked' } },
+      repo,
+    );
+    if (r.status !== 2) return `a tool wrote blocked from idle (exit ${r.status}) — a run nobody started, armed as if the gate had capped it`;
+    return null;
+  },
+  { withContract: false, phase: '' },
+);
+
+// The phase file has siblings — the seal, the unmatched log — and a write to
+// one of them is not a phase write. Judged as one, the seal's session id is
+// "not a phase this engine knows".
+t('phase-guard leaves the phase file\'s siblings alone', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase.session'), content: 'abc123def456' } },
+    repo,
+  );
+  if (r.status !== 0) return `a write to phase.session was judged as a phase write — exit ${r.status}: ${r.stderr}`;
+  return null;
+});
+
+// A start written in a form this hook cannot read goes through to preflight,
+// which is the backstop ADR-028 names — and the blind-spot log is what says
+// the guard was bypassed, so it has to be kept outside a run too.
+t(
+  'phase-guard records a start it could not read',
+  (repo) => {
+    runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command: "printf 'spec' | tee .claude/state/phase" } }, repo);
+    const log = join(repo, '.claude', 'state', 'phase-guard-unmatched.log');
+    if (!existsSync(log) || !readFileSync(log, 'utf8').includes('tee')) return 'an unreadable start left no line in phase-guard-unmatched.log, so nothing says the guard was bypassed';
+    return null;
+  },
+  { withContract: false, phase: '' },
 );
 
 t('phase-guard denies a phase outside the closed set', (repo) => {

@@ -12,7 +12,7 @@ Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/resume.mjs $ARGUMENTS` and show the huma
 Read `${CLAUDE_PLUGIN_ROOT}/commands/spec-flow.md` for a `/spec-flow` change, or `${CLAUDE_PLUGIN_ROOT}/commands/spec-fix.md` for a `/spec-fix` brief — the script says which. From here on you are that command's Orchestrator, bound by every rule it states, with two differences:
 
 - **Skip its step 0.** Do not reset `gate_attempts` or `opus_calls` and do not set a telemetry mark: they belong to the run, not to this session, and the budget already spent was spent. If `.claude/state/run-offset` does not exist, set the mark now, so the archived telemetry at least covers what happens from here.
-- **Write the phase for the step you enter before anything else.** That write is what moves the run to this session (ADR-017): the gate and the Opus budget answer only to the session that last wrote the phase, and the previous one is gone.
+- **Write the phase for the step you enter before anything else.** That write is what moves the run to this session (ADR-017): the gate and the Opus budget answer only to the session that last wrote the phase, and the previous one is gone. After a stale reset the phase is `idle`, so that write starts a run, and `phase-guard` **denies it** when this engine cannot run here — the directory is not a repository root, the contract does not load, the base does not resolve (ADR-028). Then nothing has resumed: show its message to the human and stop.
 
 ## 3. Enter at NEXT
 

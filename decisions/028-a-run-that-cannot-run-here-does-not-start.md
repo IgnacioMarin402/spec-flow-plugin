@@ -1,6 +1,6 @@
 # ADR-028 — a run that cannot run here does not start
 
-**Date:** 2026-09-29 · **Status:** accepted · **Governs:** `hooks/phase-guard.mjs`, `commands/spec-flow.md`, `commands/spec-fix.md`, `REFERENCE.md` · **Related:** ADR-006, ADR-017, ADR-022, ADR-027
+**Date:** 2026-09-29 · **Status:** accepted · **Governs:** `hooks/phase-guard.mjs`, `hooks/lib/can-run.mjs`, `hooks/preflight.mjs`, `commands/spec-flow.md`, `commands/spec-fix.md`, `commands/resume.md`, `REFERENCE.md` · **Related:** ADR-006, ADR-017, ADR-022, ADR-027
 
 **Question.** `/spec-flow` in a repository with no contract wrote `spec` into
 the phase, reset the counters, set the telemetry mark, and was refused at its

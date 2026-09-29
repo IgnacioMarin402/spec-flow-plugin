@@ -212,7 +212,7 @@ const SPECS_DIR = join(root, CONFIG.trace.specs_dir);
 const ARCHIVE_DIR = join(root, 'specflow', 'archive');
 
 const problems = [];
-/** id -> { title, spec, scope } */
+/** id -> { title, spec } */
 const requirements = new Map();
 
 // ---- read the specs ---------------------------------------------------
@@ -243,7 +243,7 @@ for (const file of specFiles) {
       problems.push(`${id} is declared twice: ${requirements.get(id).spec} and ${rel}.`);
       continue;
     }
-    requirements.set(id, { title: title.trim(), spec: rel, scope });
+    requirements.set(id, { title: title.trim(), spec: rel });
   }
 }
 
