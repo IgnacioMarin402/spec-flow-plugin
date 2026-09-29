@@ -24,15 +24,51 @@ import { spawnSync } from 'node:child_process';
 const ENGINE = process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
 
+/** The contract and the phase, written under `dir` — the two files a run arms on. */
+function writeRun(dir, phase) {
+  mkdirSync(join(dir, '.claude', 'state'), { recursive: true });
+  mkdirSync(join(dir, '.spec-flow'), { recursive: true });
+  writeFileSync(join(dir, '.spec-flow/config.json'), contractJson());
+  writeFileSync(join(dir, '.claude/state/phase'), phase);
+}
+
 function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
   mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
   if (withContract) {
     mkdirSync(join(repo, '.spec-flow'), { recursive: true });
-    writeFileSync(
-      join(repo, '.spec-flow/config.json'),
-      JSON.stringify({
+    writeFileSync(join(repo, '.spec-flow/config.json'), contractJson());
+  }
+  writeFileSync(join(repo, '.claude/state/phase'), phase);
+
+  // A real repo with a base branch, because the engine's scope is a
+  // merge-base diff and `preflight` refuses to start a run without one. Off
+  // only for the case that asserts exactly that refusal.
+  if (git) initRepo(repo, { commitPhase });
+
+  return repo;
+}
+
+/** `git init` plus one commit on `main`, so a merge-base exists — and the phase committed with it when a case asks. */
+function initRepo(dir, { commitPhase = false } = {}) {
+  const g = (...args) => spawnSync('git', args, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q', '.');
+  g('symbolic-ref', 'HEAD', 'refs/heads/main');
+  g('config', 'user.email', 'smoke@example.com');
+  g('config', 'user.name', 'smoke');
+  g('commit', '-q', '--allow-empty', '-m', 'baseline');
+  // The shape a repository the user did not write can arrive in: the file
+  // every enforcement hook arms on, supplied by the repo rather than by a
+  // run. See ADR-017.
+  if (commitPhase) {
+    g('add', '-f', '--', '.claude/state/phase');
+    g('commit', '-q', '-m', 'a phase this repository committed');
+  }
+}
+
+function contractJson() {
+  return JSON.stringify({
         contract_version: 1,
         verify: {
           scope_globs: ['*.ts'],
@@ -58,31 +94,7 @@ function makeRepo({ phase = 'implement', withContract = true, git = true, commit
           scoped_alternative: 'npm run check',
           scoped_examples: ['npm run check'],
         },
-      }),
-    );
-  }
-  writeFileSync(join(repo, '.claude/state/phase'), phase);
-
-  // A real repo with a base branch, because the engine's scope is a
-  // merge-base diff and `preflight` refuses to start a run without one. Off
-  // only for the case that asserts exactly that refusal.
-  if (git) {
-    const g = (...args) => spawnSync('git', args, { cwd: repo, stdio: 'ignore' });
-    g('init', '-q', '.');
-    g('symbolic-ref', 'HEAD', 'refs/heads/main');
-    g('config', 'user.email', 'smoke@example.com');
-    g('config', 'user.name', 'smoke');
-    g('commit', '-q', '--allow-empty', '-m', 'baseline');
-    // The shape a repository the user did not write can arrive in: the file
-    // every enforcement hook arms on, supplied by the repo rather than by a
-    // run. See ADR-017.
-    if (commitPhase) {
-      g('add', '-f', '--', '.claude/state/phase');
-      g('commit', '-q', '-m', 'a phase this repository committed');
-    }
-  }
-
-  return repo;
+      });
 }
 
 /** One gate-history line judging the repo's current HEAD, in the gate's own shape. */
@@ -168,6 +180,45 @@ t(
   },
   { git: false, phase: 'spec' },
 );
+
+// ---- the unit of a run is the repository (ADR-027) -------------------------
+//
+// Opened inside a package of a workspace, every committed change git reports
+// is spelled from the root and falls out of the subdirectory's scope, so the
+// gate would pass with the linter never invoked. The run is refused at its
+// first spawn instead, and the message names the root.
+t('preflight denies a run opened in a subdirectory of its repository', () => {
+  const outer = mkdtempSync(join(tmpdir(), 'smoke-workspace-'));
+  try {
+    initRepo(outer);
+    const back = join(outer, 'back');
+    writeRun(back, 'spec');
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, back);
+    if (r.status !== 2) return `a run opened at back/ of a repository was allowed to start — exit ${r.status}: ${r.stderr}`;
+    if (!/repository root/.test(r.stderr)) return `the denial does not say where to open the repository: ${r.stderr}`;
+    return null;
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
+});
+
+// A GUARD on the rule's edge, not proof of a defect: it passes before the
+// refusal existed too. A package that is its own repository IS a root,
+// wherever it sits on disk, and the refusal must not reach it.
+t('preflight allows a package that is its own repository, wherever it sits on disk', () => {
+  const outer = mkdtempSync(join(tmpdir(), 'smoke-workspace-'));
+  try {
+    initRepo(outer);
+    const back = join(outer, 'back');
+    writeRun(back, 'spec');
+    initRepo(back);
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, back);
+    if (r.status !== 0) return `a package that is its own repository was refused — exit ${r.status}: ${r.stderr}`;
+    return null;
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
+});
 
 t(
   'preflight is transparent outside a run, even with no contract at all',

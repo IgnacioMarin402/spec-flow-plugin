@@ -40,7 +40,7 @@ import { spawnSync } from 'node:child_process';
 import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readOwnedPhase, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
 import { loadConfig, prepareReport } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
-import { resolveBase, changedFiles, scopeMatchesNothing } from '../scripts/changed-files.mjs';
+import { resolveBase, changedFiles, scopeMatchesNothing, assertToplevel } from '../scripts/changed-files.mjs';
 import { engineRevision } from '../scripts/engine-revision.mjs';
 
 const MAX_ATTEMPTS = 5;
@@ -209,6 +209,20 @@ await run(
     // spawned so that being killed from here on leaves the evidence above.
     appendLine(histFile, line('running', '-', '-', 'unscoped=-', '-'));
     armed = { hist };
+
+    // Ahead of the contract, and that order is the point: a contract read
+    // from a subdirectory is the wrong one or absent, and "no contract here"
+    // sends a human to write a second one where no gate can run it. Ahead of
+    // the dirty check too, whose paths git spells from the root. See ADR-027.
+    try {
+      assertToplevel(root);
+    } catch (err) {
+      hist('fail:root', '-', '-', 'unscoped=-', '-');
+      emitBlock(
+        `GATE FAILED — ${err.message} Do not proceed and do not change the phase. Nothing was linted, tested or traced, so treat NOTHING as verified.`,
+      );
+      return;
+    }
 
     // The one deliberate fail-CLOSED case in this engine. An unrecognized
     // contract_version must block the run loudly — see spec-flow-config.mjs's

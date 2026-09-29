@@ -759,6 +759,26 @@ await Promise.all([
     }),
   ),
 
+  // ---- the contract belongs at the repository root (ADR-027) ----
+  //
+  // A workspace holding several packages is one repository and one contract.
+  // A contract written inside one package is one no gate will run against —
+  // git spells committed changes from the root, so every one would fall out
+  // of that package's scope — and the refusal comes before the file, naming
+  // the root it wants.
+  check('init refuses to write a contract inside a subdirectory of the repository', () =>
+    withRepo(COMPLETE, async (dir) => {
+      const back = join(dir, 'back');
+      mkdirSync(back, { recursive: true });
+      writeFileSync(join(back, 'package.json'), JSON.stringify({ name: 'back', scripts: COMPLETE.scripts }, null, 2));
+      const res = await run([], back);
+      if (existsSync(join(back, '.spec-flow', 'config.json'))) return 'a contract was written inside back/, where no gate reads it as the repository';
+      if (res.status === 0) return `init reported success from a subdirectory of the repository: ${res.stdout}`;
+      if (!/repository root/.test(`${res.stdout}${res.stderr}`)) return `the refusal does not name the root to run from: ${res.stdout}${res.stderr}`;
+      return null;
+    }),
+  ),
+
   // ---- a repo with nothing to read still gets a starting point ----
   check('a repo with no package.json still gets a file and a full MISSING list', () =>
     withRepo({ scripts: {}, files: {} }, async (dir) => {

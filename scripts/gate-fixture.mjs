@@ -158,9 +158,16 @@ async function fixture({
   // change.
   report = null,
   specs = {},
+  // A subdirectory of the repository to point the gate at instead of the
+  // repository itself — the contract, the state and the changed files all
+  // live under it, as they would in a package of a workspace. The git
+  // repository stays at `gitDir`; `repoDir` is what the gate is handed.
+  openAt = '',
 }) {
   const engineDir = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
-  const repoDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
+  const gitDir = mkdtempSync(join(tmpdir(), 'spec-flow-repo-'));
+  const repoDir = openAt ? join(gitDir, openAt) : gitDir;
+  if (openAt) mkdirSync(repoDir, { recursive: true });
 
   mkdirSync(join(engineDir, 'hooks', 'lib'), { recursive: true });
   mkdirSync(join(engineDir, 'scripts'), { recursive: true });
@@ -219,7 +226,7 @@ async function fixture({
     await egit('commit', '-qm', 'engine at its first revision');
   }
 
-  const git = (...args) => run('git', args, { cwd: repoDir });
+  const git = (...args) => run('git', args, { cwd: gitDir });
   await git('init', '-q', '.');
   // See this function's own header: the name is `baseBranch`, exactly, on
   // every machine — never whatever this machine's init.defaultBranch says.
@@ -330,7 +337,7 @@ async function fixture({
     );
   }
 
-  return { engineDir, repoDir };
+  return { engineDir, repoDir, gitDir };
 }
 
 /**
@@ -399,12 +406,12 @@ const judgedHistory = (sha) =>
   `2026-08-01T00:00:00Z ${sha} phase=implement attempt=0 result=pass lint=0 test=0 unscoped=0 files=1\n`;
 
 async function withFixture(opts, assert) {
-  const { engineDir, repoDir } = await fixture(opts);
+  const { engineDir, repoDir, gitDir } = await fixture(opts);
   try {
     return assert(await runGate({ engineDir, repoDir }, opts.sessionId, opts.payload), repoDir);
   } finally {
     rmSync(engineDir, { recursive: true, force: true });
-    rmSync(repoDir, { recursive: true, force: true });
+    rmSync(gitDir, { recursive: true, force: true });
   }
 }
 
@@ -1278,6 +1285,24 @@ await Promise.all([
       if (!/result=fail:scope/.test(r.history)) return `expected fail:scope, got: ${r.history}`;
       if (!/files=0\b/.test(r.history)) return `expected files=0, got: ${r.history}`;
       if (!/scope_globs/.test(r.stdout)) return `the block never names the field that has to change: ${r.stdout}`;
+      return null;
+    }),
+  ),
+
+  // ---- the unit of a run is the repository, not the directory it was opened in ----
+  //
+  // A project directory inside the repository and not at its root reads git's
+  // answers wrongly: `git diff --name-only` spells paths from the repository
+  // root, and joining them onto the subdirectory names files that are not
+  // there, so every committed change falls out of the scope. With the changed
+  // file under `back/` and the gate opened at `back/`, a RED linter is never
+  // invoked and the history reads `lint=-` — a clean milestone, to anyone
+  // reading it. See ADR-027.
+  check('a project directory inside the repository but not at its root is refused, not read as a milestone with nothing in scope', () =>
+    withFixture({ specTrace: 'green', openAt: 'back', lint: RED }, (r) => {
+      if (!rejected(r)) return `the gate judged a subdirectory as the repository and passed with the linter never invoked. history: ${r.history}`;
+      if (!/result=fail:root/.test(r.history)) return `expected fail:root, got: ${r.history}`;
+      if (!/repository root/.test(r.stdout)) return `the block does not tell a human where to open the repository: ${r.stdout}`;
       return null;
     }),
   ),

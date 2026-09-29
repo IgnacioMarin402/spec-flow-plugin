@@ -34,7 +34,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
-import { resolveBase } from '../scripts/changed-files.mjs';
+import { resolveBase, assertToplevel } from '../scripts/changed-files.mjs';
 
 function deny(what, detail) {
   process.stderr.write(
@@ -97,6 +97,16 @@ await run(async () => {
       `Every hook, the gate and the CLI run through this same Node, so nothing downstream would be trustworthy — ` +
         `a check that crashes on syntax it cannot parse looks the same from the outside as a check that found nothing wrong.`,
     );
+    return;
+  }
+
+  // Ahead of the contract: the one at this directory is not the repository's,
+  // and "the contract could not be read" would send someone to write a second
+  // one where no gate can run it. See ADR-027.
+  try {
+    assertToplevel(root);
+  } catch (err) {
+    deny('this directory is not the repository root.', err.message);
     return;
   }
 

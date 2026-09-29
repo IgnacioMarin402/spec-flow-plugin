@@ -22,10 +22,15 @@ Look-up material. For what spec-flow is and how to install it, see the
 
 ## The contract
 
-Everything the engine knows about your repo, at `.spec-flow/config.json`.
-Missing or malformed stops the run with a message naming what to add; nothing
-guesses a runner or a directory. `spec-flow init` generates it and reports what
-it could not determine. To see it as the engine reads it:
+Everything the engine knows about your repo, at `.spec-flow/config.json` in
+the repository root. Missing or malformed stops the run with a message naming
+what to add; nothing guesses a runner or a directory. `spec-flow init`
+generates it and reports what it could not determine. Opened anywhere else
+inside the repository, `init`, `preflight`, the gate and `spec-flow check`
+refuse (`fail:root`): git spells committed changes from the root, so from a
+subdirectory every one would fall out of scope
+([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md)). To see the
+contract as the engine reads it:
 
 ```bash
 node <plugin-or-clone>/scripts/spec-flow-config.mjs
@@ -357,7 +362,7 @@ Without it, run the same scripts by path, from your repo's root:
 | hook | event | fires on | what it does |
 |---|---|---|---|
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
-| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose contract does not load, whose base does not resolve, or whose Node is below the floor |
+| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, and a `blocked` the gate did not write |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
@@ -531,7 +536,9 @@ to match the code from one rewritten to match the bug.
 flowchart TD
     S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement, <br/> untracked, and this session's?"}
     P -->|"no"| ALLOW["allow the stop, record nothing"]
-    P -->|"yes"| CFG{"contract readable?"}
+    P -->|"yes"| ROOT{"project directory is <br/> the repository root?"}
+    ROOT -->|"no"| BLK0["BLOCK — open Claude Code <br/> at the root (ADR-027)"]
+    ROOT -->|"yes"| CFG{"contract readable?"}
     CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
     CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
     DIRTY -->|"dirty"| JUDGED{"has any gate <br/> judged this commit?"}

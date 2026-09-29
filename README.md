@@ -56,7 +56,9 @@ A test naming an id no spec declares fails the same way.
 
 ## Requirements
 
-- Claude Code, and a git repo where you work on a branch off your base branch
+- Claude Code, opened at the root of a git repo where you work on a branch off
+  your base branch. A workspace of several packages is one repository and one
+  contract ([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md))
 - A Node project with test and lint commands. Other stacks are not supported
   ([ADR-007](decisions/007-the-supported-scope-is-node.md))
 - Node 22+ — a run refuses to start below it
