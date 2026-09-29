@@ -669,6 +669,48 @@ t('session-start leaves a fresh phase alone', (repo) => {
 // nothing. Every hook falls through to "not my business" on a value it does
 // not recognise, so one invented phase stands down the gate, the write-time
 // linter, the command deny, preflight and the Opus budget at once — silently.
+// ---- a run that cannot run here does not start (ADR-028) --------------------
+//
+// The phase write is the first thing a run does. Refused at the first spawn
+// instead, it had already armed preflight, the budget, phase-guard and arm-gate
+// on a `spec` nothing would reset for six hours — every later subagent spawn in
+// that repository denied over a run the human never got to start.
+t(
+  'phase-guard refuses the write that starts a run where the engine cannot run, and leaves nothing armed',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'spec' } },
+      repo,
+    );
+    if (r.status !== 2) return `a run was started in a repository with no contract — exit ${r.status}; preflight will deny every spawn here until session-start resets the phase`;
+    if (!/Nothing has started/.test(r.stderr)) return `the denial does not say that nothing is armed: ${r.stderr}`;
+    if (existsSync(join(repo, '.claude/state/phase.session'))) return 'a refused start sealed the phase to the session anyway';
+    return null;
+  },
+  { withContract: false, phase: '' },
+);
+
+// The other half of the rule: a repository that can run the engine enters a
+// run on its first write, sealed to the session that wrote it (ADR-017). The
+// seal is what lets the gate tell this run's stops from another session's, so
+// a start that skips it is a run no gate owns.
+t(
+  'phase-guard lets a run start in a repository the engine can run in, and seals it',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'spec' } },
+      repo,
+    );
+    if (r.status !== 0) return `a valid repository was refused a run — exit ${r.status}: ${r.stderr}`;
+    const seal = join(repo, '.claude/state/phase.session');
+    if (!existsSync(seal) || readFileSync(seal, 'utf8') !== 'session-a') return 'the start of a run was not sealed to the session that wrote it';
+    return null;
+  },
+  { phase: '' },
+);
+
 t('phase-guard denies a phase outside the closed set', (repo) => {
   const r = runHook(
     'phase-guard.mjs',

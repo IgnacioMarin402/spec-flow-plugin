@@ -28,10 +28,12 @@ what to add; nothing guesses a runner or a directory. `spec-flow init`
 generates it and reports what it could not determine. Opened at a subdirectory
 of the repository, or at a directory in no repository — a workspace holding
 several — `init`, `preflight`, the gate and `spec-flow check` refuse
-(`fail:root`): git spells committed changes from the root, so from a
-subdirectory every one would fall out of scope
-([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md)). To see the
-contract as the engine reads it:
+(`fail:root`), and `phase-guard` refuses the phase write that would start a
+run: git spells committed changes from the root, so from a subdirectory every
+one would fall out of scope
+([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md),
+[ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). To see
+the contract as the engine reads it:
 
 ```bash
 node <plugin-or-clone>/scripts/spec-flow-config.mjs
@@ -365,7 +367,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
 | `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, and a `blocked` the gate did not write |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, and the phase write that would start a run where the engine cannot run |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
@@ -398,6 +400,11 @@ armed.
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
   once, so `phase-guard` denies it.
+- **A run that cannot run here does not start**
+  ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
+  first run phase written while no run is in progress is denied unless the
+  directory is a repository root, the contract loads and the base resolves;
+  nothing is armed by a refused start.
 - **A run does not end itself without a verdict**
   ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
   `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,

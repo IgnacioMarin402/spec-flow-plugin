@@ -23,6 +23,11 @@
  *      never a step from `implement`, needs the change recorded first from
  *      `spec`/`plan`/`review`, and is free from `blocked`, where a human is
  *      already in the loop.
+ *   4. A write that STARTS a run — a run phase while no run is in progress —
+ *      is refused where this engine cannot run: not a repository root, no
+ *      contract that loads, no base that resolves (ADR-028). Nothing is armed
+ *      then, so a refused start leaves nothing for `session-start` to reset
+ *      and denies no later spawn in that repository.
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
  * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
@@ -40,6 +45,7 @@ import { spawnSync } from 'node:child_process';
 import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
+import { resolveBase, assertRepoRoot } from '../scripts/changed-files.mjs';
 
 /** Change folders under `specflow/` that were never stamped and archived. */
 function liveChanges(root) {
@@ -73,6 +79,12 @@ function deny(message) {
  * README, REFERENCE and both commands describe it, and descriptions drift.
  */
 const PHASES = ['spec', 'plan', 'review', 'implement', 'blocked', 'done', 'idle'];
+
+/** The phases a run is IN — the ones that arm a hook. */
+const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
+
+/** The phases a tool may write to START a run; `blocked` is the gate's alone. */
+const STARTS_A_RUN = ['spec', 'plan', 'review', 'implement'];
 
 const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase/;
 
@@ -159,7 +171,7 @@ await run(async () => {
   // naming a session that no longer decides anything. The tracked half still
   // applies, because the `done` check below runs the repo's own unscoped checks.
   const phase = readPhase(root);
-  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown/committed -> transparent
+  const inRun = RUN_PHASES.includes(phase); // idle/done/unknown/committed -> no run
 
   const input = payload.tool_input ?? {};
 
@@ -167,7 +179,9 @@ await run(async () => {
   if (String(payload.tool_name ?? '') === 'Bash') {
     const cmd = String(input.command ?? '');
     written = bashWrittenValue(cmd);
-    if (!written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
+    // Inside a run only: recording creates `.claude/state/`, and a repository
+    // that is not running the flow must be left without one.
+    if (inRun && !written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
   } else {
     const filePath = String(input.file_path ?? input.filePath ?? '');
     if (PHASE_FILE_RE.test(filePath)) {
@@ -176,6 +190,28 @@ await run(async () => {
   }
 
   if (!written) return; // not a readable phase write -> see this file's header
+
+  // ---- a write that STARTS a run is decided from where it starts (ADR-028) --
+  if (!inRun) {
+    // `idle`, `done`, or a value outside the vocabulary: arms nothing, so
+    // there is nothing to guard and this hook stays transparent.
+    if (!STARTS_A_RUN.includes(written)) return;
+
+    // The checks `preflight` makes at the first spawn, made at the first
+    // write: a run refused here leaves no phase behind, while one refused
+    // there had already armed every hook that reads the phase.
+    try {
+      assertRepoRoot(root);
+      resolveBase(root, loadConfig(root));
+    } catch (err) {
+      deny(
+        `starting a run by writing '${written}' into .claude/state/phase, and this engine cannot run in this repository: ${err.message}\n\n` +
+          `Nothing has started and nothing is armed. Fix that first, then start the run again — \`spec-flow init\`, run from the repository root, writes the contract.`,
+      );
+    }
+    claimPhase(root, payload.session_id);
+    return;
+  }
 
   // ---- is this a phase at all? ---------------------------------------------
   if (!PHASES.includes(written)) {
