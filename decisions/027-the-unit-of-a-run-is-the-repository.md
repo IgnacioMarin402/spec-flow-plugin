@@ -1,62 +1,57 @@
-# ADR-027 — the unit of a run is the repository, and the contract sits at its root
+# ADR-027 — the unit of a run is one repository, opened at its root
 
 **Date:** 2026-09-29 · **Status:** accepted · **Governs:** `scripts/changed-files.mjs`, `hooks/gate.mjs`, `hooks/preflight.mjs`, `scripts/check-changed.mjs`, `scripts/init.mjs`, `README.md`, `REFERENCE.md` · **Related:** ADR-008, ADR-017, ADR-026
 
-**Question.** A workspace holds a `CLAUDE.md` at its root and two packages,
-`front/` and `back/`, each with its own runner and linter. Where does the
-engine run, where does it test, and what happens when Claude Code is opened
-inside one package?
+**Question.** A workspace directory holds a `CLAUDE.md` and two repositories,
+`front/` and `back/`, each with its own suite, its own linter and a pipeline
+that runs on a push to it alone. Where does the engine run, and what happens
+when Claude Code is opened at the workspace, or inside a repository below its
+root?
 
-**Measured.** Opened at `back/` of a two-package repository, on a branch whose
-one commit changes `back/b.ts`: `git diff --name-only` spells the change
-`back/b.ts` from the root and from `back/` alike, `changedFiles` joins it onto
-`back/`, finds no such file, and the change falls out of scope. `git ls-files`
-answers relative to `back/`, so the scope is not empty and `fail:scope` cannot
-fire. The gate then skips lint over a red linter, runs the suite, passes, and
-records `lint=-` — the line an honest milestone that touched nothing records.
-A porcelain `git status` is root-relative too, so the dirty check compares a
-root-relative path against a directory-relative report path.
+**Measured.** Two directories, two silent answers.
 
-**Decision.** The unit of a run is the git repository, and every path the
-engine reads hangs off its root: the contract, `.claude/state/`, `specs/`,
-`specflow/`. `init`, `preflight`, the gate and `spec-flow check` refuse a
-project directory that sits inside a repository without being its root —
-`git rev-parse --show-toplevel` is the arbiter, so a package that is its own
-repository (a submodule included) is a root — and they refuse before reading
-the contract, because "no contract here" would send a human to write a second
-one where no gate can run it. The gate records it as `fail:root`.
+- Inside `back/`'s repository, below its root: `git diff --name-only` spells
+  the branch's change from the root, `changedFiles` joins it onto the
+  directory, finds nothing there, and the change falls out of scope. `git
+  ls-files` answers relative to the directory, so the scope is not empty and
+  `fail:scope` cannot fire. The gate skipped a red linter and recorded
+  `lint=-`, the line of a milestone that touched nothing.
+- At the workspace, which is no repository: `init` wrote a contract there with
+  every field MISSING; `preflight` then refused it as a contract that could
+  not be read, sending a human to fill in a contract for a directory the
+  engine can never run against.
 
-A workspace of packages is therefore one repository and one contract:
+**Decision.** The unit of a run is one git repository, opened at its root. The
+contract, `specs/`, `specflow/`, `.claude/state/` and the suite are that
+repository's, so what its pipeline runs on a push is what the gate judged. A
+workspace of repositories is opened one repository at a time: Claude Code
+loads `CLAUDE.md` from every directory above the one it was opened in, so
+what the workspace states reaches every agent either way. `init`,
+`preflight`, the gate and `spec-flow check` refuse two directories before
+reading the contract — one inside a repository below its root (`fail:root`),
+one in no repository at all — and name what to open. `git rev-parse
+--show-toplevel` is the arbiter, so a repository nested in another (a
+submodule) is a root of its own.
 
-- one `verify.test` argv that runs every suite and writes one report — a
-  script the repo owns, since two runners write two files and the reader takes
-  one; the JUnit reader scans `<testcase>` wherever it sits, so concatenating
-  is enough;
-- one `verify.lint` argv that accepts any in-scope path, which for a linter
-  that resolves its configuration per directory means one configuration at
-  the root;
-- one `scope_globs` — `*.ts` already spans every package;
-- one `specs/`, whose capability names are unique across the repository
-  because the filename is the id prefix, and whose `spec-scope` markers name
-  the package path. The anatomy statement (ADR-026) is stated per package,
-  and a spec's scope says which one a milestone reads;
-- one phase, so one run at a time per repository (ADR-017).
+A workspace that is itself one repository is one unit and one contract at its
+root; a package inside it that needs its own gate and its own pipeline becomes
+its own repository.
 
 **Refused.**
 
-- A contract per package under one root. The gate is one Stop hook reading one
-  phase, and two suites with two reports need a merge nothing in this package
-  owns (ADR-002).
+- One suite for the workspace, run from its root. The pipeline that runs on a
+  push to `back/` runs back's tests; a gate that judged more than that push
+  carries proves nothing about it, and a requirement proven by the other
+  repository's test is proven by nothing that travels with the change.
+- A workspace contract naming its repositories, and a run that targets one.
+  Every hook reads the directory Claude Code was opened at; a second root
+  would live in state the model writes, and opening the repository is the
+  same declaration made where the harness already reads it.
+- Guessing the repository from the requirement's text. It does not say where
+  it lands, and a wrong guess arms one repository's gate over another's edits.
 - Relativising git's answers (`git diff --relative`) so a subdirectory can be
-  the unit. A suite run from `back/` is a property of `back/`, not of the
-  system (ADR-008), and the other package's dirt would still stop this
-  package's gate.
-- `trace.report` as a list of paths. A contract change that bumps
-  `contract_version` for every adopter, to save one wrapper script.
-- Reading the root's contract from a subdirectory silently. Claude Code
-  resolves `CLAUDE.md`, skills and settings from where it was opened; the run
-  would obey one directory's rules and another's contract.
+  the unit. A suite run from `back/` of one repository is a property of
+  `back/`, not of the system (ADR-008).
 
-**Cost.** The workspace adopter writes the wrapper that runs both suites into
-one report, and pays both suites at every gate — ADR-008's cost, once per
-package.
+**Cost.** A change that spans two repositories is two runs, and nothing in the
+engine binds them; the workspace's `CLAUDE.md` is the one thing both read.

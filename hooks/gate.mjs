@@ -40,7 +40,7 @@ import { spawnSync } from 'node:child_process';
 import { run, emitBlock, emitNotice, projectDir, stateDir, phasePath, readOwnedPhase, readFileOrDefault, appendLine, writeFile, readPayload } from './lib/io.mjs';
 import { loadConfig, prepareReport } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
-import { resolveBase, changedFiles, scopeMatchesNothing, assertToplevel } from '../scripts/changed-files.mjs';
+import { resolveBase, changedFiles, scopeMatchesNothing, assertRepoRoot } from '../scripts/changed-files.mjs';
 import { engineRevision } from '../scripts/engine-revision.mjs';
 
 const MAX_ATTEMPTS = 5;
@@ -215,7 +215,7 @@ await run(
     // sends a human to write a second one where no gate can run it. Ahead of
     // the dirty check too, whose paths git spells from the root. See ADR-027.
     try {
-      assertToplevel(root);
+      assertRepoRoot(root);
     } catch (err) {
       hist('fail:root', '-', '-', 'unscoped=-', '-');
       emitBlock(

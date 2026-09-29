@@ -109,6 +109,7 @@ function repo({
   gitignore = null,
   existingConfig = null,
   git = true,
+  commit = true,
 }) {
   const dir = mkdtempSync(join(tmpdir(), 'spec-flow-init-'));
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fixture', scripts }, null, 2));
@@ -139,8 +140,12 @@ function repo({
     run('symbolic-ref', 'HEAD', 'refs/heads/main');
     run('config', 'user.email', 'fixture@example.com');
     run('config', 'user.name', 'fixture');
-    run('add', '-A');
-    run('commit', '-qm', 'baseline');
+    // `commit: false` is a repository with no commit — a root, and no ref
+    // for the base ladder to find.
+    if (commit) {
+      run('add', '-A');
+      run('commit', '-qm', 'baseline');
+    }
   }
 
   return dir;
@@ -542,7 +547,7 @@ await Promise.all([
   // at the first gate too, and the gate blocks. Reporting "valid" over that
   // would be a half-truth.
   check('an unresolvable base is reported and holds the exit code, though the reader allows it', () =>
-    withRepo({ ...COMPLETE, git: false }, async (dir) => {
+    withRepo({ ...COMPLETE, commit: false }, async (dir) => {
       const res = await run([], dir);
       if (!/MISSING.*base_ref/s.test(res.stdout)) return `base_ref was not reported as missing: ${res.stdout}`;
       if (res.status === 0) return 'init exited 0 over a base the first gate will refuse to resolve';
@@ -775,6 +780,19 @@ await Promise.all([
       if (existsSync(join(back, '.spec-flow', 'config.json'))) return 'a contract was written inside back/, where no gate reads it as the repository';
       if (res.status === 0) return `init reported success from a subdirectory of the repository: ${res.stdout}`;
       if (!/repository root/.test(`${res.stdout}${res.stderr}`)) return `the refusal does not name the root to run from: ${res.stdout}${res.stderr}`;
+      return null;
+    }),
+  ),
+
+  // A workspace folder holding several repositories is not one of them. A
+  // contract written there is one no gate can run against, and every field
+  // MISSING reads as a contract to fill in rather than as the wrong directory.
+  check('init refuses a directory that is in no repository, and writes nothing there', () =>
+    withRepo({ ...COMPLETE, git: false }, async (dir) => {
+      const res = await run([], dir);
+      if (existsSync(join(dir, '.spec-flow', 'config.json'))) return 'a contract was written into a directory that is no repository, to be filled in for a gate that can never run there';
+      if (res.status === 0) return `init reported success outside any repository: ${res.stdout}`;
+      if (!/not inside a git repository/.test(`${res.stdout}${res.stderr}`)) return `the refusal does not name the missing repository: ${res.stdout}${res.stderr}`;
       return null;
     }),
   ),

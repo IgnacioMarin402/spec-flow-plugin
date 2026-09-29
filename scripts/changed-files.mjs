@@ -42,8 +42,9 @@ function samePath(a, b) {
 }
 
 /**
- * Refuses a project directory that sits INSIDE a repository without being its
- * root. See ADR-027.
+ * Refuses a project directory the engine cannot run against: one INSIDE a
+ * repository without being its root, and one in no repository at all — a
+ * workspace directory holding several repositories. See ADR-027.
  *
  * Every git answer this engine reads is spelled from the root: `git diff
  * --name-only` prints `back/b.ts` whether it is asked from the root or from
@@ -56,15 +57,23 @@ function samePath(a, b) {
  * compare a root-relative path with a directory-relative report path.
  *
  * Throws, like `resolveBase`, and the caller chooses its protocol. Silent when
- * git cannot answer — not a repository, no git on PATH: "cannot tell" must
- * never be why a run is refused, and `resolveBase` refuses that case on its
- * own terms.
+ * git cannot answer — no git on PATH, or a failure other than "not a git
+ * repository": "cannot tell" must never be why a run is refused, and
+ * `resolveBase` refuses those cases on its own terms.
  *
  * @param {string} root The directory the engine was pointed at.
  */
-export function assertToplevel(root) {
+export function assertRepoRoot(root) {
   const res = git(root, ['rev-parse', '--show-toplevel']);
-  const top = res.status === 0 ? res.stdout.trim() : '';
+  if (res.error) return;
+  if (res.status !== 0) {
+    if (!/not a git repository/i.test(res.stderr ?? '')) return;
+    throw new Error(
+      `${root} is not inside a git repository. This engine runs against one repository, opened at its root: the contract, the specs and the run's state are that repository's, and the gate runs that repository's suite — what its pipeline runs on a push is what the gate judged. ` +
+        `A workspace directory holding several repositories is not one of them: open Claude Code at the repository you are changing, and run \`spec-flow init\` there (ADR-027).`,
+    );
+  }
+  const top = res.stdout.trim();
   if (!top || samePath(root, top)) return;
   throw new Error(
     `${root} is not the root of its repository, ${top}. This engine reads every path from the repository root — the contract at .spec-flow/config.json, the state under .claude/state/, and every changed-file list git returns, which git spells from the root whatever directory asks. ` +

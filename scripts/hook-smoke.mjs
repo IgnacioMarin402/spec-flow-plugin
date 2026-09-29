@@ -32,7 +32,7 @@ function writeRun(dir, phase) {
   writeFileSync(join(dir, '.claude/state/phase'), phase);
 }
 
-function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false } = {}) {
+function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false, commit = true } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
   mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
@@ -45,19 +45,25 @@ function makeRepo({ phase = 'implement', withContract = true, git = true, commit
   // A real repo with a base branch, because the engine's scope is a
   // merge-base diff and `preflight` refuses to start a run without one. Off
   // only for the case that asserts exactly that refusal.
-  if (git) initRepo(repo, { commitPhase });
+  if (git) initRepo(repo, { commitPhase, commit });
 
   return repo;
 }
 
-/** `git init` plus one commit on `main`, so a merge-base exists — and the phase committed with it when a case asks. */
-function initRepo(dir, { commitPhase = false } = {}) {
+/**
+ * `git init` plus one commit on `main`, so a merge-base exists — and the phase
+ * committed with it when a case asks. `commit: false` leaves a repository with
+ * no commit at all, the honest shape of "a repository whose base cannot be
+ * resolved": it IS a repository, so the root check passes, and no ref exists
+ * for the base ladder to find.
+ */
+function initRepo(dir, { commitPhase = false, commit = true } = {}) {
   const g = (...args) => spawnSync('git', args, { cwd: dir, stdio: 'ignore' });
   g('init', '-q', '.');
   g('symbolic-ref', 'HEAD', 'refs/heads/main');
   g('config', 'user.email', 'smoke@example.com');
   g('config', 'user.name', 'smoke');
-  g('commit', '-q', '--allow-empty', '-m', 'baseline');
+  if (commit) g('commit', '-q', '--allow-empty', '-m', 'baseline');
   // The shape a repository the user did not write can arrive in: the file
   // every enforcement hook arms on, supplied by the repo rather than by a
   // run. See ADR-017.
@@ -176,6 +182,21 @@ t(
     const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
     if (r.status !== 2) return `a run with no resolvable base was allowed to start — exit ${r.status}`;
     if (!/base branch/.test(r.stderr)) return `the denial does not name the base as the problem: ${r.stderr}`;
+    return null;
+  },
+  { commit: false, phase: 'spec' },
+);
+
+// A directory in no repository at all — a workspace folder holding several
+// repositories — has no base to resolve either, and that is not what is wrong
+// with it. Named as such, or a human fills a contract in for a directory the
+// engine can never run against (ADR-027).
+t(
+  'preflight denies a run at a directory that is in no repository, and says to open a repository',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `a run outside any repository was allowed to start — exit ${r.status}`;
+    if (!/not inside a git repository/.test(r.stderr)) return `the denial blames something other than the missing repository: ${r.stderr}`;
     return null;
   },
   { git: false, phase: 'spec' },

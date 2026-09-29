@@ -34,7 +34,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
-import { resolveBase, assertToplevel } from '../scripts/changed-files.mjs';
+import { resolveBase, assertRepoRoot } from '../scripts/changed-files.mjs';
 
 function deny(what, detail) {
   process.stderr.write(
@@ -104,7 +104,7 @@ await run(async () => {
   // and "the contract could not be read" would send someone to write a second
   // one where no gate can run it. See ADR-027.
   try {
-    assertToplevel(root);
+    assertRepoRoot(root);
   } catch (err) {
     deny('this directory is not the repository root.', err.message);
     return;

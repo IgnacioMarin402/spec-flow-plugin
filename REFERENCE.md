@@ -25,9 +25,10 @@ Look-up material. For what spec-flow is and how to install it, see the
 Everything the engine knows about your repo, at `.spec-flow/config.json` in
 the repository root. Missing or malformed stops the run with a message naming
 what to add; nothing guesses a runner or a directory. `spec-flow init`
-generates it and reports what it could not determine. Opened anywhere else
-inside the repository, `init`, `preflight`, the gate and `spec-flow check`
-refuse (`fail:root`): git spells committed changes from the root, so from a
+generates it and reports what it could not determine. Opened at a subdirectory
+of the repository, or at a directory in no repository — a workspace holding
+several — `init`, `preflight`, the gate and `spec-flow check` refuse
+(`fail:root`): git spells committed changes from the root, so from a
 subdirectory every one would fall out of scope
 ([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md)). To see the
 contract as the engine reads it:

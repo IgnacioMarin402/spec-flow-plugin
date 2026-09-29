@@ -27,7 +27,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, appendFileSync } from 'node:fs';
 import { join, extname, sep } from 'node:path';
-import { resolveBase, assertToplevel } from './changed-files.mjs';
+import { resolveBase, assertRepoRoot } from './changed-files.mjs';
 import { RUNTIMES, stripTargets, resolveLocalBin } from './argv.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'out', 'vendor', '.claude']);
@@ -792,7 +792,7 @@ if (isMain) {
   // A contract written inside a package is one no gate will run against, so
   // the refusal comes first and names the root it wants (ADR-027).
   try {
-    assertToplevel(root);
+    assertRepoRoot(root);
   } catch (err) {
     console.log(`spec-flow init: ${err.message}`);
     process.exit(1);
