@@ -419,6 +419,7 @@ Gitignored working files; delete one to reset that piece of state.
 |---|---|
 | `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
+| `current-milestone` | `<SLUG> <Mk> <implementer session>`, written at each implementer spawn; where `resume` positions the run |
 | `opus_calls` | Planner + architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |

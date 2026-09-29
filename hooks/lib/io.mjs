@@ -267,7 +267,7 @@ export function emitNotice(message) {
  * it merely fails to say anything. That is the exact silent-disarm failure
  * this whole engine exists to close, one level down in the hook's own code
  * instead of in the contract it reads. `onError` lets a hook say something
- * appropriate for ITS protocol instead of one generic message for all ten.
+ * appropriate for ITS protocol instead of one generic message for every hook.
  */
 export async function run(main, onError) {
   try {

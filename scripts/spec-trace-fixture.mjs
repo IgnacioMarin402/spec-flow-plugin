@@ -594,6 +594,28 @@ await Promise.all([
     ),
   ),
 
+  // ---- the remedy names the proof surface, never a directory it composed ----
+  //
+  // `proof_dir` is a directory the contract declares and the scope marker names
+  // the module a spec is about. Joined, they spell a path that exists only in a
+  // repo whose tests sit inside each module; `lib/` beside `test/` is the other
+  // common shape, and there the joined path names nothing. Where a test goes is
+  // the anatomy statement's to say (ADR-026), so the remedy names the field.
+  check('an unproven requirement is sent to the proof surface, not to a path composed from the scope', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        '.spec-flow/config.json': contract('tests/other.test.ts::an unrelated test that did run'),
+      },
+      (r) => {
+        if (r.status === 0) return `an unproven requirement passed: ${r.out}`;
+        if (/modules\/user\/tests/.test(r.out)) return `the remedy composed the spec's scope with proof_dir into a directory nothing declared: ${r.out}`;
+        if (!/\btests\b/.test(r.out) || !/\.test\.ts/.test(r.out)) return `the remedy does not name the proof surface the contract declares: ${r.out}`;
+        return null;
+      },
+    ),
+  ),
+
   check('a REJECTED change keeps the grace — it asserts nothing landed', () =>
     withRepo(
       {

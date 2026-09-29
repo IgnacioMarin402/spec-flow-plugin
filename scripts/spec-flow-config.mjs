@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The only reader of `.spec-flow/config.json`. One reader means defaults,
- * validation and the version check exist once instead of in ten hooks.
+ * validation and the version check exist once instead of in every hook.
  *
  *   import { loadConfig } from './spec-flow-config.mjs';
  *   const config = loadConfig(root);

@@ -31,12 +31,12 @@ The name matters more, and it is the half a plan usually omits. `spec-trace` bin
 You are invoked in three modes; the orchestrator tells you which:
 
 ### MODE = PLAN
-Input: an approved `specflow/<KEY>/spec.md`.
+Input: an approved `specflow/<SLUG>/spec.md`.
 Read the spec and the code it touches — to decide the plan, not to survey the repo. `Glob` a module to learn its files; `Read` only the ones whose content decides a line of the plan: a path, a seam, a name. `CLAUDE.md` is already in your context, and this engine's own scripts are not yours to read: the contract you plan against is `.spec-flow/config.json`. Produce the plan **split across files**, one per milestone.
 
 **How this repo builds a module — its layers, the kinds of file each has, how each is named — is read from what the repo states, never learned from its source.** `CLAUDE.md` may state it; a skill whose description says it describes the repo's anatomy states it with more room. Load that skill by name before you open any code, and name it in the `Skills:` field of every milestone that adds a file, so the implementer reads the same statement instead of its neighbours. Only when the repo states nothing do you open a reference module — one file of each kind you will ask the implementer to write, no more — and your `NOTES` say the repo should write that statement, so the next run reads none. See ADR-026.
 
-`specflow/<KEY>/proposal.md` sits next to it and holds why that shape was chosen and what was rejected. Everything that *binds* your plan is supposed to be in `spec.md` — the deltas, the stories, the constraints.
+`specflow/<SLUG>/proposal.md` sits next to it and holds why that shape was chosen and what was rejected. Everything that *binds* your plan is supposed to be in `spec.md` — the deltas, the stories, the constraints.
 
 **Read the proposal once, here in `MODE=PLAN`, with one question in mind:** is there anything in it that binds the implementation and is not stated in `spec.md`? That is the one failure the two-file split can cause — the spec-writer leaves an operative clause buried in a Decision paragraph, and you were told the file is optional, so nobody sees it until a milestone contradicts a decision that was actually made. Reading it with that question is cheap and it is not the same as reading it as context.
 
@@ -57,9 +57,9 @@ When a milestone delivers a delta, order its Steps **test-first**: the failing R
 
 **Why the plan is split.** The implementer that builds `Mk` gets a fresh context and must re-read whatever you hand it. If the whole plan is one file, it re-reads every other milestone's detail to build one — once per milestone, plus once per gate retry. So: shared context goes in `plan.md`, per-milestone detail goes in its own file, and the implementer reads `plan.md` + `milestones/Mk.md` and nothing else.
 
-**`specflow/<KEY>/plan.md`** — shared context only. Keep it short; every agent in the flow reads it.
+**`specflow/<SLUG>/plan.md`** — shared context only. Keep it short; every agent in the flow reads it.
 ```
-# Plan — <KEY>
+# Plan — <SLUG>
 
 ## Approach
 <overall strategy, key design decisions, cross-cutting risks that belong to no
@@ -76,7 +76,7 @@ one milestone goes in that milestone's `What this could break` instead>
 <AC -> milestone that proves it>
 ```
 
-**`specflow/<KEY>/milestones/Mk.md`** — one file per milestone, self-contained.
+**`specflow/<SLUG>/milestones/Mk.md`** — one file per milestone, self-contained.
 ```
 # <Mk> — <name>  (covers US-x)
 
@@ -104,7 +104,7 @@ Do NOT repeat the Approach inside each `Mk.md` — the implementer reads both.
 Return:
 ```
 STATUS: PLAN_READY
-PLAN_PATH: specflow/<KEY>/plan.md
+PLAN_PATH: specflow/<SLUG>/plan.md
 MILESTONES: M1..Mn
 ```
 
@@ -119,7 +119,7 @@ ANSWERS:
 
 ### MODE = REPLAN
 Input: the current milestone id `Mk` + the gate failure log at `.claude/state/gate-failure.log` (a truncated summary; the full output is in `gate-failure.full.log`, read it only if the summary is not enough).
-Read `specflow/<KEY>/milestones/Mk.md`, the failure log, and the specific files named in it. If the failure involves spec-trace or failing tests, also read the spec's `## Requirement deltas` section — a milestone that drifted from what it must deliver can only be re-aligned against the deltas it was assigned. Do NOT read the rest of the spec, `plan.md`, or the other milestones, and do not re-survey the codebase — you are diagnosing one broken milestone, not re-planning the feature. Rewrite `milestones/Mk.md` so the next implementation pass passes the gate. Be specific about what changed and why. Return:
+Read `specflow/<SLUG>/milestones/Mk.md`, the failure log, and the specific files named in it. If the failure involves spec-trace or failing tests, also read the spec's `## Requirement deltas` section — a milestone that drifted from what it must deliver can only be re-aligned against the deltas it was assigned. Do NOT read the rest of the spec, `plan.md`, or the other milestones, and do not re-survey the codebase — you are diagnosing one broken milestone, not re-planning the feature. Rewrite `milestones/Mk.md` so the next implementation pass passes the gate. Be specific about what changed and why. Return:
 ```
 STATUS: REPLAN_READY
 MILESTONE: <Mk>
