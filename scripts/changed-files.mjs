@@ -19,11 +19,91 @@
  * `resolveBase` below, which throws rather than guessing.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 
-function git(root, args) {
-  return spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+function git(root, args, extra = {}) {
+  return spawnSync('git', args, { cwd: root, encoding: 'utf8', ...extra });
+}
+
+/**
+ * Whether two spellings name one directory. By identity where the filesystem
+ * gives one — which spellings a filesystem folds together is its business,
+ * not this code's — and by spelling only where it does not: symlinks
+ * resolved, `\` read as `/`, case folded on the platforms whose default
+ * filesystem folds it.
+ */
+function samePath(a, b) {
+  try {
+    const sa = statSync(a, { bigint: true });
+    const sb = statSync(b, { bigint: true });
+    if (sa.ino !== 0n && sb.ino !== 0n) return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch {
+    /* one of them is not on disk: compared as spelled */
+  }
+  const folds = process.platform === 'win32' || process.platform === 'darwin';
+  const norm = (p) => {
+    let real = p;
+    try {
+      real = realpathSync.native(p);
+    } catch {
+      /* not on disk: compared as spelled */
+    }
+    real = real.replace(/\\/g, '/').replace(/\/+$/, '');
+    return folds ? real.toLowerCase() : real;
+  };
+  return norm(a) === norm(b);
+}
+
+/**
+ * Refuses a project directory the engine cannot run against: one INSIDE a
+ * repository without being its root, and one in no repository at all — a
+ * workspace directory holding several repositories. See ADR-027.
+ *
+ * Every git answer this engine reads is spelled from the root: `git diff
+ * --name-only` prints `back/b.ts` whether it is asked from the root or from
+ * `back/`, and `join(root, ...)` onto the subdirectory names a file that is
+ * not there — so every committed change falls out of `changedFiles`,
+ * `verify.lint` is never invoked, and the history records `lint=-`. The
+ * untracked list and `git ls-files` answer relative to the directory instead,
+ * so the scope is never EMPTY and `scopeMatchesNothing` cannot see it. A
+ * porcelain `git status` is root-relative too, so the gate's dirty check would
+ * compare a root-relative path with a directory-relative report path.
+ *
+ * Throws, like `resolveBase`, and the caller chooses its protocol; the error's
+ * `kind` — `no-repository` or `not-root` — lets it head the message. Silent
+ * when git cannot answer — no git on PATH, or a failure other than "not a git
+ * repository": "cannot tell" must never be why a run is refused, and
+ * `resolveBase` refuses those cases on its own terms.
+ *
+ * @param {string} root The directory the engine was pointed at.
+ */
+export function assertRepoRoot(root) {
+  // The message is matched as text, so git's language is pinned: a localised
+  // git would otherwise say the same thing in words this never sees, and the
+  // refusal would go silent on exactly the machines it was written for.
+  const res = git(root, ['rev-parse', '--show-toplevel'], { env: { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' } });
+  if (res.error) return;
+  if (res.status !== 0) {
+    if (!/not a git repository/i.test(res.stderr ?? '')) return;
+    throw Object.assign(
+      new Error(
+        `${root} is not inside a git repository. This engine runs against one repository, opened at its root: the contract, the specs and the run's state are that repository's, and the gate runs that repository's suite — what its pipeline runs on a push is what the gate judged. ` +
+          `A workspace directory holding several repositories is not one of them: open Claude Code at the repository you are changing, and run \`spec-flow init\` there (ADR-027).`,
+      ),
+      { kind: 'no-repository' },
+    );
+  }
+  const top = res.stdout.trim();
+  if (!top || samePath(root, top)) return;
+  throw Object.assign(
+    new Error(
+      `${root} is not the root of its repository, ${top}. This engine reads every path from the repository root — the contract at .spec-flow/config.json, the state under .claude/state/, and every changed-file list git returns, which git spells from the root whatever directory asks. ` +
+        `From a subdirectory every committed change falls out of scope and the linter is never invoked, while the history reads \`lint=-\`, exactly as a milestone that touched nothing reads. ` +
+        `Open Claude Code at ${top} and keep the contract there. A package that needs its own gate and its own pipeline is its own repository (ADR-027).`,
+    ),
+    { kind: 'not-root' },
+  );
 }
 
 /**

@@ -22,10 +22,18 @@ Look-up material. For what spec-flow is and how to install it, see the
 
 ## The contract
 
-Everything the engine knows about your repo, at `.spec-flow/config.json`.
-Missing or malformed stops the run with a message naming what to add; nothing
-guesses a runner or a directory. `spec-flow init` generates it and reports what
-it could not determine. To see it as the engine reads it:
+Everything the engine knows about your repo, at `.spec-flow/config.json` in
+the repository root. Missing or malformed stops the run with a message naming
+what to add; nothing guesses a runner or a directory. `spec-flow init`
+generates it and reports what it could not determine. Opened at a subdirectory
+of the repository, or at a directory in no repository — a workspace holding
+several — `init`, `preflight`, the gate (`fail:root` in its history) and
+`spec-flow check` refuse, and `phase-guard` refuses the phase write that would
+start a run: git spells committed changes from the root, so from a subdirectory every
+one would fall out of scope
+([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md),
+[ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). To see
+the contract as the engine reads it:
 
 ```bash
 node <plugin-or-clone>/scripts/spec-flow-config.mjs
@@ -357,9 +365,9 @@ Without it, run the same scripts by path, from your repo's root:
 | hook | event | fires on | what it does |
 |---|---|---|---|
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
-| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose contract does not load, whose base does not resolve, or whose Node is below the floor |
+| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, and a `blocked` the gate did not write |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, and the phase write that would start a run where the engine cannot run |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
@@ -392,6 +400,11 @@ armed.
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
   once, so `phase-guard` denies it.
+- **A run that cannot run here does not start**
+  ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
+  first run phase written while no run is in progress is denied unless the
+  directory is a repository root, the contract loads and the base resolves;
+  nothing is armed by a refused start.
 - **A run does not end itself without a verdict**
   ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
   `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,
@@ -414,6 +427,7 @@ Gitignored working files; delete one to reset that piece of state.
 |---|---|
 | `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
+| `current-milestone` | `<SLUG> <Mk> <implementer session>`, written at each implementer spawn; where `resume` positions the run |
 | `opus_calls` | Planner + architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
@@ -531,7 +545,9 @@ to match the code from one rewritten to match the bug.
 flowchart TD
     S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement, <br/> untracked, and this session's?"}
     P -->|"no"| ALLOW["allow the stop, record nothing"]
-    P -->|"yes"| CFG{"contract readable?"}
+    P -->|"yes"| ROOT{"project directory is <br/> the repository root?"}
+    ROOT -->|"no"| BLK0["BLOCK — open Claude Code <br/> at the root (ADR-027)"]
+    ROOT -->|"yes"| CFG{"contract readable?"}
     CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
     CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
     DIRTY -->|"dirty"| JUDGED{"has any gate <br/> judged this commit?"}

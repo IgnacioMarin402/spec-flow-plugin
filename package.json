@@ -53,7 +53,7 @@
     "init:check": "node scripts/init-fixture.mjs"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.20.4",
     "eslint": "^9.9.0",
     "typescript": "^5.5.0"
   },

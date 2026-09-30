@@ -24,15 +24,57 @@ import { spawnSync } from 'node:child_process';
 const ENGINE = process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
 
-function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false } = {}) {
+/** The contract and the phase, written under `dir` — the two files a run arms on. */
+function writeRun(dir, phase) {
+  mkdirSync(join(dir, '.claude', 'state'), { recursive: true });
+  mkdirSync(join(dir, '.spec-flow'), { recursive: true });
+  writeFileSync(join(dir, '.spec-flow/config.json'), contractJson());
+  writeFileSync(join(dir, '.claude/state/phase'), phase);
+}
+
+function makeRepo({ phase = 'implement', withContract = true, git = true, commitPhase = false, commit = true } = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'smoke-repo-'));
-  mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
   mkdirSync(join(repo, 'specflow'), { recursive: true });
   if (withContract) {
-    mkdirSync(join(repo, '.spec-flow'), { recursive: true });
-    writeFileSync(
-      join(repo, '.spec-flow/config.json'),
-      JSON.stringify({
+    writeRun(repo, phase);
+  } else {
+    mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
+    writeFileSync(join(repo, '.claude/state/phase'), phase);
+  }
+
+  // A real repo with a base branch, because the engine's scope is a
+  // merge-base diff and `preflight` refuses to start a run without one. Off
+  // only for the case that asserts exactly that refusal.
+  if (git) initRepo(repo, { commitPhase, commit });
+
+  return repo;
+}
+
+/**
+ * `git init` plus one commit on `main`, so a merge-base exists — and the phase
+ * committed with it when a case asks. `commit: false` leaves a repository with
+ * no commit at all, the honest shape of "a repository whose base cannot be
+ * resolved": it IS a repository, so the root check passes, and no ref exists
+ * for the base ladder to find.
+ */
+function initRepo(dir, { commitPhase = false, commit = true } = {}) {
+  const g = (...args) => spawnSync('git', args, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q', '.');
+  g('symbolic-ref', 'HEAD', 'refs/heads/main');
+  g('config', 'user.email', 'smoke@example.com');
+  g('config', 'user.name', 'smoke');
+  if (commit) g('commit', '-q', '--allow-empty', '-m', 'baseline');
+  // The shape a repository the user did not write can arrive in: the file
+  // every enforcement hook arms on, supplied by the repo rather than by a
+  // run. See ADR-017.
+  if (commitPhase) {
+    g('add', '-f', '--', '.claude/state/phase');
+    g('commit', '-q', '-m', 'a phase this repository committed');
+  }
+}
+
+function contractJson() {
+  return JSON.stringify({
         contract_version: 1,
         verify: {
           scope_globs: ['*.ts'],
@@ -58,31 +100,7 @@ function makeRepo({ phase = 'implement', withContract = true, git = true, commit
           scoped_alternative: 'npm run check',
           scoped_examples: ['npm run check'],
         },
-      }),
-    );
-  }
-  writeFileSync(join(repo, '.claude/state/phase'), phase);
-
-  // A real repo with a base branch, because the engine's scope is a
-  // merge-base diff and `preflight` refuses to start a run without one. Off
-  // only for the case that asserts exactly that refusal.
-  if (git) {
-    const g = (...args) => spawnSync('git', args, { cwd: repo, stdio: 'ignore' });
-    g('init', '-q', '.');
-    g('symbolic-ref', 'HEAD', 'refs/heads/main');
-    g('config', 'user.email', 'smoke@example.com');
-    g('config', 'user.name', 'smoke');
-    g('commit', '-q', '--allow-empty', '-m', 'baseline');
-    // The shape a repository the user did not write can arrive in: the file
-    // every enforcement hook arms on, supplied by the repo rather than by a
-    // run. See ADR-017.
-    if (commitPhase) {
-      g('add', '-f', '--', '.claude/state/phase');
-      g('commit', '-q', '-m', 'a phase this repository committed');
-    }
-  }
-
-  return repo;
+      });
 }
 
 /** One gate-history line judging the repo's current HEAD, in the gate's own shape. */
@@ -166,8 +184,67 @@ t(
     if (!/base branch/.test(r.stderr)) return `the denial does not name the base as the problem: ${r.stderr}`;
     return null;
   },
+  { commit: false, phase: 'spec' },
+);
+
+// A directory in no repository at all — a workspace folder holding several
+// repositories — has no base to resolve either, and that is not what is wrong
+// with it. Named as such, or a human fills a contract in for a directory the
+// engine can never run against (ADR-027).
+t(
+  'preflight denies a run at a directory that is in no repository, and says to open a repository',
+  (repo) => {
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `a run outside any repository was allowed to start — exit ${r.status}`;
+    if (!/not inside a git repository/.test(r.stderr)) return `the denial blames something other than the missing repository: ${r.stderr}`;
+    // The heading is what a human reads first, and it must not contradict the
+    // detail under it — nor send them to run `init` in a directory where init
+    // refuses for the same reason.
+    if (!/PREFLIGHT FAILED — this directory is in no git repository/.test(r.stderr)) return `the heading names something other than the missing repository: ${r.stderr.split('\n')[0]}`;
+    if (/spec-flow init` regenerates/.test(r.stderr)) return `the denial sends a human to run init here, where init refuses for the same reason: ${r.stderr}`;
+    return null;
+  },
   { git: false, phase: 'spec' },
 );
+
+// ---- the unit of a run is the repository (ADR-027) -------------------------
+//
+// Opened inside a package of a workspace, every committed change git reports
+// is spelled from the root and falls out of the subdirectory's scope, so the
+// gate would pass with the linter never invoked. The run is refused at its
+// first spawn instead, and the message names the root.
+t('preflight denies a run opened in a subdirectory of its repository', () => {
+  const outer = mkdtempSync(join(tmpdir(), 'smoke-workspace-'));
+  try {
+    initRepo(outer);
+    const back = join(outer, 'back');
+    writeRun(back, 'spec');
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, back);
+    if (r.status !== 2) return `a run opened at back/ of a repository was allowed to start — exit ${r.status}: ${r.stderr}`;
+    if (!/repository root/.test(r.stderr)) return `the denial does not say where to open the repository: ${r.stderr}`;
+    return null;
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
+});
+
+// A GUARD on the rule's edge, not proof of a defect: it passes before the
+// refusal existed too. A package that is its own repository IS a root,
+// wherever it sits on disk, and the refusal must not reach it.
+t('preflight allows a package that is its own repository, wherever it sits on disk', () => {
+  const outer = mkdtempSync(join(tmpdir(), 'smoke-workspace-'));
+  try {
+    initRepo(outer);
+    const back = join(outer, 'back');
+    writeRun(back, 'spec');
+    initRepo(back);
+    const r = runHook('preflight.mjs', { tool_input: { subagent_type: 'spec-writer' } }, back);
+    if (r.status !== 0) return `a package that is its own repository was refused — exit ${r.status}: ${r.stderr}`;
+    return null;
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
+});
 
 t(
   'preflight is transparent outside a run, even with no contract at all',
@@ -597,6 +674,93 @@ t('session-start leaves a fresh phase alone', (repo) => {
 // nothing. Every hook falls through to "not my business" on a value it does
 // not recognise, so one invented phase stands down the gate, the write-time
 // linter, the command deny, preflight and the Opus budget at once — silently.
+// ---- a run that cannot run here does not start (ADR-028) --------------------
+//
+// The phase write is the first thing a run does. Refused at the first spawn
+// instead, it had already armed preflight, the budget, phase-guard and arm-gate
+// on a `spec` nothing would reset for six hours — every later subagent spawn in
+// that repository denied over a run the human never got to start.
+t(
+  'phase-guard refuses the write that starts a run where the engine cannot run, and leaves nothing armed',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'spec' } },
+      repo,
+    );
+    if (r.status !== 2) return `a run was started in a repository with no contract — exit ${r.status}; preflight will deny every spawn here until session-start resets the phase`;
+    if (!/Nothing has started/.test(r.stderr)) return `the denial does not say that nothing is armed: ${r.stderr}`;
+    if (existsSync(join(repo, '.claude/state/phase.session'))) return 'a refused start sealed the phase to the session anyway';
+    return null;
+  },
+  { withContract: false, phase: '' },
+);
+
+// The other half of the rule: a repository that can run the engine enters a
+// run on its first write, sealed to the session that wrote it (ADR-017). The
+// seal is what lets the gate tell this run's stops from another session's, so
+// a start that skips it is a run no gate owns.
+t(
+  'phase-guard lets a run start in a repository the engine can run in, and seals it',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'spec' } },
+      repo,
+    );
+    if (r.status !== 0) return `a valid repository was refused a run — exit ${r.status}: ${r.stderr}`;
+    const seal = join(repo, '.claude/state/phase.session');
+    if (!existsSync(seal) || readFileSync(seal, 'utf8') !== 'session-a') return 'the start of a run was not sealed to the session that wrote it';
+    return null;
+  },
+  { phase: '' },
+);
+
+// `blocked` is in the vocabulary and arms every hook that reads the phase, so
+// a tool writing it from `idle` is a run nobody started and no gate capped:
+// preflight and the budget wake over it, and the next implementer spawn has
+// arm-gate carry it to `implement`. The gate's alone means everywhere.
+t(
+  'phase-guard denies blocked outside a run too — it is the gate\'s alone',
+  (repo) => {
+    const r = runHook(
+      'phase-guard.mjs',
+      { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'blocked' } },
+      repo,
+    );
+    if (r.status !== 2) return `a tool wrote blocked from idle (exit ${r.status}) — a run nobody started, armed as if the gate had capped it`;
+    return null;
+  },
+  { withContract: false, phase: '' },
+);
+
+// The phase file has siblings — the seal, the unmatched log — and a write to
+// one of them is not a phase write. Judged as one, the seal's session id is
+// "not a phase this engine knows".
+t('phase-guard leaves the phase file\'s siblings alone', (repo) => {
+  const r = runHook(
+    'phase-guard.mjs',
+    { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase.session'), content: 'abc123def456' } },
+    repo,
+  );
+  if (r.status !== 0) return `a write to phase.session was judged as a phase write — exit ${r.status}: ${r.stderr}`;
+  return null;
+});
+
+// A start written in a form this hook cannot read goes through to preflight,
+// which is the backstop ADR-028 names — and the blind-spot log is what says
+// the guard was bypassed, so it has to be kept outside a run too.
+t(
+  'phase-guard records a start it could not read',
+  (repo) => {
+    runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command: "printf 'spec' | tee .claude/state/phase" } }, repo);
+    const log = join(repo, '.claude', 'state', 'phase-guard-unmatched.log');
+    if (!existsSync(log) || !readFileSync(log, 'utf8').includes('tee')) return 'an unreadable start left no line in phase-guard-unmatched.log, so nothing says the guard was bypassed';
+    return null;
+  },
+  { withContract: false, phase: '' },
+);
+
 t('phase-guard denies a phase outside the closed set', (repo) => {
   const r = runHook(
     'phase-guard.mjs',

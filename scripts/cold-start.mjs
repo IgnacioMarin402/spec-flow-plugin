@@ -205,6 +205,22 @@ try {
       : `no report at ${contract.trace.report.path} after the suite ran — the appended flag does not produce one`,
   );
 
+  // ---- opened in a subdirectory, the check names the root (ADR-027) --------
+  //
+  // From `lib/` the contract is not where this engine looks, and "no contract"
+  // would send an adopter to write a second one there — where git spells every
+  // committed change from the root and the scope would come back empty.
+  const inside = engine('check-changed.mjs', join(repo, 'lib'));
+  const insideOut = `${inside.stdout}${inside.stderr}`;
+  check(
+    'run from a subdirectory, the check names the repository root rather than a missing contract',
+    inside.status === 0
+      ? `the check went green from lib/, judging a subdirectory as the repository:\n${insideOut}`
+      : /repository root/.test(insideOut)
+        ? null
+        : `the refusal from lib/ does not name the root, so a reader is sent to write a second contract:\n${insideOut}`,
+  );
+
   // ---- and the property the whole binding rests on -------------------------
   //
   // The test still exists and still names the requirement; it is skipped, and

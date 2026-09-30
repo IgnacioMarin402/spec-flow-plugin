@@ -12,9 +12,9 @@ You manage phase via the file `.claude/state/phase`. Write the current phase to 
 
 If `$ARGUMENTS` is empty, ask the user in this chat to paste the requirement and wait for their reply.
 
-Write `spec` to `.claude/state/phase`. Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+Write `spec` to `.claude/state/phase`. `phase-guard` **denies that write** when this engine cannot run here — the directory is not a repository root, the contract does not load, the base branch does not resolve — and then nothing has started: show its message to the human and stop (ADR-028). Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
 
-Before your first subagent, a `preflight` hook checks two things and **denies the spawn** if either fails: that `.spec-flow/config.json` loads, and that the base branch resolves in this clone. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
+Before your first subagent, a `preflight` hook checks the same again, plus the Node floor, and **denies the spawn** if any fails. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
 
 ## 1. SPEC  (subagent: spec-writer) + HITL
 - Invoke `spec-writer`, passing the requirement text.

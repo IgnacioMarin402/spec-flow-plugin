@@ -23,6 +23,11 @@
  *      never a step from `implement`, needs the change recorded first from
  *      `spec`/`plan`/`review`, and is free from `blocked`, where a human is
  *      already in the loop.
+ *   4. A write that STARTS a run — a run phase while no run is in progress —
+ *      is refused where this engine cannot run: not a repository root, no
+ *      contract that loads, no base that resolves (ADR-028). Nothing is armed
+ *      then, so a refused start leaves nothing for `session-start` to reset
+ *      and denies no later spawn in that repository.
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
  * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
@@ -31,8 +36,11 @@
  * ALLOWED, because a guard that cannot see the value has nothing to guard and
  * denying on a guess blocks legitimate work.
  *
- * Only acts during a run, and degrades quietly when the contract cannot be
- * read: this is a consistency guard, not a security boundary.
+ * Outside a run it acts on two writes only: `blocked`, which is the gate's
+ * alone wherever it is written, and the one that would start a run (4). An
+ * unreadable contract refuses that start loudly and leaves the `done` check
+ * quiet, because refusing an unearned `done` is that check's job and policing
+ * the contract is the gate's. A consistency guard, not a security boundary.
  */
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,6 +48,7 @@ import { spawnSync } from 'node:child_process';
 import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
+import { assertCanRun } from './lib/can-run.mjs';
 
 /** Change folders under `specflow/` that were never stamped and archived. */
 function liveChanges(root) {
@@ -74,7 +83,15 @@ function deny(message) {
  */
 const PHASES = ['spec', 'plan', 'review', 'implement', 'blocked', 'done', 'idle'];
 
-const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase/;
+/** The phases a run is IN — the ones that arm a hook. */
+const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
+
+/** The phases a tool may write to START a run; `blocked` is the gate's alone. */
+const STARTS_A_RUN = ['spec', 'plan', 'review', 'implement'];
+
+// Anchored past the name: `phase.session` and `phase-guard-unmatched.log` sit
+// beside the phase file, and a write to either is not a phase write.
+const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase(?![\w.-])/;
 
 /**
  * The value a Bash command writes into the phase file, or null when this
@@ -86,7 +103,7 @@ const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase/;
  */
 function bashWrittenValue(cmd) {
   if (!PHASE_FILE_RE.test(cmd)) return null;
-  if (!/>>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase/.test(cmd)) return null;
+  if (!/>>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase(?![\w.-])/.test(cmd)) return null;
 
   const source = cmd.split('>')[0];
   const producer = /(?:^|[;&|]|\s)(printf|echo)\s+(.*)$/.exec(source);
@@ -125,7 +142,7 @@ function bashWrittenValue(cmd) {
  */
 function recordUnreadableWrite(root, cmd) {
   try {
-    const redirects = />>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase/.test(cmd);
+    const redirects = />>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase(?![\w.-])/.test(cmd);
 
     // The pipeline SEGMENT that names the file is the one touching it; in
     // `printf x | tee <phase>` the command's own first token is the producer,
@@ -159,7 +176,7 @@ await run(async () => {
   // naming a session that no longer decides anything. The tracked half still
   // applies, because the `done` check below runs the repo's own unscoped checks.
   const phase = readPhase(root);
-  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown/committed -> transparent
+  const inRun = RUN_PHASES.includes(phase); // idle/done/unknown/committed -> no run
 
   const input = payload.tool_input ?? {};
 
@@ -167,6 +184,10 @@ await run(async () => {
   if (String(payload.tool_name ?? '') === 'Bash') {
     const cmd = String(input.command ?? '');
     written = bashWrittenValue(cmd);
+    // In or out of a run: a command writing into `.claude/state/phase` creates
+    // that directory itself, so recording it there leaves nothing behind that
+    // the command did not — and a start this hook could not read is the one
+    // `preflight` has to catch, which is worth a line saying so.
     if (!written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
   } else {
     const filePath = String(input.file_path ?? input.filePath ?? '');
@@ -176,6 +197,38 @@ await run(async () => {
   }
 
   if (!written) return; // not a readable phase write -> see this file's header
+
+  // The gate's alone, in a run and out of one: written from `idle` it arms
+  // `preflight` and the budget over a cap no gate reached, and the next
+  // implementer spawn has `arm-gate` move it to `implement`.
+  if (written === 'blocked') {
+    deny(
+      `'blocked' is written by the gate itself, at its attempt cap — it is how the gate hands a run to a human. ` +
+        `Written by anything else it disarms the gate without that having happened. If you need a human, say so ` +
+        `and end your turn; the gate still judges what is committed.`,
+    );
+  }
+
+  // ---- a write that STARTS a run is decided from where it starts (ADR-028) --
+  if (!inRun) {
+    // `idle`, `done`, or a value outside the vocabulary: arms nothing, so
+    // there is nothing to guard and this hook stays transparent.
+    if (!STARTS_A_RUN.includes(written)) return;
+
+    // The checks `preflight` makes at the first spawn, made at the first
+    // write: a run refused here leaves no phase behind, while one refused
+    // there had already armed every hook that reads the phase.
+    try {
+      assertCanRun(root);
+    } catch (err) {
+      deny(
+        `starting a run by writing '${written}' into .claude/state/phase, and this engine cannot run in this repository: ${err.message}\n\n` +
+          `Nothing has started and nothing is armed. Fix that first, then start the run again — \`spec-flow init\`, run from the repository root, writes the contract.`,
+      );
+    }
+    claimPhase(root, payload.session_id);
+    return;
+  }
 
   // ---- is this a phase at all? ---------------------------------------------
   if (!PHASES.includes(written)) {
@@ -191,14 +244,6 @@ await run(async () => {
         `orchestrator, that constraint is the design, not an obstacle to route around.\n`,
     );
     process.exit(2); // PreToolUse denial protocol
-  }
-
-  if (written === 'blocked') {
-    deny(
-      `'blocked' is written by the gate itself, at its attempt cap — it is how the gate hands a run to a human. ` +
-        `Written by anything else it disarms the gate without that having happened. If you need a human, say so ` +
-        `and end your turn; the gate still judges what is committed.`,
-    );
   }
 
   // ---- a write that ends the run is decided from evidence (ADR-022) -------

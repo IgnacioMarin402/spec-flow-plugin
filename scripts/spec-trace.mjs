@@ -7,7 +7,7 @@
 // It binds two artifacts the contract names:
 //
 //   <trace.specs_dir>/<capability>.md   what the system does today
-//   <trace.executed_tests>              argv naming the tests that RAN
+//   <trace.report> | <trace.executed_tests>   the tests that RAN, as the runner reported them
 //
 // The binding is the requirement id (REQ-USER-001), and it binds only from a
 // test the runner REPORTED as executed — a tag in a comment or a helper
@@ -212,7 +212,7 @@ const SPECS_DIR = join(root, CONFIG.trace.specs_dir);
 const ARCHIVE_DIR = join(root, 'specflow', 'archive');
 
 const problems = [];
-/** id -> { title, spec, scope } */
+/** id -> { title, spec } */
 const requirements = new Map();
 
 // ---- read the specs ---------------------------------------------------
@@ -243,7 +243,7 @@ for (const file of specFiles) {
       problems.push(`${id} is declared twice: ${requirements.get(id).spec} and ${rel}.`);
       continue;
     }
-    requirements.set(id, { title: title.trim(), spec: rel, scope });
+    requirements.set(id, { title: title.trim(), spec: rel });
   }
 }
 
@@ -385,7 +385,11 @@ if (!reportFailed && (reportedLines.length > 0 || reportSkipped > 0)) {
   for (const [id, req] of requirements) {
     if (!proofs.has(id)) {
       problems.push(
-        `${id} (${req.spec}) has no test that RAN. Add a test under ${req.scope ?? 'the capability'}/${CONFIG.trace.proof_dir} whose name contains ${id}, or delete the requirement — an unproven requirement is a wish, not a spec. ` +
+        // The proof surface the contract declares, never a path composed from
+        // the spec's scope: `<scope>/<proof_dir>` names a directory only in a
+        // repo whose tests sit inside each module, and the layout is the
+        // anatomy statement's to say (ADR-026).
+        `${id} (${req.spec}) has no test that RAN. Add a test on the proof surface the contract declares — a ${CONFIG.trace.proof_suffix} file under ${CONFIG.trace.proof_dir} — whose name contains ${id}, or delete the requirement — an unproven requirement is a wish, not a spec. ` +
           `Note that a test which exists but was skipped or marked todo counts as absent here: it is reported by nothing, which is exactly what makes skipping useless as a way to silence this.`,
       );
     }

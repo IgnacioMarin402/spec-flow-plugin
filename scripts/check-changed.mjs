@@ -20,7 +20,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, prepareReport } from './spec-flow-config.mjs';
-import { resolveBase, changedFiles, scopeMatchesNothing } from './changed-files.mjs';
+import { resolveBase, changedFiles, scopeMatchesNothing, assertRepoRoot } from './changed-files.mjs';
 import { runUnscopedChecks, summary } from './unscoped-checks.mjs';
 import { engineRevision } from './engine-revision.mjs';
 
@@ -32,6 +32,15 @@ const ENGINE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const fix = !process.argv.includes('--no-fix');
+
+// Ahead of the contract, so a subdirectory hears where the root is rather
+// than that it has no contract (ADR-027).
+try {
+  assertRepoRoot(root);
+} catch (err) {
+  console.error(`spec-flow check: ${err.message}`);
+  process.exit(1);
+}
 
 // Unguarded, like every consumer of the contract: a version this engine does
 // not recognize must stop the run loudly, not fall back to stale defaults.
