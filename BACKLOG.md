@@ -38,19 +38,6 @@ agent frontmatter that already names each tier. `max_opus_calls` is the part
 with a demonstrated job (cost control). **Decide by use:** keep what a real
 project has set.
 
-### B41 — the gate fails open on a module it cannot load
-
-Measured while adding `hooks/lib/live-change.mjs`: with the file absent from
-the engine copy, `gate.mjs` died at import with `ERR_MODULE_NOT_FOUND`, exit 1,
-no decision — and every fixture case read as an ALLOWED stop. The fail-closed
-`catch` wraps the gate's body, not its imports, and a Stop hook that exits 1
-with no output allows the stop. `gate-fixture.mjs`'s hand-kept import list
-is what catches it in CI (its own header says so); nothing catches it in an
-install, so a partial `hooks/lib/` disarms the gate silently — the failure
-this engine exists to close. **Done:** a gate-fixture case that removes one `hooks/lib` file from the engine
-copy and asserts a block; the fix is a thin entrypoint that `import()`s the
-gate inside the same `catch` that fails closed.
-
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full
