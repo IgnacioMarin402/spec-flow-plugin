@@ -355,6 +355,39 @@ for (const phase of ['', 'idle', 'done']) {
   });
 }
 
+// ---- at SubagentStop, and by transcript file (ADR-034) ------------------
+//
+// A SubagentStop payload names the AGENT's transcript and not the session's,
+// so the hook derives the session's from it — they sit side by side — and
+// counts every transcript as it does at Stop. Each sidechain line carries the
+// agent id its file is named after: a fact about the file, which a reader
+// joins to a role where it can say it is unsure.
+
+check('a SubagentStop payload naming only the agent transcript still counts, and the line carries the agent id', () => {
+  const repo = makeRepo();
+  const session = transcript(repo, [entry({ out: 7 })]);
+  const sub = subagentTranscript(session, 'abc123', [entry({ sidechain: true, out: 40 })]);
+  const { code, lines } = stop(repo, null, { hook_event_name: 'SubagentStop', agent_id: 'abc123', agent_transcript_path: sub });
+  if (code !== 0) return `exited ${code}`;
+  const side = lines.find((l) => field(l, 'sidechain') === 'true');
+  if (!side) return `the subagent's usage was not counted off a SubagentStop payload:\n${lines.join('\n')}`;
+  if (field(side, 'agent') !== 'abc123') return `the sidechain line does not name the agent its file is named after: ${side}`;
+  const main = lines.find((l) => field(l, 'sidechain') === 'false');
+  if (!main) return `the session transcript beside the agent's was not counted:\n${lines.join('\n')}`;
+  if (field(main, 'agent') !== undefined) return `the session's own line carries an agent label: ${main}`;
+  return '';
+});
+
+check('two subagents on one model are two lines, each labelled — a whitespace-split log cannot hold a repeated key', () => {
+  const repo = makeRepo();
+  const session = transcript(repo, [entry()]);
+  subagentTranscript(session, 'one', [entry({ sidechain: true, out: 1 })]);
+  subagentTranscript(session, 'two', [entry({ sidechain: true, out: 2 })]);
+  const { lines } = stop(repo, session);
+  const agents = lines.filter((l) => field(l, 'sidechain') === 'true').map((l) => field(l, 'agent')).sort();
+  return agents.join(',') === 'one,two' ? '' : `expected one line per agent (one, two), got agents: ${agents.join(',') || '(none)'}\n${lines.join('\n')}`;
+});
+
 check('a repo that never adopted this engine gets no .claude/ directory', () => {
   const repo = makeRepo(null);
   const t = transcript(repo, [entry()]);

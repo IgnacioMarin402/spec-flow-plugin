@@ -208,6 +208,13 @@ jobs:
       - name: Resume verdicts
         run: npm run resume:check
 
+      # The live view. It reads files several hooks write and the transcripts
+      # token-trace names, so a moved field or a renamed file leaves it
+      # drawing a frame that says nothing — which is why the frame is asserted
+      # line by line rather than "exits 0".
+      - name: Watch frame
+        run: npm run watch:check
+
       # Every hook without a fixture of its own. Shallower than the gate
       # fixture, and that is the right trade: they are small adapters over one
       # protocol, and what a port breaks in them is coarse — a hook that

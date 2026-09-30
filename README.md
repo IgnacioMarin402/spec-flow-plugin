@@ -116,6 +116,10 @@ nothing is published to npm, and `spec-flow` on npm is someone else's package
 6. Fold: the change is verified against `specs/`, stamped SHIPPED and archived
    with the run's telemetry.
 
+From a second terminal, `spec-flow watch` shows the run as it goes: which
+agent is running, since when, what each has cost, what the gate last said
+([REFERENCE → CLI](REFERENCE.md#cli)).
+
 Beyond answering its questions, it stops for you only at the sign-off, a
 `/spec-fix` defect that turns out to be a wrong spec or a feature, an exhausted
 escalation budget, or five gate failures — then read

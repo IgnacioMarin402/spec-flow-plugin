@@ -47,6 +47,7 @@
     "stats:check": "node scripts/stats-fixture.mjs",
     "tokens:check": "node scripts/token-fixture.mjs",
     "resume:check": "node scripts/resume-fixture.mjs",
+    "watch:check": "node scripts/watch-fixture.mjs",
     "unit:check": "node --test",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",

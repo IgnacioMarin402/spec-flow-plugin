@@ -337,6 +337,7 @@ block message is the instruction
 | `spec-flow trace` | `spec-trace` alone |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
 | `spec-flow status` | Where the live run is, what the gate last said, what it has cost |
+| `spec-flow watch` | `status`, redrawn every second from a second terminal: each agent, its status or since when, its cost so far ([ADR-034](decisions/034-a-run-is-watched-off-the-files-it-already-writes.md)). `--once` for one frame |
 | `spec-flow resume [<SLUG>]` | The step an unfinished run resumes at, and the evidence for it |
 | `spec-flow models` | Which tier each agent runs on here, and which layer decided it |
 | `spec-flow telemetry --mark` | Record the telemetry offset at the start of a run |
@@ -357,6 +358,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `check` | `node <clone>/scripts/check-changed.mjs` |
 | `trace` | `node <clone>/scripts/spec-trace.mjs` |
 | `stats` | `node <clone>/scripts/specflow-stats.mjs` |
+| `watch` | `node <clone>/scripts/watch.mjs` |
 | `resume` | `node <clone>/scripts/resume.mjs` |
 | `telemetry` | `node <clone>/scripts/telemetry-snapshot.mjs` |
 
@@ -380,7 +382,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `size-on-write` | `PostToolUse` | `Write`, `Edit` | Refuses a live change artefact written over its `trace.budgets` |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
 | `run-trace` | `PostToolUse`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` | The run's timeline, and each subagent's return. Enforces nothing |
-| `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
+| `token-trace` | `Stop`, `SubagentStop` | — | Token accounting from the session's and its subagents' transcripts, each subagent's line labelled by its transcript. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed, its own loading included ([ADR-033](decisions/033-the-gate-fails-closed-on-a-module-it-cannot-load.md)) |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`;
@@ -438,7 +440,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
 | `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, token counts |
-| `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
+| `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read, and which transcripts — what `spec-flow watch` reads them from |
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |
 | `*-unmatched.log` | What each hook could not read — how a hook that fails open reports its blind spots |

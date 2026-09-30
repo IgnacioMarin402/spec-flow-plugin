@@ -30,6 +30,11 @@ const commands = {
   // live run is right now, which is the question you have while it is running
   // and the one a Stop hook's own channel cannot reach you with (ADR-010).
   status: '../scripts/status.mjs',
+  // `status`, redrawn every second from a second terminal: which agent is
+  // running, since when, what each has cost so far, what the gate last said
+  // (ADR-034). Inside the session there is no surface for it — a Stop hook's
+  // own channel does not reach a human there (ADR-010) — so this is a CLI.
+  watch: '../scripts/watch.mjs',
   // The step an unfinished run resumes at — what `/spec-flow:resume` acts on,
   // and worth reading from a terminal before a session spends anything on it.
   resume: '../scripts/resume.mjs',
