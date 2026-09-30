@@ -53,12 +53,10 @@ push**, then end your turn with a clean tree. The `Stop` hook runs the
 contract's lint over the files this branch changed, its test command over the
 whole suite, then spec-trace and every `extra_checks` entry. **Never run them
 yourself.** Its `reason` is your next instruction — follow it exactly: it names
-the failure class, the attempt, and who fixes it. Three things it cannot know:
+the failure class, the attempt, who fixes it, and — for a re-plan — which
+route this flow has (the planner, or `/spec-fix`'s triage) and under which
+phase. Two things it cannot know:
 
-- **Which re-plan route this flow has, and under which phase.** Where the
-  gate says "re-plan", `/spec-flow` means `planner` in `MODE=REPLAN` under
-  `plan`; `/spec-fix` means re-running the triage under `spec`. Then the
-  implementer, per the revised milestone — its warm session, else a new one.
 - **A stale log.** `.claude/state/gate-failure.log` can describe a tree a
   background implementer has since moved on. Before routing, check
   `git status` and the exact lines it names; if they changed, commit and end

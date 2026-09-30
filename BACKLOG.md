@@ -38,15 +38,18 @@ agent frontmatter that already names each tier. `max_opus_calls` is the part
 with a demonstrated job (cost control). **Decide by use:** keep what a real
 project has set.
 
-### B40 — the gate's re-plan message names a planner `/spec-fix` never runs
+### B41 — the gate fails open on a module it cannot load
 
-`hooks/gate.mjs` prints one re-plan route — "write `plan`, invoke the planner
-in `MODE=REPLAN`" — whichever flow is live; `/spec-fix` may write neither, and
-`modes/orchestrator.md` tells the orchestrator to translate it into a
-re-triage under `spec`. A live fix brief is recognisable from disk (`## Case`
-in `specflow/<SLUG>/spec.md`, which `spec-trace` already reads). **Done:** a
-gate-fixture case where a fix brief is live and the block message names the
-triage, not the planner; the translation sentence in the protocol then goes.
+Measured while adding `hooks/lib/live-change.mjs`: with the file absent from
+the engine copy, `gate.mjs` died at import with `ERR_MODULE_NOT_FOUND`, exit 1,
+no decision — and every fixture case read as an ALLOWED stop. The fail-closed
+`catch` wraps the gate's body, not its imports, and a Stop hook that exits 1
+with no output allows the stop. `gate-fixture.mjs`'s hand-kept import list
+is what catches it in CI (its own header says so); nothing catches it in an
+install, so a partial `hooks/lib/` disarms the gate silently — the failure
+this engine exists to close. **Done:** a gate-fixture case that removes one `hooks/lib` file from the engine
+copy and asserts a block; the fix is a thin entrypoint that `import()`s the
+gate inside the same `catch` that fails closed.
 
 ### B15 — model-graded checks
 

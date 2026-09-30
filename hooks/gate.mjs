@@ -42,6 +42,7 @@ import { loadConfig, prepareReport } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks, histFields, histDashes, summary, failedHints } from '../scripts/unscoped-checks.mjs';
 import { resolveBase, changedFiles, scopeMatchesNothing, assertRepoRoot } from '../scripts/changed-files.mjs';
 import { engineRevision } from '../scripts/engine-revision.mjs';
+import { liveFixBrief } from './lib/live-change.mjs';
 
 const MAX_ATTEMPTS = 5;
 
@@ -634,9 +635,15 @@ await run(
       return;
     }
 
-    // Everything else -> the plan may be wrong. Re-plan the current milestone.
+    // Everything else -> the plan may be wrong. Which re-plan this run has
+    // depends on the flow, and this message is the one copy that is always
+    // current (ADR-029): a /spec-fix brief has no planner, so its re-plan is
+    // the triage that classified it.
+    const failed = `GATE FAILED (lint rc=${lintField}, test rc=${testRc}, ${summary(result)}, class=${failureClass}) on the files this branch changed. Do NOT patch ad-hoc.`;
     emitBlock(
-      `GATE FAILED (lint rc=${lintField}, test rc=${testRc}, ${summary(result)}, class=${failureClass}) on the files this branch changed. Do NOT patch ad-hoc. Loop back to the PLAN phase: (1) write 'plan' into .claude/state/phase, (2) invoke the planner subagent in MODE=REPLAN for the CURRENT milestone, pointing it at the failure log .claude/state/gate-failure.log, (3) re-invoke the implementer for that milestone, (4) set phase back to 'implement'. The full output is in .claude/state/gate-failure.log.`,
+      liveFixBrief(root, state)
+        ? `${failed} This run is a /spec-fix brief, so there is no planner to re-plan it: a fix whose test will not go green is aimed at the wrong case, most often a case 3 filed as a case 1. Loop back to TRIAGE: (1) write 'spec' into .claude/state/phase, (2) invoke the spec-writer subagent in MODE=TRIAGE with the defect report and the failure log .claude/state/gate-failure.log, (3) write the work order again and re-invoke the implementer, (4) set phase back to 'implement'. The full output is in .claude/state/gate-failure.log.`
+        : `${failed} Loop back to the PLAN phase: (1) write 'plan' into .claude/state/phase, (2) invoke the planner subagent in MODE=REPLAN for the CURRENT milestone, pointing it at the failure log .claude/state/gate-failure.log, (3) re-invoke the implementer for that milestone, (4) set phase back to 'implement'. The full output is in .claude/state/gate-failure.log.`,
     );
   },
 

@@ -42,20 +42,13 @@
  * quiet, because refusing an unearned `done` is that check's job and policing
  * the contract is the gate's. A consistency guard, not a security boundary.
  */
-import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
-
-/** Change folders under `specflow/` that were never stamped and archived. */
-function liveChanges(root) {
-  const dir = join(root, 'specflow');
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((e) => e !== 'archive' && statSync(join(dir, e)).isDirectory());
-}
+import { liveChanges } from './lib/live-change.mjs';
 
 /**
  * Whether a gate has passed the current commit: true, false, or null when git

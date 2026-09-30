@@ -68,10 +68,9 @@ For each milestone `Mk` in `plan.md`, in order:
      `MODE=REPLAN` for `Mk` first, then resume the implementer.
    - `STATUS: BLOCKED` → `planner` `MODE=REPLAN` for `Mk`, then the
      implementer again.
-3. The protocol's **gate loop**. This flow's re-plan route is `planner` in
-   `MODE=REPLAN` for `Mk`, under `plan`, pointed at
-   `.claude/state/gate-failure.log`; then the implementer per the revised
-   `Mk.md`, and `implement` again.
+3. The protocol's **gate loop**. A re-plan is `planner` in `MODE=REPLAN` for
+   `Mk`; then the implementer per the revised `Mk.md` — its warm session,
+   else a new one.
 
 ## 5. FOLD  (subagent: spec-writer)
 The milestones have already written the deltas into `specs/`; the fold closes

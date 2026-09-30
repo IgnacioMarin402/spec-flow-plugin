@@ -93,10 +93,9 @@ remember it as `IMPL_SESSION`, resumed while warm per the protocol.
 - `STATUS: BLOCKED` → re-run the triage with the reason. A fix that cannot be
   implemented from its work order was usually classified wrong.
 
-Then the protocol's **gate loop**. This flow's re-plan route is **re-running
-the triage** (step 1) under `spec`, with `.claude/state/gate-failure.log`: a
-fix whose test will not go green is aimed at the wrong case, most often a
-case 3 filed as a case 1. The re-triage records the case it replaced.
+Then the protocol's **gate loop**. Its re-plan here is **re-running the
+triage** (step 1), and the gate says so; the re-triage records the case it
+replaced, and the work order is written again from it.
 
 ## 5. FOLD  (subagent: spec-writer)
 The protocol's **fold**. A case 2 or 4 has no deltas to verify — the fold is

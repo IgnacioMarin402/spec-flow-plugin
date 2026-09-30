@@ -15,6 +15,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { isFixBrief } from '../hooks/lib/live-change.mjs';
 
 // A report that throws reads as a verdict. Anything unexpected still ends on
 // a NEXT line and exit 0 — see the header.
@@ -45,7 +46,7 @@ function describe(dir) {
         .sort((a, b) => a - b)
     : [];
   return {
-    fix: /^#\s*Fix\b/m.test(spec),
+    fix: isFixBrief(spec),
     status: /^\*\*Status:\*\*\s*([A-Z]+)/m.exec(spec)?.[1] ?? '',
     proposal: existsSync(join(dir, 'proposal.md')),
     plan: existsSync(join(dir, 'plan.md')),

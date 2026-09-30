@@ -40,6 +40,7 @@ import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
+import { isFixBrief } from '../hooks/lib/live-change.mjs';
 
 const LIST = process.argv.includes('--list');
 
@@ -431,8 +432,9 @@ for (const slug of archived) {
 // a check the Decision section drifts back into spec.md within a few changes.
 //
 //   - Live changes only — archived ones predate this rule.
-//   - Fix briefs are exempt (`## Case` heading): the five-case triage IS the
-//     fix flow, so `/spec-fix` output has nowhere to split.
+//   - Fix briefs are exempt (`# Fix` heading, hooks/lib/live-change.mjs): the
+//     five-case triage IS the fix flow, so `/spec-fix` output has nowhere to
+//     split.
 //   - Headings only. Whether the rationale is any good is a reviewer's job.
 const SPECFLOW_DIR = join(root, 'specflow');
 const HEAVY_HEADINGS = ['## Source', '## Context', '## Decision'];
@@ -446,7 +448,7 @@ for (const slug of live) {
   if (!existsSync(specPath)) continue; // a folder mid-write is not a failure
 
   const body = readFileSync(specPath, 'utf8');
-  const isFixBrief = /^## Case\b/m.test(body);
+  const fixBrief = isFixBrief(body);
 
   // ---- a CHANGED delta says which kind it is ------------------------------
   //
@@ -493,7 +495,7 @@ for (const slug of live) {
   // out is the asymmetry. See ADR-009.
   for (const { line, id, kind } of changedDeltas(body)) {
     if (kind === 'wording') continue;
-    if (kind === 'correction' && isFixBrief) continue;
+    if (kind === 'correction' && fixBrief) continue;
 
     problems.push(
       `specflow/${slug}/spec.md: "${line.trim()}" ${explainKind(kind)}. ` +
@@ -506,7 +508,7 @@ for (const slug of live) {
     );
   }
 
-  if (isFixBrief) continue; // exempt from the split below, by design
+  if (fixBrief) continue; // exempt from the split below, by design
 
   const leaked = HEAVY_HEADINGS.filter((h) => new RegExp(`^${h}\\b`, 'm').test(body));
   if (leaked.length > 0) {

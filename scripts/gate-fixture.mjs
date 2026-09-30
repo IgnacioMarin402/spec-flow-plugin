@@ -54,6 +54,8 @@ const JUNIT_SKIPS = '<testsuites><testcase name="REQ-FIX-001 the fix"><skipped/>
 // a report no run produced.
 const suiteWriting = (body) => ['node', '-e', `require("fs").writeFileSync("reports/junit.xml", ${JSON.stringify(body)})`];
 const FIX_SPEC = '<!-- spec-scope: modules/fix -->\n\n# Fix\n\n### REQ-FIX-001 — the fix\n\nThe system is fixed.\n';
+/** A `/spec-fix` brief as MODE=TRIAGE writes it: the heading is what names the flow. */
+const FIX_BRIEF = '# Fix — fix-thing: the thing is broken\n\n## Source\nreported\n\n## Case\n1 UNSPECIFIED — no claim covered it\n\n## Requirement deltas\n- ADDED REQ-FIX-001 — the fix\n';
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
@@ -158,6 +160,14 @@ async function fixture({
   // change.
   report = null,
   specs = {},
+  // Any other tracked file a case needs in place — a live change folder under
+  // `specflow/`, for the cases about which re-plan route the gate names.
+  // Committed with the baseline, like `specs`, so the tree it leaves is clean.
+  files = {},
+  // `.claude/state/current-milestone`, as `register-agent` writes it at an
+  // implementer spawn: `<SLUG> <Mk> <session>`. The gate reads the slug off it
+  // to tell which change it is judging.
+  currentMilestone = null,
   // A subdirectory of the repository to point the gate at instead of the
   // repository itself — the contract, the state and the changed files all
   // live under it, as they would in a package of a workspace. The git
@@ -172,7 +182,7 @@ async function fixture({
   mkdirSync(join(engineDir, 'hooks', 'lib'), { recursive: true });
   mkdirSync(join(engineDir, 'scripts'), { recursive: true });
   copyFileSync(join(ROOT, 'hooks/gate.mjs'), join(engineDir, 'hooks/gate.mjs'));
-  for (const f of ['io.mjs', 'agent-name.mjs']) {
+  for (const f of ['io.mjs', 'agent-name.mjs', 'live-change.mjs']) {
     copyFileSync(join(ROOT, 'hooks/lib', f), join(engineDir, 'hooks/lib', f));
   }
   // `test-report.mjs` is here because spec-flow-config.mjs imports it at module
@@ -281,7 +291,7 @@ async function fixture({
 
   writeFileSync(join(repoDir, '.gitignore'), '.claude/state/\n');
   writeFileSync(join(repoDir, 'a.ts'), 'export const a = 1;\n');
-  for (const [rel, content] of Object.entries(specs)) {
+  for (const [rel, content] of Object.entries({ ...specs, ...files })) {
     mkdirSync(dirname(join(repoDir, rel)), { recursive: true });
     writeFileSync(join(repoDir, rel), content);
   }
@@ -316,6 +326,7 @@ async function fixture({
 
   writeFileSync(join(repoDir, '.claude/state/phase'), phase);
   writeFileSync(join(repoDir, '.claude/state/gate_attempts'), gateAttempts);
+  if (currentMilestone) writeFileSync(join(repoDir, '.claude/state/current-milestone'), currentMilestone);
   if (phaseOwner) writeFileSync(join(repoDir, '.claude/state/phase.session'), phaseOwner);
 
   // Before `headSha` below, because committing moves it — and the history a
@@ -1413,6 +1424,71 @@ await Promise.all([
       if (!/MODE=REPLAN/.test(r.stdout)) return `attempt 2 did not route to REPLAN: ${r.stdout}`;
       return null;
     }),
+  ),
+
+  // ---- the re-plan route the gate names is the live flow's (B40) ----
+  //
+  // `/spec-fix` spawns no planner and may not write `plan`; its re-plan is
+  // the triage. The gate is the copy of the routing that is always current
+  // (ADR-029), so it, not the orchestrator's command, says which. The
+  // discrimination is asserted both ways: a case that only checked the fix
+  // brief would pass over a gate that names the triage for every run.
+  check('a red test that survives one attempt, with a /spec-fix brief live, routes to TRIAGE — there is no planner to re-plan it', () =>
+    withFixture(
+      {
+        specTrace: 'green',
+        test: RED,
+        gateAttempts: '1',
+        files: { 'specflow/fix-thing/spec.md': FIX_BRIEF, 'specflow/fix-thing/milestones/M1.md': '# M1 — the fix\n' },
+        currentMilestone: 'fix-thing M1 0123456789abcdef0',
+      },
+      (r) => {
+        if (!r.blocked) return 'a red test did not block the stop';
+        const reason = r.payload?.reason ?? '';
+        // The triage message may SAY there is no planner; what it may not do is route to one.
+        if (/MODE=REPLAN|invoke the planner/i.test(reason)) return `a /spec-fix brief was sent to a planner the flow never runs: ${reason}`;
+        if (!/MODE=TRIAGE/.test(reason)) return `the block does not name the triage as the re-plan: ${reason}`;
+        if (!/write 'spec'/.test(reason) || /write 'plan'/.test(reason)) return `the block names a phase /spec-fix may not write: ${reason}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('the same failure with a /spec-flow change live still routes to the planner', () =>
+    withFixture(
+      {
+        specTrace: 'green',
+        test: RED,
+        gateAttempts: '1',
+        files: { 'specflow/add-thing/spec.md': '# Spec — add-thing: a thing\n\n## User stories\n- **US-1** — a thing\n', 'specflow/add-thing/proposal.md': '# Proposal — add-thing\n' },
+        currentMilestone: 'add-thing M2 0123456789abcdef0',
+      },
+      (r) => {
+        if (!r.blocked) return 'a red test did not block the stop';
+        const reason = r.payload?.reason ?? '';
+        if (!/MODE=REPLAN/.test(reason)) return `a /spec-flow change was not sent to the planner: ${reason}`;
+        if (/MODE=TRIAGE/.test(reason)) return `a /spec-flow change was sent to the triage: ${reason}`;
+        return null;
+      },
+    ),
+  ),
+
+  check('with no position file, a single live fix brief is still recognised; the fold\'s gate finds it in the archive', () =>
+    withFixture(
+      {
+        specTrace: 'green',
+        test: RED,
+        gateAttempts: '1',
+        files: { 'specflow/archive/fix-thing/spec.md': FIX_BRIEF },
+        currentMilestone: 'fix-thing M1 0123456789abcdef0',
+      },
+      (r) => {
+        if (!r.blocked) return 'a red test did not block the stop';
+        const reason = r.payload?.reason ?? '';
+        if (!/MODE=TRIAGE/.test(reason)) return `an archived fix brief named by the position file was not recognised: ${reason}`;
+        return null;
+      },
+    ),
   ),
 
   // ---- a repo's own extra_checks can force the behaviour class too, not just a red test ----
