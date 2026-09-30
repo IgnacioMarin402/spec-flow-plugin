@@ -125,6 +125,9 @@ async function fixture({
   extraChecks = [],
   contractVersion = 1,
   sabotage = null,
+  // Deletes one file from the engine COPY after it is built — the shape of a
+  // partial install, for the case about a gate that cannot load at all.
+  removeFromEngine = null,
   gateAttempts = '0',
   history = null,
   lint = NOOP,
@@ -182,7 +185,7 @@ async function fixture({
   mkdirSync(join(engineDir, 'hooks', 'lib'), { recursive: true });
   mkdirSync(join(engineDir, 'scripts'), { recursive: true });
   copyFileSync(join(ROOT, 'hooks/gate.mjs'), join(engineDir, 'hooks/gate.mjs'));
-  for (const f of ['io.mjs', 'agent-name.mjs', 'live-change.mjs']) {
+  for (const f of ['gate.mjs', 'io.mjs', 'agent-name.mjs', 'live-change.mjs']) {
     copyFileSync(join(ROOT, 'hooks/lib', f), join(engineDir, 'hooks/lib', f));
   }
   // `test-report.mjs` is here because spec-flow-config.mjs imports it at module
@@ -221,6 +224,8 @@ async function fixture({
     const target = join(engineDir, sabotage.file);
     writeFileSync(target, readFileSync(target, 'utf8').replace(sabotage.find, sabotage.replace));
   }
+
+  if (removeFromEngine) rmSync(join(engineDir, removeFromEngine), { force: true });
 
   // A git checkout of the engine, for the one case whose subject is what
   // `engine=` reports. Committed here so the caller can add commits on top and
@@ -492,6 +497,18 @@ await Promise.all([
   // cannot see it, and until the log recorded the ATTEMPT as well as the
   // outcome, "no history line" was indistinguishable from "the gate was never
   // armed". A `running` line that outlives its invocation is the evidence.
+  // The catch-all above wraps the gate's BODY. A missing module dies at
+  // import, ahead of it, and a Stop hook with no decision allows the stop —
+  // measured while adding a lib file this fixture's copy did not carry: every
+  // case here read as an allowed stop. The entrypoint closes that (ADR-033).
+  check('a gate that cannot load — a file missing from the install — blocks the stop rather than allowing it in silence', () =>
+    withFixture({ specTrace: 'green', removeFromEngine: 'hooks/lib/io.mjs' }, (r) => {
+      if (!r.blocked) return `the gate died at import and ALLOWED the stop — status ${r.status}, stderr: ${r.stderr.slice(0, 300)}`;
+      if (!/could not be loaded/.test(r.payload?.reason ?? '')) return `blocked, but the reason does not say the gate failed to load: ${r.payload?.reason}`;
+      return null;
+    }),
+  ),
+
   check('an armed gate records the attempt before it runs anything', () =>
     withFixture({ specTrace: 'green' }, (r) => {
       if (/result=running/.test(r.history)) {
