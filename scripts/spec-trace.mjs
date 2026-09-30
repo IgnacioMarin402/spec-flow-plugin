@@ -426,10 +426,9 @@ for (const slug of archived) {
 }
 
 // ---- a live change spec stays light -----------------------------------
-// Two files exist so the planner (reads on every fresh context) and the human
-// (reads once, at sign-off) each get the document shaped for them: spec.md is
-// the delta, proposal.md is the rationale. Without a check the Decision
-// section drifts back into spec.md within a few changes.
+// Two files, split by reader (ADR-030): spec.md is the delta the planner reads
+// on every fresh context, proposal.md the rationale a human reads once. Without
+// a check the Decision section drifts back into spec.md within a few changes.
 //
 //   - Live changes only — archived ones predate this rule.
 //   - Fix briefs are exempt (`## Case` heading): the five-case triage IS the

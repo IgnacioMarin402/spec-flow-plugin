@@ -15,7 +15,6 @@ Look-up material. For what spec-flow is and how to install it, see the
 - [Hooks](#hooks)
 - [Phases](#phases)
 - [`.claude/state/`](#claudestate)
-- [What an install costs](#what-an-install-costs)
 - [How a run unfolds](#how-a-run-unfolds) — the three flowcharts
 
 ---
@@ -300,15 +299,13 @@ To preload instead, add your own `.claude/agents/implementer.md` with a
 kinds of file each has, how each is named, what a test is called — and keep it
 under a page. The planner loads it before it opens any code and names it in
 every milestone that adds a file, so the implementer loads it before its first
-edit. Without it each agent learns the same thing from the source, in every
-run, in its own cold context: on the run that prompted this, a planner with no
-such statement read 25 files of two modules the change did not touch.
+edit; without it each agent learns the same thing from the source, in every
+run ([ADR-026](decisions/026-anatomy-is-stated-not-learned-from-source.md)).
 `spec-flow stats` reports each phase's reads outside the change's scope, which
-is how you tell the statement is missing or incomplete
-([ADR-026](decisions/026-anatomy-is-stated-not-learned-from-source.md)). A
-short statement fits in `CLAUDE.md` instead, which every agent already
-carries. Few skills with short descriptions beat many: every skill's name and
-description is listed in every turn of the agents that carry the `Skill` tool.
+is how you tell the statement is missing or incomplete. A short statement fits
+in `CLAUDE.md` instead. Few skills with short descriptions beat many: every
+skill's name and description is listed in every turn of the agents that carry
+the `Skill` tool.
 
 ---
 
@@ -321,6 +318,12 @@ description is listed in every turn of the agents that carry the `Skill` tool.
 | `/spec-flow:models` | Which tier each agent runs on and who decided. `<agent> <tier>` sets one, `<agent> default` clears it |
 | `/spec-flow:resume [<SLUG>]` | Picks up a run a dead session left, at the step the disk says it reached ([ADR-024](decisions/024-a-run-resumes-from-what-is-on-disk.md)) |
 | agents | `spec-writer` (Sonnet, effort medium), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
+
+Both orchestrators read `modes/orchestrator.md` first — the protocol they
+share: phases, spawning, the gate loop, the fold, done. Each command holds
+only its own steps, and the gate loop is not narrated in either: the gate's
+block message is the instruction
+([ADR-029](decisions/029-a-prompt-carries-the-rule-not-the-story.md)).
 
 ---
 
@@ -436,27 +439,6 @@ Gitignored working files; delete one to reset that piece of state.
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |
 | `*-unmatched.log` | What each hook could not read — how a hook that fails open reports its blind spots |
-
----
-
-## What an install costs
-
-Measured on `10bfbdf` with `claude plugin details spec-flow`, after a real
-install; a dated observation, not a standing claim. The hooks cost no model
-context — the checks run outside the model.
-
-```
-Always-on:   ~580 tok   added to every session
-
-  component    always-on  on-invoke
-  architect          ~80       ~600
-  planner            ~80      ~3.5k
-  spec-writer       ~140      ~5.7k
-  reviewer           ~50      ~1.3k
-  implementer       ~100      ~3.8k
-  spec-fix           ~60      ~5.2k
-  spec-flow          ~60      ~5.6k
-```
 
 ---
 

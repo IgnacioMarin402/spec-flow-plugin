@@ -24,9 +24,10 @@
  * Three more halves, each the same rule aimed at a different seam where prose
  * has to agree with prose or with code:
  *
- *   - a field the spec-writer RETURNS must be read by a command, or be exempt
- *     with a reason. `GAPS:` is the case that forced it — the only channel
- *     for a finding no check here can produce (ADR-020).
+ *   - a field the spec-writer RETURNS must be read by a command — or by the
+ *     protocol both commands read first, `modes/orchestrator.md` (ADR-029) —
+ *     or be exempt with a reason. `GAPS:` is the case that forced it: the
+ *     only channel for a finding no check here can produce (ADR-020).
  *   - an agent asserting that a check FAILS over a contract-gated subject must
  *     name the field that gates it, since the sentence is false wherever the
  *     project left it off.
@@ -115,9 +116,10 @@ if (!fields || fields.length === 0) {
 // no check in this engine can produce.
 //
 // Fields, not prose: this asks whether the command names the key, never
-// whether it handles it well.
-const commandsText = ['spec-flow.md', 'spec-fix.md']
-  .map((f) => readFileSync(join(ROOT, 'commands', f), 'utf8'))
+// whether it handles it well. The shared protocol is part of "the command":
+// both read it before their first step, so a field named there is read.
+const commandsText = ['commands/spec-flow.md', 'commands/spec-fix.md', 'modes/orchestrator.md']
+  .map((f) => readFileSync(join(ROOT, f), 'utf8'))
   .join('\n');
 
 /**

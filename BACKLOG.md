@@ -38,6 +38,16 @@ agent frontmatter that already names each tier. `max_opus_calls` is the part
 with a demonstrated job (cost control). **Decide by use:** keep what a real
 project has set.
 
+### B40 — the gate's re-plan message names a planner `/spec-fix` never runs
+
+`hooks/gate.mjs` prints one re-plan route — "write `plan`, invoke the planner
+in `MODE=REPLAN`" — whichever flow is live; `/spec-fix` may write neither, and
+`modes/orchestrator.md` tells the orchestrator to translate it into a
+re-triage under `spec`. A live fix brief is recognisable from disk (`## Case`
+in `specflow/<SLUG>/spec.md`, which `spec-trace` already reads). **Done:** a
+gate-fixture case where a fix brief is live and the block message names the
+triage, not the planner; the translation sentence in the protocol then goes.
+
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full

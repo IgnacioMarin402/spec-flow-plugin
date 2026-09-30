@@ -17,9 +17,11 @@ the engine is held to the same bar.
 ## Coupled contracts
 
 The hooks share `.claude/state/phase`; the agents share the shape of `Mk.md`;
-the commands describe both. After changing one member, re-read every file that
-reads or writes the same thing — each still reads correctly on its own, which
-is why the break is silent.
+the commands and `modes/orchestrator.md` describe both, and the gate's block
+messages in `hooks/gate.mjs` are the gate loop's protocol — the commands defer
+to them rather than restate them. After changing one member, re-read every
+file that reads or writes the same thing — each still reads correctly on its
+own, which is why the break is silent.
 
 ## Where reasoning goes
 
@@ -30,7 +32,10 @@ is why the break is silent.
 - **Decision** (why the system has this shape, and what was refused) →
   `decisions/`, cited from the code as `ADR-NNN`.
 
-Details: `.claude/skills/engine-comments`.
+Details: `.claude/skills/engine-comments`. The agents, commands and modes are
+held to the same split (ADR-029): a prompt carries the rule and the one line
+that keeps it from being undone, cites the record, and leaves how the rule was
+found to the commit.
 
 ## Docs
 
