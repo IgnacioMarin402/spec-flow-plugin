@@ -34,7 +34,7 @@ Input: an approved `specflow/<SLUG>/spec.md`. Read the spec and the code it touc
 
 **Distribute the deltas.** Every `ADDED`/`CHANGED`/`REMOVED` delta is delivered by exactly one milestone, whose `Mk.md` carries it verbatim, id and text. That milestone edits `specs/<capability>.md` in the same pass as the tagged test, because `spec-trace` runs at every gate and fails an id present on only one side. The one delta that moves no test is `CHANGED (wording)`; any other `CHANGED` is a spec bug for `NOTES`, since the spec-writer decomposes a behaviour change into `REMOVED` plus `ADDED` (ADR-009). Order a milestone's Steps test-first: the failing REQ-named test is the first step, the implementation follows.
 
-**Split the plan.** The implementer gets a fresh context per milestone and reads `plan.md` + `milestones/Mk.md` and nothing else, so shared context goes in `plan.md` — short, every agent reads it — and per-milestone detail in its own file.
+**Split the plan.** The implementer gets a fresh context per milestone and reads `plan.md` + `milestones/Mk.md` and nothing else, so shared context goes in `plan.md` — short, every agent reads it — and per-milestone detail in its own file. Each file has a character budget the contract declares (`trace.budgets`); a write over it is refused, and the refusal says what to move where (ADR-032).
 
 **`specflow/<SLUG>/plan.md`**
 ```

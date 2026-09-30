@@ -1066,6 +1066,111 @@ t('the write-time linter does run when the phase came from a run', (repo) => {
   return null;
 });
 
+// ---- size-on-write: a change artefact over its budget is refused at the write ----
+//
+// The budget is `trace.budgets` in the contract (ADR-032). These pin the
+// hook's four edges: it refuses and says where the excess goes; it is
+// transparent under budget, on the archive, outside a run and on a budget of
+// 0; the fold's stamp is not the writer's prose; a milestone is measured
+// against its own key.
+
+/** A live change artefact of `n` characters, written where the hook looks. */
+function artefact(repo, rel, n) {
+  const path = join(repo, rel);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, 'x'.repeat(n));
+  return path;
+}
+
+t(
+  'size-on-write refuses a live spec.md over its budget, names the field and says where the excess goes',
+  (repo) => {
+    const path = artefact(repo, 'specflow/add-thing/spec.md', 6001);
+    const r = runHook('size-on-write.mjs', { tool_input: { file_path: path } }, repo);
+    if (r.status !== 2) return `expected the PostToolUse denial (exit 2), got ${r.status}: ${r.stderr}`;
+    if (!/trace\.budgets\.spec/.test(r.stderr)) return `the refusal does not name the contract field: ${r.stderr}`;
+    if (!/proposal\.md/.test(r.stderr)) return `the refusal does not say where a spec's excess goes: ${r.stderr}`;
+    if (!/6,001 characters/.test(r.stderr) || !/6,000/.test(r.stderr)) return `the refusal does not state the size and the budget: ${r.stderr}`;
+    return null;
+  },
+  { phase: 'spec' },
+);
+
+t(
+  'size-on-write lets a spec at its budget through',
+  (repo) => {
+    const path = artefact(repo, 'specflow/add-thing/spec.md', 6000);
+    const r = runHook('size-on-write.mjs', { tool_input: { file_path: path } }, repo);
+    return r.status === 0 ? null : `a spec exactly at budget was refused — exit ${r.status}: ${r.stderr}`;
+  },
+  { phase: 'spec' },
+);
+
+t(
+  'size-on-write measures a milestone against trace.budgets.milestone, and a repo-relative path resolves',
+  (repo) => {
+    artefact(repo, 'specflow/add-thing/milestones/M2.md', 4001);
+    const r = runHook('size-on-write.mjs', { tool_input: { file_path: 'specflow/add-thing/milestones/M2.md' } }, repo);
+    if (r.status !== 2) return `expected exit 2, got ${r.status}: ${r.stderr}`;
+    if (!/trace\.budgets\.milestone/.test(r.stderr)) return `the refusal names the wrong key: ${r.stderr}`;
+    if (!/no type bodies/.test(r.stderr)) return `the refusal does not say what a milestone drops: ${r.stderr}`;
+    return null;
+  },
+  { phase: 'plan' },
+);
+
+t(
+  'size-on-write is transparent on the archive, outside a run, and on a budget the contract set to 0',
+  (repo) => {
+    const archived = artefact(repo, 'specflow/archive/old-thing/spec.md', 9000);
+    let r = runHook('size-on-write.mjs', { tool_input: { file_path: archived } }, repo);
+    if (r.status !== 0) return `an archived spec was refused — exit ${r.status}: ${r.stderr}`;
+
+    const live = artefact(repo, 'specflow/add-thing/spec.md', 9000);
+    writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+    r = runHook('size-on-write.mjs', { tool_input: { file_path: live } }, repo);
+    if (r.status !== 0) return `a write outside a run was refused — exit ${r.status}: ${r.stderr}`;
+
+    writeFileSync(join(repo, '.claude/state/phase'), 'spec');
+    const cfgPath = join(repo, '.spec-flow/config.json');
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    cfg.trace.budgets = { spec: 0 };
+    writeFileSync(cfgPath, JSON.stringify(cfg));
+    r = runHook('size-on-write.mjs', { tool_input: { file_path: live } }, repo);
+    if (r.status !== 0) return `a budget of 0 did not switch the spec's check off — exit ${r.status}: ${r.stderr}`;
+
+    // …while the other keys keep their defaults under the one-level merge.
+    const m = artefact(repo, 'specflow/add-thing/milestones/M1.md', 4001);
+    r = runHook('size-on-write.mjs', { tool_input: { file_path: m } }, repo);
+    return r.status === 2 ? null : `setting budgets.spec to 0 also dropped the milestone default — exit ${r.status}: ${r.stderr}`;
+  },
+  { phase: 'implement' },
+);
+
+t(
+  "size-on-write does not count the fold's status stamp",
+  (repo) => {
+    const path = join(repo, 'specflow/add-thing/spec.md');
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `# Spec — add-thing\n**Status:** SHIPPED 2026-09-30 — every delta landed\n${'x'.repeat(6000 - '# Spec — add-thing\n\n'.length)}`);
+    const r = runHook('size-on-write.mjs', { tool_input: { file_path: path } }, repo);
+    return r.status === 0 ? null : `the stamp pushed a spec at its budget over it — exit ${r.status}: ${r.stderr}`;
+  },
+  { phase: 'implement' },
+);
+
+t(
+  'a contract that will not load does not make size-on-write refuse every write',
+  (repo) => {
+    mkdirSync(join(repo, '.claude', 'state'), { recursive: true });
+    writeFileSync(join(repo, '.claude/state/phase'), 'spec');
+    const path = artefact(repo, 'specflow/add-thing/spec.md', 9000);
+    const r = runHook('size-on-write.mjs', { tool_input: { file_path: path } }, repo);
+    return r.status === 0 ? null : `an unloadable contract turned into a refusal of the write — exit ${r.status}: ${r.stderr}`;
+  },
+  { withContract: false },
+);
+
 t(
   'a phase the repository committed is not flipped to implement by arm-gate',
   (repo) => {

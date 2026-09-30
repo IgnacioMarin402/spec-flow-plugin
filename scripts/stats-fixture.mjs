@@ -318,6 +318,24 @@ check('reads are split against the scope read off the deltas and the milestone p
   );
 });
 
+check('the size of each artefact is reported against its budget, and an oversize one is named', () => {
+  const { out } = report({
+    files: {
+      'specs/orders.md': ORDERS_SPEC,
+      ...changeFiles('specflow/archive/ship-orders'),
+      'specflow/archive/ship-orders/proposal.md': `# Proposal — ship-orders\n${'x'.repeat(8100)}`,
+    },
+    archived: [{ slug: 'ship-orders', trace: [readIn(1, 'plan', 'lib/orders/place.ts')] }],
+  });
+  return (
+    contains(out, 'Artefacts') ||
+    contains(out, 'ship-orders: spec 1') ||
+    contains(out, 'of 6,000)') ||
+    contains(out, 'proposal 8,125 chars — OVER its 8,000 budget') ||
+    contains(out, 'largest of 1 milestone(s)')
+  );
+});
+
 check('a planner reading mostly inside the scope is reported and not warned about', () => {
   const { out } = report({
     files: { 'specs/orders.md': ORDERS_SPEC, ...changeFiles('specflow/archive/ship-orders') },

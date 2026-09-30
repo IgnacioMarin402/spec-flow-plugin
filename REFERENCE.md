@@ -65,6 +65,7 @@ since lint could then never run.
 | `proof_suffix` | yes | What a test file is called, e.g. `.test.ts` |
 | `not_a_capability` | no | Files under `specs_dir` that are not specs. Default `["README.md", "glossary.md"]` |
 | `require_skills_field` | no | Fail a live milestone with no `Skills:` field. Default `false` |
+| `budgets` | no | Characters per live change artefact, `{spec, proposal, plan, milestone}`. Default `6000`/`8000`/`3000`/`4000`; `0` switches one off. Held at the write ([ADR-032](decisions/032-a-change-artefact-has-a-budget-held-at-the-write.md)) |
 
 #### What makes a requirement proven
 
@@ -376,12 +377,14 @@ Without it, run the same scripts by path, from your repo's root:
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
 | `stale-resume` | `PreToolUse` | `SendMessage` | Denies resuming one of this plugin's agents whose prompt cache has expired ([ADR-025](decisions/025-an-agent-is-resumed-only-while-its-cache-is-warm.md)) |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
+| `size-on-write` | `PostToolUse` | `Write`, `Edit` | Refuses a live change artefact written over its `trace.budgets` |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
 | `run-trace` | `PostToolUse`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` | The run's timeline, and each subagent's return. Enforces nothing |
 | `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed, its own loading included ([ADR-033](decisions/033-the-gate-fails-closed-on-a-module-it-cannot-load.md)) |
 
-`gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
+`gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`;
+`size-on-write` on every run phase.
 `preflight`, `opus-budget`, `arm-gate`, `stale-resume` and `phase-guard` stand down outside a
 run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
 fails open on its own crash.
@@ -395,9 +398,9 @@ armed.
 
 | phase | written by | arms |
 |---|---|---|
-| `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `size-on-write` |
 | `implement` | orchestrator, or `arm-gate` if it forgot | **the gate**, **lint-on-write**, **the command deny**, plus the above |
-| `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `size-on-write` |
 | `done` | orchestrator, if `phase-guard` allows | nothing |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
 

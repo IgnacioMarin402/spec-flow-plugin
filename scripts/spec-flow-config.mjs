@@ -96,6 +96,12 @@ const DEFAULTS = {
     // should have routed one and did not is precisely the one that arms
     // nothing.
     require_skills_field: false,
+    // Characters per live change artefact, held at the write by
+    // `size-on-write`. Published guidance is in pages — one to two for a
+    // feature spec, one or two for a decision record — and a page is about
+    // 3,000 characters; these bracket what real runs produced (ADR-032).
+    // `0` switches one off.
+    budgets: { spec: 6000, proposal: 8000, plan: 3000, milestone: 4000 },
   },
   extra_checks: [],
   unscoped_denied: {
@@ -237,6 +243,17 @@ function validate(config, source) {
   // boolean, or worse, `"false"` disarming nothing. Rejected loudly instead:
   // this field decides whether a gate can fail, so a value this engine has to
   // interpret is not a value.
+  const budgets = config.trace.budgets;
+  if (!budgets || typeof budgets !== 'object' || Array.isArray(budgets)) {
+    problems.push('trace.budgets, when present, must be an object naming characters per artefact: {"spec", "proposal", "plan", "milestone"}, each a whole number; 0 switches one off. Omit it for the defaults.');
+  } else {
+    for (const key of ['spec', 'proposal', 'plan', 'milestone']) {
+      const value = budgets[key];
+      if (value !== undefined && !(Number.isInteger(value) && value >= 0)) {
+        problems.push(`trace.budgets.${key} must be a whole number of characters (0 switches it off), got ${JSON.stringify(value)}.`);
+      }
+    }
+  }
   if (typeof config.trace.require_skills_field !== 'boolean') {
     problems.push(
       'trace.require_skills_field, when present, must be true or false (a JSON boolean, not a quoted string). Omit it to leave the check off: the planner still fills the milestone\'s `Skills:` field and the reviewer still checks it — this only decides whether spec-trace fails a live milestone that lacks one.',

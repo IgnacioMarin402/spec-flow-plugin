@@ -460,6 +460,60 @@ if (reads.length === 0) {
 }
 say('');
 
+// ---- 4b. the size of what a run wrote, against the budgets ----------------
+//
+// `size-on-write` refuses an artefact over `trace.budgets` at the write
+// (ADR-032); this is the trend behind that line: a change that hugs its
+// budgets on every run is a budget about to be raised, and one far under
+// them on every run is prose the prompts could lose. Read defensively, like
+// section 4: no contract, no budgets, no verdict.
+say('Artefacts');
+{
+  let budgets = null;
+  try {
+    budgets = loadConfig(root).trace.budgets ?? null;
+  } catch {
+    budgets = null;
+  }
+  const sized = runs
+    .map((run) => ({ run, dir: changeDir(run) }))
+    .filter(({ dir }) => dir !== null);
+  if (sized.length === 0) {
+    say('  no change folder to measure — a run archives one under specflow/archive/<slug>/.');
+  } else {
+    for (const { run, dir } of sized) {
+      const parts = [];
+      for (const [label, rel, key] of [
+        ['spec', 'spec.md', 'spec'],
+        ['proposal', 'proposal.md', 'proposal'],
+        ['plan', 'plan.md', 'plan'],
+      ]) {
+        const file = join(dir, rel);
+        if (!existsSync(file)) continue;
+        parts.push(sizeLine(label, readFileSync(file, 'utf8').replace(/^\*\*Status:\*\*.*$/m, '').length, budgets?.[key]));
+      }
+      const mDir = join(dir, 'milestones');
+      if (existsSync(mDir)) {
+        const sizes = readdirSync(mDir)
+          .filter((f) => /^M\d+\.md$/.test(f))
+          .map((f) => readFileSync(join(mDir, f), 'utf8').length);
+        if (sizes.length > 0) parts.push(sizeLine(`largest of ${sizes.length} milestone(s)`, Math.max(...sizes), budgets?.milestone));
+      }
+      if (parts.length > 0) say(`  ${run.name}: ${parts.join(', ')}`);
+    }
+  }
+}
+
+/** `spec 4,120 chars (69% of 6,000)`, or `over its budget` in place of the percentage. */
+function sizeLine(label, size, budget) {
+  const n = size.toLocaleString('en-US');
+  if (!(budget > 0)) return `${label} ${n} chars`;
+  return size > budget
+    ? `${label} ${n} chars — OVER its ${budget.toLocaleString('en-US')} budget`
+    : `${label} ${n} chars (${Math.round((100 * size) / budget)}% of ${budget.toLocaleString('en-US')})`;
+}
+say('');
+
 // ---- 5. session reuse, which is where a run's token cost actually goes -----
 //
 // A milestone is delimited by a gate PASS: the gate allows the stop and the

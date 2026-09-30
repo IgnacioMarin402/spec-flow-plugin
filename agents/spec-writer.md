@@ -54,7 +54,7 @@ SUMMARY: <2-3 lines>
 
 **Required last step before `SPEC_READY`:** for every `**Chosen:**` bullet in `proposal.md`, ask — *if the planner never opens the proposal, does the plan still come out right?* If not, lift the operative sentence into `## Non-functional / constraints` in `spec.md` as its own line and leave the argument where it is. If lifting it takes three sentences, the constraint was never stated plainly, and stating it plainly is the fix. `.claude/skills/spec-or-proposal/SKILL.md`, where this repo has it, carries worked cases; the pass does not depend on it.
 
-`spec-trace` enforces the split on live changes: `## Source`, `## Context` and `## Decision` may not appear in `spec.md`, and `proposal.md` must exist. Fix briefs from `MODE=TRIAGE` are exempt.
+`spec-trace` enforces the split on live changes: `## Source`, `## Context` and `## Decision` may not appear in `spec.md`, and `proposal.md` must exist. Fix briefs from `MODE=TRIAGE` are exempt. Each file has a character budget the contract declares (`trace.budgets`); a write over it is refused, and the refusal says where the excess goes (ADR-032).
 
 ## Spec format (spec.md) — light, and it stays light
 ```

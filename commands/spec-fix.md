@@ -80,7 +80,8 @@ transcribe it:
   discover after guessing.
 
 Those exact two paths, because the implementer reads exactly them and is told
-not to read `spec.md`. Keep both short. If you find yourself writing a second
+not to read `spec.md`. Keep both short — the contract's `trace.budgets`
+refuses a write over it (ADR-032). If you find yourself writing a second
 milestone, the triage was wrong and this is a case 5.
 
 ## 4. FIX  (subagent: implementer) + GATE LOOP
