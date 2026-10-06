@@ -42,9 +42,10 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // `skills` (plugin root) alongside `.claude/skills` (this repo's own): a
 // shipped skill is instruction a model acts on, so it both carries citations
 // and is a place someone will look for one.
-const CITE_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills'];
+// `diagrams`: a diagram's label can cite a record, as the gate's does.
+const CITE_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'diagrams'];
 const CITE_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md'];
-const CITE_EXTENSIONS = ['.mjs', '.md', '.json'];
+const CITE_EXTENSIONS = ['.mjs', '.md', '.json', '.mmd'];
 
 /** `ADR-004`, wherever it appears. Three digits, so a year or an id cannot match. */
 const CITATION = /\bADR-(\d{3})\b/g;

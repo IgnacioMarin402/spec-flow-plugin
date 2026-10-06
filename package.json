@@ -34,6 +34,8 @@
     "routing:check": "node scripts/model-routing-fixture.mjs",
     "coupling:check": "node scripts/coupling-fixture.mjs",
     "paths:check": "node scripts/plugin-paths.mjs",
+    "diagrams:check": "node scripts/diagrams.mjs",
+    "diagrams:render": "node scripts/diagrams.mjs --render",
     "decisions:check": "node scripts/decisions.mjs",
     "comments:check": "node scripts/comment-transitions.mjs",
     "agents:check": "node scripts/agent-contracts.mjs",

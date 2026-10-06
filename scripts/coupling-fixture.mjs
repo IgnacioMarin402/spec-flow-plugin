@@ -36,7 +36,7 @@ const failures = [];
 const BANNED = ['Nest', 'JS'].join('');
 
 // The surfaces the check claims. Written out, not imported — see the header.
-const SCANNED_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions'];
+const SCANNED_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions', 'diagrams'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'LICENSE', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
 /**
@@ -128,6 +128,12 @@ check('the count reports the files actually read, so a dropped surface is visibl
   return actual === expected
     ? ''
     : `the check read ${actual} file(s) where every claimed surface holds exactly one, so ${expected} was the only correct answer. A count that drifts below the surfaces is what an unscanned directory looks like in CI output.\n--- output ---\n${out}`;
+});
+
+check('a diagram source is read, not only the .md beside it', () => {
+  const { code, out } = scan({ 'diagrams/planted.mmd': `flowchart TD\n  A["a ${BANNED} plugin"]\n` });
+  if (code === 0) return `diagrams/planted.mmd is not scanned, so a label in the picture REFERENCE shows is unscanned prose.\n--- output ---\n${out}`;
+  return out.includes('diagrams/planted.mmd') ? '' : `reported a finding but not the diagram that carries it.\n--- output ---\n${out}`;
 });
 
 check('an extension outside the scanned set is not read, which is why a prose doc is listed by name', () => {

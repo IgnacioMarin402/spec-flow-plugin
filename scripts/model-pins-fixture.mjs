@@ -37,7 +37,7 @@ const PINNED_ID = ['claude', 'opus', '5'].join('-');
 const NUMBERED_TIER = ['Opus', '5'].join(' ');
 
 // The surfaces the check claims. Written out, not imported.
-const SCANNED_DIRS = ['agents', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
+const SCANNED_DIRS = ['agents', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills', 'diagrams'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
 /**
@@ -132,6 +132,12 @@ check('a nested file is reached, not just the top level of a scanned directory',
   const { code, out } = scan({ 'hooks/lib/deep.md': `Routes to ${PINNED_ID}.\n` });
   if (code === 0) return `the walk did not recurse, so every subdirectory of a scanned directory is unscanned.\n--- output ---\n${out}`;
   return out.includes('hooks/lib/deep.md') ? '' : `reported a problem but not the nested file.\n--- output ---\n${out}`;
+});
+
+check('a diagram source is read, not only the .md beside it', () => {
+  const { code, out } = scan({ 'diagrams/planted.mmd': `flowchart TD\n  P["PLAN — planner, ${NUMBERED_TIER}"]\n` });
+  if (code === 0) return `diagrams/planted.mmd is not scanned, so a tier in the picture REFERENCE shows is unscanned prose.\n--- output ---\n${out}`;
+  return out.includes('diagrams/planted.mmd') ? '' : `reported a problem but not the diagram that carries it.\n--- output ---\n${out}`;
 });
 
 check('decisions/ is exempt, so a record can name what it removed', () => {

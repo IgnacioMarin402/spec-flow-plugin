@@ -54,8 +54,10 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // runners it tested was never at risk from this list. Widening BANNED back to
 // stack vocabulary would put a record in tension with a check — which is a
 // reason to reopen ADR-007, not to exempt a directory.
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions'];
-const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
+// `diagrams/` and `.mmd`: a diagram's labels are the prose a reader sees in
+// the picture REFERENCE shows (ADR-029), so they are scanned like the doc.
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions', 'diagrams'];
+const SCAN_EXTENSIONS = ['.mjs', '.md', '.json', '.mmd'];
 
 // The prose docs are scanned too, and deliberately: they are the most public
 // surface this plugin has and the first thing an adopting repo reads.

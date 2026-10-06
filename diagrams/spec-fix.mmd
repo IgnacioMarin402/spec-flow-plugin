@@ -1,0 +1,23 @@
+flowchart TD
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet <br/> phase spec, gate disarmed"]
+    T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
+    T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
+    T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
+    T --> C4["case 4 — INFRA <br/> outside the contract's proof surface"]
+    T --> C5["case 5 — NOT-A-FIX <br/> this changes behaviour: it is a feature"]
+    C3 --> H{{"HITL — a human confirms the <br/> old requirement was actually wrong"}}
+    C5 --> REJ["stamp REJECTED, archive, <br/> phase idle — it belongs to /spec-flow"]
+    H -->|"confirmed"| W
+    H -->|"it was right after all"| T
+    C1 --> W
+    C2 --> W
+    C4 --> W
+    W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
+    W --> I["FIX — implementer, Sonnet"]
+    I --> CM["commit, push, end the turn"]
+    CM --> G{{"the same GATE"}}
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
+    G -->|"whatever survives that"| T
+    G -->|"5 failures"| BLK["phase blocked — a human decides"]
+    G -->|"green"| F["FOLD — spec-writer <br/> stamp SHIPPED, archive"]
+    F --> D["DONE"]

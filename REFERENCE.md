@@ -469,36 +469,7 @@ orchestrator never writes code; the gate's block message *is* the next step.
 
 ### `/spec-flow` — a feature
 
-```mermaid
-flowchart TD
-    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet <br/> writes spec.md and proposal.md"]
-    B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
-    Q -->|"answers"| B
-    B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
-    S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
-    S -->|"yes"| P["PLAN — planner, Opus <br/> plan.md plus one file per milestone"]
-    P --> R["REVIEW — reviewer, Haiku <br/> reads the spec and every milestone file"]
-    R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
-    CON --> R
-    R -->|"CHANGES_REQUESTED"| P
-    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet <br/> one fresh session per milestone"]
-    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus"]
-    ARCH --> I
-    I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
-    RE --> I
-    I -->|"IMPLEMENTED"| CM["orchestrator commits and pushes, <br/> then ends its turn"]
-    CM --> G{{"THE GATE — Stop hook, outside the model"}}
-    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
-    G -->|"whatever survives that"| RE
-    G -->|"5 failures"| BLK["phase blocked — a human decides"]
-    G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
-    MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
-    F --> G2{{"the gate again, on the fold commit"}}
-    G2 -->|"gap in the specs' wording"| F
-    G2 -->|"gap in code or tests"| RE
-    G2 -->|"green"| D["DONE — phase done, <br/> archive the telemetry, print the stats"]
-```
+![The /spec-flow run: spec and its human sign-off, plan, review, one implementer session per milestone, the gate after each commit, then the fold](diagrams/spec-flow.png)
 
 A milestone gets a **fresh** implementer session; every retry within it goes
 back to the *same* session, because re-reading from a cold context is where
@@ -510,64 +481,14 @@ A defect is a closed question — which side is wrong, the code or its
 requirement — so this flow triages instead of planning, and drops the planner
 and the reviewer.
 
-```mermaid
-flowchart TD
-    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet <br/> phase spec, gate disarmed"]
-    T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
-    T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
-    T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
-    T --> C4["case 4 — INFRA <br/> outside the contract's proof surface"]
-    T --> C5["case 5 — NOT-A-FIX <br/> this changes behaviour: it is a feature"]
-    C3 --> H{{"HITL — a human confirms the <br/> old requirement was actually wrong"}}
-    C5 --> REJ["stamp REJECTED, archive, <br/> phase idle — it belongs to /spec-flow"]
-    H -->|"confirmed"| W
-    H -->|"it was right after all"| T
-    C1 --> W
-    C2 --> W
-    C4 --> W
-    W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
-    W --> I["FIX — implementer, Sonnet"]
-    I --> CM["commit, push, end the turn"]
-    CM --> G{{"the same GATE"}}
-    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
-    G -->|"whatever survives that"| T
-    G -->|"5 failures"| BLK["phase blocked — a human decides"]
-    G -->|"green"| F["FOLD — spec-writer <br/> stamp SHIPPED, archive"]
-    F --> D["DONE"]
-```
+![The /spec-fix run: triage, a work order, one fix, the same gate, then the fold](diagrams/spec-fix.png)
 
 Only cases 3 and 5 stop for a human: a diff cannot tell a requirement rewritten
 to match the code from one rewritten to match the bug.
 
 ### The gate
 
-```mermaid
-flowchart TD
-    S(["Stop — the orchestrating turn ends"]) --> P{"phase is implement, <br/> untracked, and this session's?"}
-    P -->|"no"| ALLOW["allow the stop, record nothing"]
-    P -->|"yes"| ROOT{"project directory is <br/> the repository root?"}
-    ROOT -->|"no"| BLK0["BLOCK — open Claude Code <br/> at the root (ADR-027)"]
-    ROOT -->|"yes"| CFG{"contract readable?"}
-    CFG -->|"no"| BLK1["BLOCK — a human fixes <br/> .spec-flow/config.json"]
-    CFG -->|"yes"| DIRTY{"tree clean? <br/> ignoring .claude/state/"}
-    DIRTY -->|"dirty"| JUDGED{"has any gate <br/> judged this commit?"}
-    JUDGED -->|"no"| WAKE["skip-dirty, then BLOCK — <br/> nothing is coming to judge this commit <br/> (once per commit)"]
-    JUDGED -->|"yes"| SKIP["skip-dirty, allow the stop — <br/> an implementer may still be writing <br/> (10 in a row wakes the run once)"]
-    DIRTY -->|"clean"| SEEN{"has this commit's sha <br/> already passed?"}
-    SEEN -->|"yes, repeat stop"| QUIET["allow the stop, one notice, <br/> nothing spawned"]
-    SEEN -->|"no"| BASE{"base branch <br/> resolvable?"}
-    BASE -->|"no"| BLK2["BLOCK — a human adds <br/> verify.base_ref to the contract"]
-    BASE -->|"resolves to HEAD"| BLK2
-    BASE -->|"yes"| SCOPE{"can scope_globs match <br/> anything this repo tracks?"}
-    SCOPE -->|"no"| BLK3["BLOCK — a human fixes <br/> verify.scope_globs. <br/> lint could never run"]
-    SCOPE -->|"yes"| RUN["lint over the changed files <br/> the FULL test suite, always <br/> THEN spec-trace and every extra_check"]
-    RUN -->|"all green"| PASS["BLOCK — wake the orchestrator <br/> with what to do next. <br/> attempts reset to 0"]
-    RUN -->|"red"| CLS{"which class, <br/> which attempt?"}
-    CLS -->|"lint or trace, attempts 1-2"| FIX["back to the session whose edits <br/> are being judged: fix exactly these"]
-    CLS -->|"a red test, attempt 1"| FIX
-    CLS -->|"anything that survives that"| REPLAN["re-plan this milestone — <br/> in /spec-fix, re-triage instead"]
-    CLS -->|"the 5th failure"| CAP["write phase blocked, <br/> hand it to a human"]
-```
+![The gate: what the Stop hook checks, in order, and where each outcome sends the run](diagrams/gate.png)
 
 - **Nothing is judged while a subagent is still running** — the stop ends a
   turn, not a milestone ([ADR-023](decisions/023-every-spawn-runs-in-the-background.md)).

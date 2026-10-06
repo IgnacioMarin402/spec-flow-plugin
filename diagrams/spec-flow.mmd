@@ -1,0 +1,28 @@
+flowchart TD
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet <br/> writes spec.md and proposal.md"]
+    B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
+    Q -->|"answers"| B
+    B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
+    S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
+    S -->|"yes"| P["PLAN — planner, Opus <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer, Haiku <br/> reads the spec and every milestone file"]
+    R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
+    CON --> R
+    R -->|"CHANGES_REQUESTED"| P
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus"]
+    ARCH --> I
+    I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
+    RE --> I
+    I -->|"IMPLEMENTED"| CM["orchestrator commits and pushes, <br/> then ends its turn"]
+    CM --> G{{"THE GATE — Stop hook, outside the model"}}
+    G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I
+    G -->|"whatever survives that"| RE
+    G -->|"5 failures"| BLK["phase blocked — a human decides"]
+    G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
+    MORE -->|"yes, Mk+1"| I
+    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
+    F --> G2{{"the gate again, on the fold commit"}}
+    G2 -->|"gap in the specs' wording"| F
+    G2 -->|"gap in code or tests"| RE
+    G2 -->|"green"| D["DONE — phase done, <br/> archive the telemetry, print the stats"]

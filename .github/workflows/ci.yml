@@ -130,6 +130,12 @@ jobs:
       - name: Plugin paths resolve
         run: npm run paths:check
 
+      # A diagram in the docs is a PNG, because a mermaid fence shows as code
+      # in GitHub's mobile app — and a PNG is a copy that goes stale silently.
+      # This holds each one to the source it was drawn from. See ADR-029.
+      - name: Diagrams are drawn from their sources
+        run: npm run diagrams:check
+
       # A decision record and the code it governs must reach each other. This
       # is what separates decisions/ from a docs tree nobody reads: a citation
       # that resolves to nothing, and a record nothing cites, both fail. See

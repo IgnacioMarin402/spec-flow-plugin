@@ -56,12 +56,12 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // Where routing is described. `hooks` and `scripts` are here even though they
 // route nothing: a version reaches prose through whichever file nobody thought
 // to scan, and a hook header explaining why a budget exists is a natural place
-// to write one.
-const SCAN_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
+// to write one. `diagrams` because its sources label each agent with its tier.
+const SCAN_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills', 'diagrams'];
 // `ci.yml` is here because this check's own steps are described in it, and a
 // step comment is prose like any other.
 const SCAN_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
-const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
+const SCAN_EXTENSIONS = ['.mjs', '.md', '.json', '.mmd'];
 
 const VERSIONED = [
   // A full model id. Anchored on the vendor prefix so the bare alias, which is
