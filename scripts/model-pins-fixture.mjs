@@ -37,7 +37,7 @@ const PINNED_ID = ['claude', 'opus', '5'].join('-');
 const NUMBERED_TIER = ['Opus', '5'].join(' ');
 
 // The surfaces the check claims. Written out, not imported.
-const SCANNED_DIRS = ['agents', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
+const SCANNED_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
 /**

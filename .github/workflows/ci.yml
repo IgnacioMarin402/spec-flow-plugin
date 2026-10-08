@@ -95,7 +95,7 @@ jobs:
       # months and no check could have said so. This asserts the positive
       # fact too, and that is the load-bearing half: finding no agents fails,
       # because a ban-only scan reports a directory it never reached exactly
-      # as it reports a clean one. See ADR-012.
+      # as it reports a clean one. See ADR-013.
       - name: Agents route by tier, nothing names a version
         run: npm run models:check
 
@@ -109,7 +109,7 @@ jobs:
       # default" because the run never found the project's config, which is
       # indistinguishable from a repo that configured nothing. These cases are
       # about attribution, plus one holding the report to naming no model for a
-      # tier nothing pinned: guessing there is ADR-012's rot returning inside
+      # tier nothing pinned: guessing there is ADR-013's rot returning inside
       # the report about it.
       - name: Routing report attributes every layer
         run: npm run routing:check
