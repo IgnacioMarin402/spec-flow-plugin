@@ -216,7 +216,7 @@ could not be named, `files=0` means it resolved to HEAD.
 `.claude/spec-flow.config.json` — preferences, not facts about the repo:
 
 ```json
-{ "max_opus_calls": 6, "agents": { "reviewer": "sonnet" } }
+{ "max_opus_calls": 6, "agents": { "architect": "sonnet" } }
 ```
 
 - **`max_opus_calls`** (default 6) caps planner + architect calls per run, by
@@ -322,7 +322,7 @@ description is listed in every turn of the agents that carry the `Skill` tool.
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
 | `/spec-flow:models` | Which tier each agent runs on and who decided. `<agent> <tier>` sets one, `<agent> default` clears it |
 | `/spec-flow:resume [<SLUG>]` | Picks up a run a dead session left, at the step the disk says it reached ([ADR-024](decisions/024-a-run-resumes-from-what-is-on-disk.md)) |
-| agents | `spec-writer` (Sonnet, effort medium), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
+| agents | `spec-writer`, `planner`, `reviewer`, `implementer`, `architect` — each one's tier and effort are in its own frontmatter; `spec-flow models` prints them |
 
 ---
 
@@ -443,22 +443,9 @@ Gitignored working files; delete one to reset that piece of state.
 
 ## What an install costs
 
-Measured on `10bfbdf` with `claude plugin details spec-flow`, after a real
-install; a dated observation, not a standing claim. The hooks cost no model
+`claude plugin details spec-flow` prints what the plugin adds to every session
+and what each agent and command costs when invoked. The hooks cost no model
 context — the checks run outside the model.
-
-```
-Always-on:   ~580 tok   added to every session
-
-  component    always-on  on-invoke
-  architect          ~80       ~600
-  planner            ~80      ~3.5k
-  spec-writer       ~140      ~5.7k
-  reviewer           ~50      ~1.3k
-  implementer       ~100      ~3.8k
-  spec-fix           ~60      ~5.2k
-  spec-flow          ~60      ~5.6k
-```
 
 ---
 
@@ -473,18 +460,18 @@ orchestrator never writes code; the gate's block message *is* the next step.
 
 ```mermaid
 flowchart TD
-    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet <br/> writes spec.md and proposal.md"]
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer <br/> writes spec.md and proposal.md"]
     B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
     Q -->|"answers"| B
     B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
     S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
-    S -->|"yes"| P["PLAN — planner, Opus <br/> plan.md plus one file per milestone"]
-    P --> R["REVIEW — reviewer, Haiku <br/> reads the spec and every milestone file"]
+    S -->|"yes"| P["PLAN — planner <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer <br/> reads the spec and every milestone file"]
     R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
     CON --> R
     R -->|"CHANGES_REQUESTED"| P
-    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet <br/> one fresh session per milestone"]
-    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus"]
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect"]
     ARCH --> I
     I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
     RE --> I
@@ -495,7 +482,7 @@ flowchart TD
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
     G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
+    MORE -->|"no"| F["FOLD — spec-writer <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
     G2 -->|"gap in the specs' wording"| F
     G2 -->|"gap in code or tests"| RE
@@ -514,7 +501,7 @@ and the reviewer.
 
 ```mermaid
 flowchart TD
-    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet <br/> phase spec, gate disarmed"]
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer <br/> phase spec, gate disarmed"]
     T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
     T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
     T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
@@ -528,7 +515,7 @@ flowchart TD
     C2 --> W
     C4 --> W
     W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
-    W --> I["FIX — implementer, Sonnet"]
+    W --> I["FIX — implementer"]
     I --> CM["commit, push, end the turn"]
     CM --> G{{"the same GATE"}}
     G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I

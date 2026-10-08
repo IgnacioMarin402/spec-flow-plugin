@@ -195,7 +195,7 @@ console.log('');
 if (overridden.length === 0) {
   console.log(
     `  Nothing is re-routed. To change one, add an "agents" block to\n` +
-      `  .claude/spec-flow.config.json — for example { "agents": { "reviewer": "sonnet" } }.\n` +
+      `  .claude/spec-flow.config.json — for example { "agents": { "architect": "sonnet" } }.\n` +
       `  The value is a tier (${ALIASES.join(', ')}), never a model id.`,
   );
 } else {
