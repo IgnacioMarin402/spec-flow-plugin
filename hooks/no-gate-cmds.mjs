@@ -71,8 +71,11 @@ function classify(cmd, denied) {
     }
 
     // Direct tool invocation: allowed only if it names a path to scope it.
+    // Path-SHAPED, as unscoped-checks.mjs reads argv[1]: a subcommand (`run`)
+    // or a flag's value (`--max-warnings 0`) is not a scope, and counting it
+    // as one let the whole suite through.
     const args = t.slice(i + 1);
-    const scoped = args.some((a) => !a.startsWith('-') && a !== '.' && a !== './');
+    const scoped = args.some((a) => !a.startsWith('-') && a !== '.' && a !== './' && /[\\/.]/.test(a));
     if (!scoped) return { verdict: 'deny', name: t[i] };
   }
   return { verdict: 'allow' };
@@ -132,8 +135,9 @@ await run(async () => {
       // guessing is how it would come back.
       `The same check with nothing installed, which is the copy the gate itself runs:\n\n` +
       `    node ${join(ENGINE_ROOT, 'scripts', 'check-changed.mjs')}\n\n` +
-      `Scoped invocations are allowed too${scopedHint}. If you are the implementer, ` +
-      `you do not need to run anything: end your turn and the gate reports back.\n\n` +
+      `Scoped invocations are allowed too${scopedHint}, and so is the tool run on a file path. ` +
+      `If you are the implementer, your test-first red run names the test file's path; ` +
+      `for anything else, end your turn and the gate reports back.\n\n` +
       // No disarm recipe here, on purpose. This message is read by an agent
       // mid-milestone far more often than by a human, and writing `idle` into
       // the phase file stands down the gate, the write-time linter, this deny

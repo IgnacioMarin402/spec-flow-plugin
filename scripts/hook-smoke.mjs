@@ -411,6 +411,29 @@ t('no-gate-cmds denies a bare unscoped tool run', (repo) => {
   return null;
 });
 
+t('no-gate-cmds denies a runner subcommand with no path', (repo) => {
+  // `run` was read as a scope, so `ftest run` put the whole suite in the
+  // implementer's context.
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npx ftest run' } }, repo);
+  return r.status === 2 ? null : `exit ${r.status}, expected 2: a subcommand passed as a scope`;
+});
+
+t('no-gate-cmds denies a flag value posing as a scope', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'eslint --max-warnings 0' } }, repo);
+  return r.status === 2 ? null : `exit ${r.status}, expected 2: a flag's value passed as a scope`;
+});
+
+t('no-gate-cmds allows a subcommand plus a test path — the red run test-first asks for', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npx ftest run tests/a.spec.ts' } }, repo);
+  return r.status === 0 ? null : `exit ${r.status}, expected 0: the implementer's own red run was denied. stderr: ${r.stderr.slice(0, 200)}`;
+});
+
+t('no-gate-cmds does not tell the implementer to skip its red run', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
+  if (/do not need to run anything/.test(r.stderr)) return 'the denial tells the implementer to run nothing, which skips the red run test-first asks for';
+  return /test file's path/.test(r.stderr) ? null : `the denial never names the scoped form a red run takes:\n${r.stderr.slice(0, 400)}`;
+});
+
 t('no-gate-cmds is transparent outside implement', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
