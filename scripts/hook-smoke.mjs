@@ -585,6 +585,33 @@ t('run-trace writes no session field when the payload names none', (repo) => {
   return null;
 });
 
+// A tool call inside a subagent carries the PARENT's session id and the
+// agent's own agent_id (Claude Code 2.1.294).
+t('run-trace attributes a read made inside a subagent to that agent', (repo) => {
+  runHook(
+    'run-trace.mjs',
+    { session_id: 'spawner-session', agent_id: 'a0123456789abcdef', agent_type: 'spec-flow:spec-writer', tool_name: 'Read', tool_input: { file_path: 'specs/user.md' } },
+    repo,
+  );
+  return /read file=specs\/user\.md agent_id=a0123456789abcdef/.test(traceText(repo)) ? null : `the read names no agent: ${traceText(repo)}`;
+});
+
+t('an agent whose reads carry its id still gets its return line', (repo) => {
+  runHook('run-trace.mjs', { ...subagentStop(), hook_event_name: undefined, tool_name: 'Read', tool_input: { file_path: 'specs/user.md' } }, repo);
+  runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: APPROVED' }), repo);
+  return /agent type=spec-flow:reviewer status=APPROVED/.test(traceText(repo)) ? null : `the agent's own read suppressed its return: ${traceText(repo)}`;
+});
+
+t('a read in the main session names no agent', (repo) => {
+  runHook('run-trace.mjs', { session_id: 'main', tool_name: 'Read', tool_input: { file_path: 'specs/user.md' } }, repo);
+  return /agent_id=/.test(traceText(repo)) ? `a main-session read was charged to an agent: ${traceText(repo)}` : null;
+});
+
+t('run-trace records the effort an agent ran at on its return line', (repo) => {
+  runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: APPROVED', effort: { level: 'low' } }), repo);
+  return /status=APPROVED effort=low agent_id=/.test(traceText(repo)) ? null : `no effort on the return line: ${traceText(repo)}`;
+});
+
 /** A Bash call that exited non-zero, in the shape Claude Code 2.1.294 delivers it: no tool_response. */
 const bashFailure = (command, error, extra = {}) => ({
   hook_event_name: 'PostToolUseFailure',

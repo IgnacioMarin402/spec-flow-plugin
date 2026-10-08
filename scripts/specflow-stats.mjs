@@ -479,6 +479,13 @@ say('');
 // the segmentation is inferred from the gate, and a milestone that never
 // passed runs to the end of the log.
 
+/**
+ * Whose context a read landed in: the agent that made it when the line names
+ * one, else the session. A subagent's tool call carries its PARENT's session
+ * id, so the session alone files every agent's reads under the orchestrator.
+ */
+const readerOf = (e) => (e.agent_id ? `agent:${e.agent_id}` : e.session);
+
 /** Trace events split into milestones, each ending at a gate PASS. */
 function milestones(run) {
   const passes = run.gate.filter((g) => g.result === 'pass' && g.at).map((g) => g.at);
@@ -516,7 +523,7 @@ if (segments.length === 0) {
       if (!e.raw?.includes(' read file=') || !e.file) continue;
       const entry = seen.get(e.file) ?? { n: 0, sessions: new Set() };
       entry.n += 1;
-      if (e.session) entry.sessions.add(e.session);
+      if (readerOf(e)) entry.sessions.add(readerOf(e));
       seen.set(e.file, entry);
     }
     const repeated = [...seen].filter(([, v]) => v.n > 1);
@@ -561,14 +568,14 @@ if (segments.length === 0) {
   // and a single id is what the second of those looks like from here, and it
   // means no split can ever see a fresh session. Nothing downstream should be
   // built on this attribution until a real run has answered it.
-  const attributed = reads.filter((r) => r.session);
-  const ids = new Set(attributed.map((r) => r.session));
+  const attributed = reads.filter((r) => readerOf(r));
+  const ids = new Set(attributed.map((r) => readerOf(r)));
   const spawned = trace.filter((e) => e.type && e.status).length;
 
   if (reads.length === 0) {
     /* section 4 already said there are no reads */
   } else if (attributed.length === 0) {
-    say('  attribution: UNAVAILABLE — no read carries a session id, so "across sessions" above measured nothing.');
+    say('  attribution: UNAVAILABLE — no read carries an agent or session id, so "across sessions" above measured nothing.');
     say('  Either this trace predates the field or the payloads name no session.');
   } else if (ids.size === 1 && spawned > 1) {
     say(`  attribution: ONE session id across ${spawned} subagent spawn(s) — reads are landing under the spawner.`);
@@ -576,7 +583,7 @@ if (segments.length === 0) {
       `every read in this trace carries the same session id while ${spawned} subagent(s) were spawned. A subagent's reads are being attributed to whoever spawned it, so the across-session split cannot see a fresh session's cold start — treat those numbers as unmeasured, not as zero.`,
     );
   } else {
-    say(`  attribution: ${attributed.length}/${reads.length} read(s) carry a session id, across ${ids.size} session(s).`);
+    say(`  attribution: ${attributed.length}/${reads.length} read(s) carry an agent or session id, across ${ids.size} session(s).`);
   }
 
   say('  Both numbers are proxies: the trace carries no milestone id, so a milestone here is');

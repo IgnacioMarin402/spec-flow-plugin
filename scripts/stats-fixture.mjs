@@ -272,6 +272,22 @@ check('one session id across several spawns is reported as unmeasured, not as re
   );
 });
 
+// A subagent's tool call carries its parent's session id and its own
+// agent_id (Claude Code 2.1.294). Read by session, two implementers look like
+// one; read by agent, the second one's cold start is visible.
+check('reads attributed to two agents under one spawner session are two sessions', () => {
+  const { out } = report({
+    trace: [
+      agent(1, 'implementer', 's1'),
+      `${read(2, 'x/one.ts', 's1')} agent_id=a1`,
+      agent(3, 'implementer', 's1'),
+      `${read(4, 'x/one.ts', 's1')} agent_id=a2`,
+    ],
+    gate: [pass(5)],
+  });
+  return contains(out, 're-read across sessions: one.ts x1') || contains(out, 'across 2 session(s)');
+});
+
 check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;

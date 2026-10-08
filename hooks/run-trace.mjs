@@ -118,10 +118,13 @@ function handedBack(payload) {
   return typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message : '';
 }
 
-/** Whether this agent's return is already on a line — see traceReturn(). */
+/**
+ * Whether this agent's return is already on a line — see traceReturn().
+ * Return lines only: the agent's own reads and writes carry its id too.
+ */
 function alreadyTraced(traceFile, agentId) {
   try {
-    return new RegExp(` agent_id=${agentId}(\\s|$)`, 'm').test(readFileSync(traceFile, 'utf8'));
+    return new RegExp(` agent type=.* agent_id=${agentId}(\\s|$)`, 'm').test(readFileSync(traceFile, 'utf8'));
   } catch {
     return false;
   }
@@ -163,7 +166,11 @@ function traceReturn(payload, traceFile, missLog) {
       .map((m) => m[1].trim().replace(/\s+/g, '-'))
       .filter(Boolean);
     const missField = misses.length > 0 ? ` skill_miss=${[...new Set(misses)].join(',')}` : '';
-    return `agent type=${type} status=${status[1]}${missField}${agentId ? ` agent_id=${agentId}` : ''}`;
+    // The effort the agent actually ran at, once per agent: the payload's
+    // `effort.level` is what was applied after the frontmatter, a spawn's own
+    // effort and CLAUDE_CODE_EFFORT_LEVEL had their say.
+    const level = typeof payload.effort?.level === 'string' && /^[a-z]+$/.test(payload.effort.level) ? payload.effort.level : '';
+    return `agent type=${type} status=${status[1]}${missField}${level ? ` effort=${level}` : ''}${agentId ? ` agent_id=${agentId}` : ''}`;
   }
 
   appendUnique(
@@ -243,5 +250,12 @@ await run(async () => {
   // itself is `agent_id=`.
   const id = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && /^[\w-]+$/.test(v));
 
-  appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''} ${line}\n`);
+  // Which agent made the call. A tool call inside a subagent carries the
+  // PARENT's session id and the agent's own `agent_id`, so without this every
+  // agent's reads land under the orchestrator and no split by session can see
+  // a fresh one. Absent in the main session. A return line has it already.
+  const agentId = typeof payload.agent_id === 'string' && /^[\w-]+$/.test(payload.agent_id) ? payload.agent_id : '';
+  const byAgent = agentId && !line.startsWith('agent type=') ? ` agent_id=${agentId}` : '';
+
+  appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''} ${line}${byAgent}\n`);
 });
