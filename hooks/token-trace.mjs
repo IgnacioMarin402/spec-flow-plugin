@@ -37,17 +37,18 @@
  * lines carries. `out` and `think` are floors all the same — some messages
  * never get their final count written, and keep the one they started with.
  *
- * **Attribution is by model and sidechain, not by agent role.** A sidechain
- * message names no agent, and deriving one from which spawn was in flight
- * would be a guess written down as a fact. The roles map onto tiers
- * (ADR-013), so `model=` already answers what the budget asks; joining a
- * sidechain to a role is a correlation, and correlation belongs in the
- * report, where it can say it is unsure. `specflow-stats.mjs` reads these.
+ * **A subagent is named by its transcript, never guessed.** Its file is
+ * `agent-<id>.jsonl`, the same id its hook payloads and its run-trace return
+ * line carry, so a sidechain line read from that file says `agent_id=<id>` and
+ * `specflow-stats.mjs` joins it to the role and effort on the return line. A
+ * sidechain message in the session's own transcript names no agent and stays
+ * unattributed: deriving one from which spawn was in flight would be a guess
+ * written down as a fact.
  */
 import { openSync, readSync, fstatSync, closeSync, appendFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, writeFile, run } from './lib/io.mjs';
+import { projectDir, stateDir, readOwnedPhase, readPayload, writeFile, run } from './lib/io.mjs';
 
 /**
  * Every counter this hook reports, and where each lives in a usage record.
@@ -177,15 +178,22 @@ function noteMiss(state, what) {
   }
 }
 
+/** `agent-<id>.jsonl` -> `<id>`: the id the agent's payloads and return line carry. */
+const agentOf = (file) => /[\\/]agent-([\w-]+)\.jsonl$/.exec(file)?.[1] ?? '';
+
 /**
- * Usage summed per `model|sidechain` into `groups`, over the transcript lines
- * in `text`. Returns the message the slice ended inside, as `{id, out, think}`,
- * for the next slice of the same file to carry on from.
+ * Usage summed per `model|sidechain|agent` into `groups`, over the transcript
+ * lines in `text`. Returns the message the slice ended inside, as
+ * `{id, out, think}`, for the next slice of the same file to carry on from.
  *
  * `carry` is that value from the previous slice: a message whose lines
  * straddle two stops has its input counted already.
+ *
+ * `max_prompt` is the largest prompt any one message sent: input plus cache
+ * read plus cache write. A sum hides it, and one prompt over a price line is
+ * billed differently from the rest.
  */
-function tally(text, groups, carry) {
+function tally(text, groups, carry, agentId = '') {
   let last = carry;
 
   for (const line of text.split('\n')) {
@@ -205,8 +213,9 @@ function tally(text, groups, carry) {
     // reports a number no one can act on.
     if (!usage || typeof message.model !== 'string') continue;
 
-    const key = `${message.model}|${entry.isSidechain === true}`;
-    const group = groups.get(key) ?? { model: message.model, sidechain: entry.isSidechain === true, msgs: 0, ...Object.fromEntries(Object.keys(COUNTERS).map((name) => [name, 0])) };
+    const agent = entry.isSidechain === true ? agentId : '';
+    const key = `${message.model}|${entry.isSidechain === true}|${agent}`;
+    const group = groups.get(key) ?? { model: message.model, sidechain: entry.isSidechain === true, agent, msgs: 0, maxPrompt: 0, ...Object.fromEntries(Object.keys(COUNTERS).map((name) => [name, 0])) };
     groups.set(key, group);
 
     // A message's lines are consecutive among the lines that carry usage, so
@@ -226,6 +235,7 @@ function tally(text, groups, carry) {
 
     group.msgs += 1;
     for (const [name, pick] of Object.entries(COUNTERS)) group[name] += num(pick(usage));
+    group.maxPrompt = Math.max(group.maxPrompt, num(COUNTERS.in(usage)) + num(COUNTERS.cache_read(usage)) + num(COUNTERS.cache_write(usage)));
     last = id === null ? null : { id, ...Object.fromEntries(GROWING.map((name) => [name, num(COUNTERS[name](usage))])) };
   }
 
@@ -234,15 +244,19 @@ function tally(text, groups, carry) {
 
 await run(async () => {
   const root = projectDir();
+  const payload = await readPayload();
 
   // Phase first, through a path that creates nothing — and the SAME phases
   // run-trace.mjs traces, because both write to run-trace.log: a reader must
   // not have to know that two hooks disagree about which turns are recorded.
-  // `readPhase` adds the repo that merely committed a phase file (ADR-017).
-  const phase = readPhase(root);
-  if (['', 'idle', 'done'].includes(phase)) return;
+  // Owned, as the gate reads it on this same Stop: a second session open in
+  // the repo is not the run, and counting its turns charged them to the run.
+  // `readOwnedPhase` adds the repo that merely committed a phase file (ADR-017).
+  const sessionId = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && v) ?? '';
+  const phase = readOwnedPhase(root, sessionId);
+  if (phase === '') return;
+  const idle = ['idle', 'done'].includes(phase);
 
-  const payload = await readPayload();
   const path = [payload.transcript_path, payload.transcriptPath].find((v) => typeof v === 'string' && v);
 
   const state = stateDir(root);
@@ -284,15 +298,20 @@ await run(async () => {
       slice.continued && typeof before?.id === 'string'
         ? { id: before.id, ...Object.fromEntries(GROWING.map((name) => [name, num(before[name])])) }
         : null;
-    const last = tally(slice.text, groups, carry);
+    // Between runs the slice is read and dropped: its turns belong to no run,
+    // and left unread they were charged to the next run's first stop.
+    const last = idle ? null : tally(slice.text, groups, carry, agentOf(file));
     offsets[file] = { ...(last ?? {}), bytes: slice.next };
   }
 
   // The offsets advance even when a slice held no usage record. What was
   // read has been read; leaving it behind would re-scan the same bytes at
-  // every stop for the rest of the session. Only this session's transcripts
-  // are kept: another session's offset would never be read again.
-  writeFile(offsetFile, `${JSON.stringify({ files: offsets })}\n`);
+  // every stop for the rest of the session. Other sessions' offsets are kept
+  // while their files exist: overwriting them made that session's next stop
+  // re-read its whole transcript.
+  const kept = Object.fromEntries(Object.entries(saved ?? {}).filter(([file]) => !(file in offsets) && existsSync(file)));
+  writeFile(offsetFile, `${JSON.stringify({ files: { ...kept, ...offsets } })}\n`);
+  if (idle) return;
 
   // A group opened only by the tail of a message counted at an earlier stop,
   // whose output did not grow, has nothing to report.
@@ -307,6 +326,7 @@ await run(async () => {
   // express a repeated key.
   for (const g of lines) {
     const counts = Object.keys(COUNTERS).map((name) => `${name}=${g[name]}`).join(' ');
-    appendFileSync(join(state, 'run-trace.log'), `${stamp} tokens model=${g.model} sidechain=${g.sidechain} ${counts} msgs=${g.msgs}\n`);
+    const agent = g.agent ? ` agent_id=${g.agent}` : '';
+    appendFileSync(join(state, 'run-trace.log'), `${stamp} tokens model=${g.model} sidechain=${g.sidechain} ${counts} msgs=${g.msgs} max_prompt=${g.maxPrompt}${agent}\n`);
   }
 });

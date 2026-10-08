@@ -288,6 +288,28 @@ check('reads attributed to two agents under one spawner session are two sessions
   return contains(out, 're-read across sessions: one.ts x1') || contains(out, 'across 2 session(s)');
 });
 
+// Token lines name the agent whose transcript they were read from; the
+// return line names its role and effort. Joined, a run's cost reads by role.
+check("a run's tokens are reported by role, with the orchestrator apart", () => {
+  const tok = (minute, sidechain, out, agentId) =>
+    `${stamp(minute)} phase=implement tokens model=model-alpha sidechain=${sidechain} in=10 out=${out} cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=12000${agentId ? ` agent_id=${agentId}` : ''}`;
+  const { out } = report({
+    trace: [
+      `${agent(1, 'spec-flow:reviewer', 's1')} effort=low agent_id=a1`,
+      tok(2, 'true', 300, 'a1'),
+      tok(3, 'false', 900),
+      tok(4, 'true', 50, 'a9'),
+    ],
+    gate: [pass(5)],
+  });
+  return (
+    contains(out, 'orchestrator  model-alpha  in 10  out 900') ||
+    contains(out, 'reviewer (1 agent(s), effort low)  model-alpha  in 10  out 300') ||
+    contains(out, 'unattributed (1 agent(s))  model-alpha  in 10  out 50') ||
+    contains(out, 'largest prompt 12k')
+  );
+});
+
 check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;

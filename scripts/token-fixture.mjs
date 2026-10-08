@@ -363,6 +363,60 @@ check('a repo that never adopted this engine gets no .claude/ directory', () => 
   return existsSync(join(repo, '.claude')) ? 'created .claude/ in a repo with no phase file' : '';
 });
 
+// ---- whose cost it is ------------------------------------------------------
+
+check('a subagent transcript is charged to the agent its file names', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ out: 100 })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ out: 30, sidechain: true })]);
+  subagentTranscript(t, 'b0123456789abcdef', [entry({ out: 70, sidechain: true })]);
+  const { lines } = stop(repo, t);
+  const byAgent = Object.fromEntries(lines.filter((l) => field(l, 'agent_id')).map((l) => [field(l, 'agent_id'), field(l, 'out')]));
+  if (byAgent.a0123456789abcdef !== '30' || byAgent.b0123456789abcdef !== '70') {
+    return `two agents were not told apart — every role's cost would read as one sum:\n${lines.join('\n')}`;
+  }
+  const main = lines.find((l) => field(l, 'sidechain') === 'false');
+  return main && !field(main, 'agent_id') ? '' : `the session's own line was charged to an agent: ${main}`;
+});
+
+check("a group reports its largest single prompt, not a sum", () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ id: 'm1', input: 10, cacheRead: 90000, cacheWrite: 5000 }), entry({ id: 'm2', input: 20, cacheRead: 120000, cacheWrite: 1000 })]);
+  const { lines } = stop(repo, t);
+  return field(lines[0] ?? '', 'max_prompt') === '121020' ? '' : `max_prompt=${field(lines[0] ?? '', 'max_prompt')}, want 121020 (20 + 120000 + 1000)`;
+});
+
+check('turns taken between runs are not charged to the next run', () => {
+  const repo = makeRepo('idle');
+  const t = transcript(repo, [entry({ out: 1000 })]);
+  stop(repo, t);
+  writeFileSync(join(repo, '.claude/state/phase'), 'spec\n');
+  appendFileSync(t, entry({ out: 7 }));
+  const { lines } = stop(repo, t);
+  return lines.length === 1 && field(lines[0], 'out') === '7' ? '' : `the run's first stop charged the idle turns too:\n${lines.join('\n')}`;
+});
+
+check('a second session in the repo does not record tokens against the run', () => {
+  const repo = makeRepo('implement');
+  writeFileSync(join(repo, '.claude/state/phase.session'), 'sess-owner');
+  const t = transcript(repo, [entry({ out: 100 })]);
+  const { lines } = stop(repo, t, { session_id: 'sess-other' });
+  return lines.length === 0 ? '' : `another session's turn was charged to the run:\n${lines.join('\n')}`;
+});
+
+check("one session's stop keeps another session's offsets", () => {
+  const repo = makeRepo('idle');
+  const a = transcript(repo, [entry({ out: 100 })]);
+  const bPath = join(repo, 'other.jsonl');
+  writeFileSync(bPath, entry({ out: 50 }));
+  stop(repo, a, { session_id: 'sess-a' });
+  stop(repo, bPath, { session_id: 'sess-b' });
+  writeFileSync(join(repo, '.claude/state/phase'), 'spec\n');
+  appendFileSync(a, entry({ out: 7 }));
+  const { lines } = stop(repo, a, { session_id: 'sess-a' });
+  return lines.length === 1 && field(lines[0], 'out') === '7' ? '' : `session a re-read its whole transcript after session b's stop:\n${lines.join('\n')}`;
+});
+
 // ---- the readers agree -----------------------------------------------------
 
 check('status and stats report the same totals off one log', () => {

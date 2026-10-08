@@ -624,7 +624,35 @@ if (tokenLines.length === 0) {
   // per-agent figure the trace cannot support.
   const subagentOut = total('out', (r) => r.chain === 'subagent');
   const spawns = trace.filter((e) => e.type && e.status).length;
-  if (subagentOut > 0 && spawns > 0) {
+  const attributed = tokenLines.some((e) => e.agent_id);
+  if (attributed) {
+    // Who spent it, per run: the orchestrator (the session's own transcript)
+    // by model, then each role, joined by agent_id to the role and effort its
+    // return line recorded. A sidechain line naming no agent, or an agent
+    // with no return line yet, is `unattributed` rather than guessed.
+    for (const run of runs) {
+      const lines = run.trace.filter((e) => e.model && e.msgs !== undefined);
+      if (lines.length === 0) continue;
+      const returned = new Map(run.trace.filter((e) => e.type && e.agent_id).map((e) => [e.agent_id, e]));
+      const byRole = new Map();
+      for (const e of lines) {
+        const back = returned.get(e.agent_id);
+        const role = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
+        const key = `${role}|${e.model}`;
+        const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, maxPrompt: 0 };
+        if (e.agent_id) row.agents.add(e.agent_id);
+        if (back?.effort) row.efforts.add(back.effort);
+        for (const f of ['in', 'out', 'cache_read', 'cache_write']) row[f] += Number(e[f]) || 0;
+        row.maxPrompt = Math.max(row.maxPrompt, Number(e.max_prompt) || 0);
+        byRole.set(key, row);
+      }
+      say(`  by role${runs.length > 1 ? ` [${run.name}]` : ''}:`);
+      for (const r of [...byRole.values()].sort((a, b) => b.out - a.out)) {
+        const who = r.role === 'orchestrator' ? 'orchestrator' : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
+        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${human(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}`);
+      }
+    }
+  } else if (subagentOut > 0 && spawns > 0) {
     say(`  subagent output: ${human(subagentOut)} across ${spawns} recorded spawn(s) — ~${human(Math.round(subagentOut / spawns))}/spawn.`);
     say('  That average is the unit max_opus_calls does not charge; it says nothing about which agent.');
   } else if (subagentOut === 0 && spawns > 0) {

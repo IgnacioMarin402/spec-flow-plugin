@@ -113,10 +113,11 @@ export function readPhase(root = projectDir()) {
  * second arms the first's gate, spends its Opus budget and moves the attempt
  * counter that decides when a human is called.
  *
- * **Two hooks call this, and the rest deliberately do not.** A hook only gets
+ * **Three hooks call this, and the rest deliberately do not.** A hook only gets
  * the owner check when it is certain to fire in the session that SEALED the
- * phase: `gate.mjs` on `Stop`, which fires for the orchestrating turn, and
- * `opus-budget.mjs` on a subagent spawn, which only an orchestrator performs.
+ * phase: `gate.mjs` and `token-trace.mjs` on `Stop`, which fires for the
+ * orchestrating turn, and `opus-budget.mjs` on a subagent spawn, which only
+ * an orchestrator performs.
  *
  * The others fire inside subagents too — `lint-on-write` runs on the
  * implementer's every write — and whether a subagent's payload carries its
