@@ -40,46 +40,18 @@ import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
+import {
+  REQ_HEADING,
+  REQ_TAG,
+  idsIn,
+  ARCHIVE_STATUS,
+  changedDeltas,
+  explainKind,
+  HEAVY_HEADINGS,
+  reusedIds,
+} from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
-
-// `### REQ-USER-001 — Title`. The separator is optional and may be an em
-// dash, a hyphen or a colon: the id is what matters.
-const REQ_HEADING = /^###\s+(REQ-[A-Z0-9-]+-\d{3})\b\s*[—:-]?\s*(.*)$/;
-
-// **Deliberately NOT `\b`-delimited.** Go and pytest build test names out of
-// identifiers, which cannot hold spaces or hyphens, so a reported name glues
-// the id to its neighbours — `TestAuth/REQ-USER-001_rejects`. `_` is a word
-// character, so `\b` fails on both sides and a genuine executed proof reads as
-// absent.
-//
-// The boundaries say what matters instead: not glued to a preceding letter or
-// digit (a different token), and not followed by a fourth digit (so
-// `REQ-USER-0011` never matches as `REQ-USER-001`).
-const REQ_TAG = /(?<![A-Z0-9])REQ-[A-Z0-9-]+-\d{3}(?!\d)/g;
-
-/**
- * The ids a reported line proves, in canonical (hyphenated) spelling.
- *
- * The line is read TWICE: as reported, and with `_` read as `-`. The second
- * pass is the other half of the premise stated just above, and it is the half
- * that was missed. A language whose test name is an IDENTIFIER cannot spell the
- * id at all — `def test_REQ_CORE_001_...` is the closest a Python function name
- * can come, and Java methods and Rust `fn`s are in the same position. Matching
- * only the hyphenated form made a real, executed, passing test read as "has no
- * test that RAN", which is the exact defect ADR-001 was written to remove,
- * arriving through the spelling instead of through source parsing.
- *
- * Both passes, not the normalized one alone: normalizing first would let
- * `REQ-USER-001_002` read as the single id `REQ-USER-001-002`, since that also
- * ends in three digits. The raw pass keeps answering `REQ-USER-001` there, and
- * the union takes whichever a line genuinely names.
- */
-function idsIn(line) {
-  const found = new Set(line.match(REQ_TAG) ?? []);
-  for (const id of line.replace(/_/g, '-').match(REQ_TAG) ?? []) found.add(id);
-  return found;
-}
 
 // Nothing anchors an id to a test declaration, and nothing rejects a skipped
 // one — the source of the lines does both. A runner reports tests, not
@@ -88,50 +60,6 @@ function idsIn(line) {
 // `@Disabled`, `#[ignore]` and a runtime `t.Skip()` all end in the same
 // place.
 const SCOPE_MARKER = /^<!--\s*spec-scope:\s*(.+?)\s*-->$/m;
-
-// `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
-const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
-
-// `- CHANGED REQ-USER-001 (wording) — was X, now Y`, inside a change spec's
-// `## Requirement deltas` section. The marker is OPTIONAL to this regex and
-// required by the check that reads it: matching the line without one is what
-// lets the failure quote the line it is complaining about, instead of
-// reporting that it found nothing.
-const CHANGED_DELTA = /^[-*]\s*CHANGED\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)[ \t]*(?:\(([a-z]+)\))?.*$/gm;
-
-/** The two edits a CHANGED may legitimately be. Everything else decomposes. */
-const CHANGED_KINDS = ['wording', 'correction'];
-
-/**
- * The body of `## Requirement deltas`, or '' when the spec has no such
- * section.
- *
- * Scoped to that section rather than read over the whole file: a spec's prose
- * is entitled to DISCUSS a changed requirement without DECLARING one, and a
- * check that reads a sentence as a delta fails runs that are correct — which
- * costs more trust than the case it would catch.
- */
-function deltasSection(body) {
-  const heading = /^## Requirement deltas\b.*$/m.exec(body);
-  if (!heading) return '';
-  const after = body.slice(heading.index + heading[0].length);
-  const next = after.search(/^## /m);
-  return next === -1 ? after : after.slice(0, next);
-}
-
-/** Every CHANGED delta a change spec declares, with the kind it claims. */
-function* changedDeltas(body) {
-  for (const m of deltasSection(body).matchAll(CHANGED_DELTA)) {
-    yield { line: m[0], id: m[1], kind: m[2] ?? null };
-  }
-}
-
-/** Why one CHANGED line was rejected, in the failure's own voice. */
-function explainKind(kind) {
-  if (!kind) return 'does not say which kind of change it is';
-  if (kind === 'correction') return 'is marked (correction), which only a `/spec-fix` brief may use';
-  return `is marked (${kind}), which is not one of the two kinds a CHANGED may be (${CHANGED_KINDS.join(', ')})`;
-}
 
 /**
  * The only walk left is over `specs/` — Markdown this flow itself writes — so
@@ -436,11 +364,16 @@ for (const slug of archived) {
 //     fix flow, so `/spec-fix` output has nowhere to split.
 //   - Headings only. Whether the rationale is any good is a reviewer's job.
 const SPECFLOW_DIR = join(root, 'specflow');
-const HEAVY_HEADINGS = ['## Source', '## Context', '## Decision'];
 
 const live = existsSync(SPECFLOW_DIR)
   ? readdirSync(SPECFLOW_DIR).filter((entry) => entry !== 'archive' && statSync(join(SPECFLOW_DIR, entry)).isDirectory())
   : [];
+
+// Read once for the reuse check below; a missing spec.md is reported above.
+const archivedBodies = archived
+  .map((slug) => join(ARCHIVE_DIR, slug, 'spec.md'))
+  .filter((path) => existsSync(path))
+  .map((path) => readFileSync(path, 'utf8'));
 
 for (const slug of live) {
   const specPath = join(SPECFLOW_DIR, slug, 'spec.md');
@@ -504,6 +437,16 @@ for (const slug of live) {
         `Otherwise this is not a CHANGED: split it into \`REMOVED ${id}\` plus an \`ADDED\` on a NEW id, ` +
         `which this script proves in both directions. Widening counts — a clause added to an existing ` +
         `requirement is claimed by the spec layer and proven by nobody.`,
+    );
+  }
+
+  // ---- an ADDED id is new ---------------------------------------------------
+  const reused = reusedIds(body, archivedBodies);
+  if (reused.length > 0) {
+    problems.push(
+      `specflow/${slug}/spec.md ADDs ${reused.join(', ')}, which this spec or a shipped change REMOVED. ` +
+        `A retired id keeps meaning the behaviour that was removed — in the archive and in any test or record that names it — ` +
+        `so a new requirement takes the next unused id in its capability's sequence.`,
     );
   }
 

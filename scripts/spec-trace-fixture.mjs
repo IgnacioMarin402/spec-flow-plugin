@@ -1189,6 +1189,56 @@ await Promise.all([
     ),
   ),
 
+  // ==== an ADDED id is new ==================================================
+  //
+  // Ids are permanent so that retiring one is safe. A new requirement given a
+  // retired id passes every binding here — it is declared and its test ran —
+  // while the archive that removed it now names two claims.
+
+  check('an ADDED id a shipped change REMOVED is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/drop/spec.md':
+          '# Spec — drop\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- REMOVED REQ-USER-001 — the old reset flow is gone\n',
+        'specflow/archive/drop/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/reuse/spec.md': '# Spec — reuse\n\n## Requirement deltas\n- ADDED REQ-USER-001 — a different reset flow\n',
+        'specflow/reuse/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a retired id was handed to a new requirement and passed: ${r.out}`;
+        return /ADDs REQ-USER-001/.test(r.out) ? null : `the failure was not about the reused id: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('an ADDED id the same spec REMOVES is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/swap/spec.md':
+          '# Spec — swap\n\n## Requirement deltas\n- REMOVED REQ-USER-001 — old meaning\n- ADDED REQ-USER-001 — new meaning\n',
+        'specflow/swap/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status !== 0 && /ADDs REQ-USER-001/.test(r.out) ? null : `REMOVED plus ADDED on one id passed: ${r.out}`),
+    ),
+  ),
+
+  // A REJECTED change removed nothing, so its REMOVED line retires nothing.
+  check('an ADDED id that only a rejected change REMOVED passes', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/no/spec.md':
+          '# Spec — no\n\n**Status:** REJECTED 2026-07-30 — not wanted\n\n## Requirement deltas\n- REMOVED REQ-USER-001 — proposed, never done\n',
+        'specflow/archive/no/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/later/spec.md': '# Spec — later\n\n## Requirement deltas\n- ADDED REQ-USER-001 — the thing\n',
+        'specflow/later/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `an id retired by nothing was reported as reused: ${r.out}`),
+    ),
+  ),
+
   // ---- an unconfigured repo says so, rather than reporting everything proven ----
   check('a repo with no specs and nothing archived says what it is not checking', () =>
     withRepo({ '.spec-flow/config.json': contract() }, (r) => {

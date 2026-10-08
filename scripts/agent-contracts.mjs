@@ -202,6 +202,15 @@ const specTrace = readFileSync(join(ROOT, 'scripts', 'spec-trace.mjs'), 'utf8');
 /** `if (!CONFIG.trace.require_skills_field) continue;` -> `require_skills_field`. */
 const gatedFields = [...specTrace.matchAll(/CONFIG\.trace\.(\w+)\)\s*continue/g)].map((m) => m[1]);
 
+// Same guard as the template's, for the same reason: a pattern that stops
+// matching reads exactly like a spec-trace with nothing gated, and passes
+// forever. If the last gated check is ever removed, remove this one with it.
+if (gatedFields.length === 0) {
+  problems.push(
+    'no contract-gated check was found in scripts/spec-trace.mjs (the `if (!CONFIG.trace.<field>) continue` shape). If that line was rewritten, fix the pattern here; if the last gated check was removed, remove this check too — matching nothing, it passes forever.',
+  );
+}
+
 for (const field of gatedFields) {
   // `require_skills_field` -> `skills`: the subject the field decides about,
   // and the word an agent's prose will be using instead of the field name.
