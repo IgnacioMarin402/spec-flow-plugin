@@ -50,7 +50,7 @@ function report(files, env = {}) {
     // exported would otherwise see different results than CI.
     const clean = { ...process.env };
     for (const key of Object.keys(clean)) {
-      if (/^ANTHROPIC_DEFAULT_.*_MODEL$/.test(key)) delete clean[key];
+      if (/^ANTHROPIC_DEFAULT_.*_MODEL$/.test(key) || key === 'CLAUDE_CODE_EFFORT_LEVEL') delete clean[key];
     }
     const res = spawnSync(process.execPath, [REPORT], { cwd: root, encoding: 'utf8', env: { ...clean, ...env } });
     return { code: res.status, out: `${res.stdout}${res.stderr}` };
@@ -182,6 +182,28 @@ check("a session effortLevel is reported for the agents that inherit, and not fo
   return /low \(agent\)/.test(declared)
     ? ''
     : `a session-wide level overwrote an agent that declares its own, which is not what the frontmatter does: ${declared}`;
+});
+
+// CLAUDE_CODE_EFFORT_LEVEL beats the frontmatter, a spawn's effort and the
+// session's: set to medium over a frontmatter `low`, a session `high` and a
+// spawn rewritten to `max`, every agent ran at medium (2.1.294).
+check('CLAUDE_CODE_EFFORT_LEVEL in the environment is reported as deciding every agent', () => {
+  const { code, out } = report({}, { CLAUDE_CODE_EFFORT_LEVEL: 'max' });
+  if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
+  for (const agent of ['reviewer', 'implementer']) {
+    const r = row(out, agent);
+    if (!/max \(CLAUDE_CODE_EFFORT_LEVEL, the environment\)/.test(r)) {
+      return `${agent} was reported as deciding its own effort while the env var overrides it: ${r}`;
+    }
+  }
+  return /CLAUDE_CODE_EFFORT_LEVEL is set/.test(out) ? '' : `the report never says why every row reads the same:\n${out}`;
+});
+
+check("CLAUDE_CODE_EFFORT_LEVEL in a settings env block is reported with that file as its source", () => {
+  const { code, out } = report({ '.claude/settings.json': { effortLevel: 'xhigh', env: { CLAUDE_CODE_EFFORT_LEVEL: 'medium' } } });
+  if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
+  const r = row(out, 'implementer');
+  return /medium \(CLAUDE_CODE_EFFORT_LEVEL, \.claude\/settings\.json\)/.test(r) ? '' : `the settings-file override was not reported: ${r}`;
 });
 
 check('every column stays aligned when a heading is longer than its values', () => {

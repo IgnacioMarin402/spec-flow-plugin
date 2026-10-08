@@ -225,10 +225,12 @@ could not be named, `files=0` means it resolved to HEAD.
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
   `fable`. A hook applies it to the spawn; an unknown agent or tier denies the
   spawn ([ADR-014](decisions/014-a-project-routes-tiers-not-versions.md)).
-- **No `effort`**: a spawn discards it silently. Four agents declare their own;
-  the implementer takes the session's `effortLevel`
+- **No `effort`**: the file routes a tier, not an effort. Four agents declare
+  their own; the implementer takes the session's `effortLevel`
   ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md),
   [ADR-026](decisions/026-anatomy-is-stated-not-learned-from-source.md)).
+  `CLAUDE_CODE_EFFORT_LEVEL`, when set, overrides all of them, and
+  `spec-flow models` says so.
 - **A concrete model version** is session-wide, set in the project's
   `.claude/settings.json` as `{"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "<id>"}}`
   ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
