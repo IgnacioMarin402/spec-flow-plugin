@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { returnBlocks } from '../scripts/agent-blocks.mjs';
+import { returnBlocks, unroutedFields } from '../scripts/agent-blocks.mjs';
 
 /**
  * The contract this file defends is one line long: an agent's markdown is read
@@ -38,4 +38,13 @@ test('returnBlocks reports zero blocks rather than throwing when the anchor is g
 test('a fenced block that is not a return block is not read as one', () => {
   const shell = ['```bash', 'STATUS=1 npm test', '```'].join('\n');
   assert.equal(returnBlocks(shell).blocks, 0);
+});
+
+test('a field named only inside a longer field name is not routed', () => {
+  assert.deepEqual(unroutedFields(['QUESTIONS'], 'route `OPEN_QUESTIONS:` to the human'), ['QUESTIONS']);
+  assert.deepEqual(unroutedFields(['READ'], 'expect `STATUS: SPEC_READY`'), ['READ']);
+});
+
+test('a field the commands name is routed, and an exempt one needs no name', () => {
+  assert.deepEqual(unroutedFields(['GAPS', 'STATUS'], 'read its `GAPS:` line', { STATUS: 'discriminator' }), []);
 });

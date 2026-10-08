@@ -39,8 +39,8 @@ If they instead want a different shape rather than nothing at all, that is not a
 ## 3. REVIEW THE PLAN  (subagent: reviewer, escalates to the planner)
 - Write `review` to `.claude/state/phase`.
 - Invoke `reviewer` in `MODE=REVIEW_PLAN` with the spec, `plan.md` **and the `milestones/*.md` files** — `plan.md` is only an index, so a review without the milestone files approves a table of names.
-  - `STATUS: ESCALATE` -> invoke `planner` in `MODE=CONSULT` with the questions, then re-invoke `reviewer` with the answers.
-  - `STATUS: CHANGES_REQUESTED` -> invoke `planner` in `MODE=PLAN` to revise, then review again.
+  - `STATUS: ESCALATE` -> invoke `planner` in `MODE=CONSULT` with its `QUESTIONS`, then re-invoke `reviewer` with the answers.
+  - `STATUS: CHANGES_REQUESTED` -> invoke `planner` in `MODE=PLAN` with its `ISSUES` to revise, then review again.
   - `STATUS: APPROVED` -> continue.
 
 ## 4. IMPLEMENT PER MILESTONE  (subagent: implementer) + GATE LOOP

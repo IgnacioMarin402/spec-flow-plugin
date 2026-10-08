@@ -34,3 +34,18 @@ export function returnBlocks(text) {
   }
   return { blocks: found.length, fields };
 }
+
+/**
+ * The fields no command names, matched as whole field names: `QUESTIONS` is
+ * not named by a command that only says `OPEN_QUESTIONS`, and `READ` is not
+ * named by `SPEC_READY`. A substring match let a field pass on a neighbour's
+ * name, which reads exactly like a field that is routed.
+ *
+ * @param {string[]} fields Declared return fields.
+ * @param {string} commandsText The commands' text, concatenated.
+ * @param {Record<string, string>} [exempt] Fields deliberately not named, by reason.
+ * @returns {string[]} The fields that are neither named nor exempt.
+ */
+export function unroutedFields(fields, commandsText, exempt = {}) {
+  return fields.filter((f) => !(f in exempt) && !new RegExp(`(?<![A-Za-z0-9_])${f}(?![A-Za-z0-9_])`).test(commandsText));
+}

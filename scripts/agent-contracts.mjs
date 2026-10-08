@@ -38,7 +38,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { returnBlocks } from './agent-blocks.mjs';
+import { returnBlocks, unroutedFields } from './agent-blocks.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = join(ROOT, 'agents');
@@ -137,6 +137,10 @@ const NOT_ROUTED = {
   SUMMARY: 'step 1 already tells the orchestrator to show the user a summary drawn from both artifacts; the key adds nothing to that instruction',
   DELTAS: '/spec-fix routes on CASE, and the deltas it names are the ones the spec file already carries',
 
+  // The reviewer's remarks on a plan it APPROVED. Nothing branches on them:
+  // a doubt comes back as ESCALATE, a fixable problem as CHANGES_REQUESTED.
+  NOTES: 'optional remarks on an APPROVED plan; a doubt or a problem comes back under a status that is routed',
+
   // Confirmations of work already done. There is no branch to take: a fold
   // that archived nothing fails the phase-guard on `done`, and a fold that
   // stamped nothing shows as `0 insertions(+)`, which step 5 already reads.
@@ -145,36 +149,43 @@ const NOT_ROUTED = {
   ARCHIVED: 'a confirmation of the move; an unarchived specflow/<SLUG>/ is caught by phase-guard when `done` is written, which is a check rather than a prompt',
 };
 
-// The spec-writer's MODE=TRIAGE and MODE=FOLD live in `modes/`, where it reads
-// them from; their return blocks are this agent's as much as MODE=SPEC's are.
+// The agents whose return blocks carry a finding the orchestrator itself must
+// act on. The planner's, the implementer's and the architect's are left out
+// on purpose: what they return is handed whole to the next agent (a plan to
+// the reviewer, guidance to the implementer, a block to the planner), so the
+// orchestrator relays it rather than branching on its fields.
+//
+// An agent's blocks live in `agents/<name>.md` and in its `modes/<name>-*.md`,
+// which it reads per mode; they are its blocks as much as the main file's are.
+const ROUTED_AGENTS = ['spec-writer', 'reviewer'];
 const MODES = join(ROOT, 'modes');
-const specWriterModes = readdirSync(MODES)
-  .filter((f) => f.startsWith('spec-writer-') && f.endsWith('.md'))
-  .sort();
-const declared = returnBlocks(
-  [readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8'), ...specWriterModes.map((f) => readFileSync(join(MODES, f), 'utf8'))].join('\n'),
-);
 
-if (declared.blocks === 0) {
-  problems.push(
-    'agents/spec-writer.md and modes/spec-writer-*.md declare no `STATUS:` return block. They are anchored to a fenced block opening with `STATUS:`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.',
+const returnedBy = new Map(); // field -> agents declaring it
+for (const name of ROUTED_AGENTS) {
+  const modeFiles = readdirSync(MODES)
+    .filter((f) => f.startsWith(`${name}-`) && f.endsWith('.md'))
+    .sort();
+  const declared = returnBlocks(
+    [readFileSync(join(AGENTS, `${name}.md`), 'utf8'), ...modeFiles.map((f) => readFileSync(join(MODES, f), 'utf8'))].join('\n'),
   );
+  if (declared.blocks === 0) {
+    problems.push(
+      `agents/${name}.md and modes/${name}-*.md declare no \`STATUS:\` return block. They are anchored to a fenced block opening with \`STATUS:\`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.`,
+    );
+  }
+  for (const field of declared.fields) returnedBy.set(field, [...(returnedBy.get(field) ?? []), name]);
 }
 
-const returnFields = new Set(declared.fields);
-
-for (const field of [...returnFields].sort()) {
-  if (field in NOT_ROUTED) continue;
-  if (commandsText.includes(field)) continue;
+for (const field of unroutedFields([...returnedBy.keys()].sort(), commandsText, NOT_ROUTED)) {
   problems.push(
-    `agents/spec-writer.md returns "${field}:" and neither command names it. A return field no command reads is a finding that reaches the orchestrator and stops there — which for a field like GAPS is the only report of something no check in this engine can produce. Name it in the command that drives that mode, or add it to NOT_ROUTED in this file with the reason it needs no handling.`,
+    `agents/${returnedBy.get(field).join('.md, agents/')}.md returns "${field}:" and neither command names it. A return field no command reads is a finding that reaches the orchestrator and stops there — which for a field like GAPS is the only report of something no check in this engine can produce. Name it in the command that drives that mode, or add it to NOT_ROUTED in this file with the reason it needs no handling.`,
   );
 }
 
 for (const field of Object.keys(NOT_ROUTED)) {
-  if (!returnFields.has(field)) {
+  if (!returnedBy.has(field)) {
     problems.push(
-      `NOT_ROUTED exempts "${field}", which no spec-writer return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
+      `NOT_ROUTED exempts "${field}", which no routed agent's return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
     );
   }
 }
@@ -218,7 +229,7 @@ for (const field of gatedFields) {
 
   const contracts = [
     ...readdirSync(AGENTS).filter((f) => f.endsWith('.md')).sort().map((f) => `agents/${f}`),
-    ...specWriterModes.map((f) => `modes/${f}`),
+    ...readdirSync(MODES).filter((f) => f.endsWith('.md')).sort().map((f) => `modes/${f}`),
   ];
   for (const file of contracts) {
     const text = readFileSync(join(ROOT, file), 'utf8');
@@ -286,6 +297,6 @@ console.log(
     `${fields.length - Object.keys(NOT_REVIEWED).length} named in the reviewer's checklist, ` +
     `${Object.keys(NOT_REVIEWED).length} exempt with a stated reason; ` +
     `${agentFiles.length} agent(s), every one declaring its tools; ` +
-    `${returnFields.size} spec-writer return field(s), ${returnFields.size - Object.keys(NOT_ROUTED).length} routed by a command and ${Object.keys(NOT_ROUTED).length} exempt with a stated reason; ` +
+    `${returnedBy.size} return field(s) from ${ROUTED_AGENTS.join(' and ')}, ${returnedBy.size - Object.keys(NOT_ROUTED).length} routed by a command and ${Object.keys(NOT_ROUTED).length} exempt with a stated reason; ` +
     `${gatedFields.length} contract-gated spec-trace check(s), none described as unconditional.`,
 );
