@@ -310,6 +310,17 @@ check("a run's tokens are reported by role, with the orchestrator apart", () => 
   );
 });
 
+// The measure the implementer experiment decides on: a PASS with no failure
+// since the previous PASS. A failure before the first PASS counts against it;
+// skip-dirty and running lines are not failures.
+check('passed-the-first-time counts a PASS with no failure since the previous one', () => {
+  const fail = (minute) =>
+    `${stamp(minute)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=fail lint=0 test=1 unscoped=ok files=1`;
+  const dirty = (minute) => `${stamp(minute)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=0 result=skip-dirty lint=- test=- unscoped=- files=1`;
+  const { out } = report({ gate: [fail(1), pass(2), dirty(3), pass(4), fail(5), fail(6), pass(7)] });
+  return contains(out, 'passed the first time: 1 of 3 PASS(es)');
+});
+
 check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;

@@ -129,6 +129,24 @@ if (gate.length === 0) {
   const scope = withData > 1 ? ` across ${withData} run(s)` : '';
   say(`  ${gate.length} invocation(s)${scope}: ${summary}`);
 
+  // Passed the gate the first time: a PASS with no `fail` since the previous
+  // PASS (or the run's start). The history carries no milestone id, so a
+  // stretch between two passes stands in for a milestone, the fold's own
+  // gate included — the same segmentation the session-reuse section uses.
+  let passes = 0;
+  let firstTime = 0;
+  for (const run of runs) {
+    let failed = false;
+    for (const g of run.gate) {
+      if (g.result === 'fail') failed = true;
+      if (g.result !== 'pass') continue;
+      passes += 1;
+      if (!failed) firstTime += 1;
+      failed = false;
+    }
+  }
+  if (passes > 0) say(`  passed the first time: ${firstTime} of ${passes} PASS(es) had no failure since the previous one`);
+
   let worst = null;
   for (const run of runs) {
     for (let i = 0; i < run.gate.length - 1; i++) {
