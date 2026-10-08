@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * PostToolUse hook on Write|Edit|Read|Bash, and SubagentStop — the run's
- * observable timeline.
+ * PostToolUse hook on Write|Edit|Read|Bash, PostToolUseFailure on Bash, and
+ * SubagentStop — the run's observable timeline.
  *
  * This hook enforces NOTHING. It exists because the flow's change policy
  * only accepts a failing run as grounds for changing the flow, and several of
@@ -46,11 +46,16 @@ function traceWrite(input, suffixes) {
 }
 
 /**
- * A scoped test run and whether it was red. The verdict is read out of the
- * output text rather than an exit code, since a PostToolUse payload is not
- * guaranteed to carry the command's status.
+ * A scoped test run and whether it was red.
+ *
+ * The event is the exit status: a command that exits non-zero arrives as
+ * PostToolUseFailure, with its output in `error` and no `tool_response`, and
+ * only a zero exit arrives as PostToolUse. So a failure is red unless it was
+ * interrupted, found no tests, or its own summary says everything passed (a
+ * coverage threshold, say). A PostToolUse run is read from its text, because
+ * a pipe can hide a failing exit.
  */
-function traceTest(input, res, testName) {
+function traceTest(input, res, testName, failure) {
   if (!testName) return ''; // no contract read -> no runner name to look for, trace nothing rather than guess one
 
   const cmd = String(input.command ?? '')
@@ -62,12 +67,15 @@ function traceTest(input, res, testName) {
   const runner = testName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!new RegExp(`(^|[^a-zA-Z-])${runner}([^a-zA-Z-]|$)`).test(cmd)) return '';
 
-  const out = [res?.stdout, res?.stderr, typeof res === 'string' ? res : ''].filter((v) => typeof v === 'string').join('\n');
+  const out = failure
+    ? failure.error
+    : [res?.stdout, res?.stderr, typeof res === 'string' ? res : ''].filter((v) => typeof v === 'string').join('\n');
 
   let verdict = '?';
   if (/^\s*Tests:.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
-  else if (/^\s*Tests:.*\bpassed\b/m.test(out)) verdict = 'green';
+  else if (/^\s*Tests:.*\bpassed\b/m.test(out)) verdict = failure ? '?' : 'green';
   else if (/\bNo tests found\b/.test(out)) verdict = 'none';
+  else if (failure && !failure.interrupted) verdict = 'red';
 
   const target =
     cmd
@@ -210,7 +218,11 @@ await run(async () => {
     } catch {
       /* keep it empty — traceTest() then declines to trace, see its own guard */
     }
-    line = traceTest(input, res, testName);
+    const failure =
+      payload.hook_event_name === 'PostToolUseFailure'
+        ? { error: typeof payload.error === 'string' ? payload.error : '', interrupted: payload.is_interrupt === true }
+        : null;
+    line = traceTest(input, res, testName, failure);
   }
 
   if (!line) return;

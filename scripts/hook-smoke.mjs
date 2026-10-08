@@ -562,6 +562,40 @@ t('run-trace writes no session field when the payload names none', (repo) => {
   return null;
 });
 
+/** A Bash call that exited non-zero, in the shape Claude Code 2.1.294 delivers it: no tool_response. */
+const bashFailure = (command, error, extra = {}) => ({
+  hook_event_name: 'PostToolUseFailure',
+  tool_name: 'Bash',
+  tool_input: { command },
+  error,
+  is_interrupt: false,
+  ...extra,
+});
+
+t('run-trace logs a failing scoped test run as red', (repo) => {
+  // The red run test-first asks for exits non-zero, and a non-zero exit never
+  // reaches PostToolUse. Read only from there, the trace saw no red run at all.
+  const r = runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts', 'Exit code 1\nexpected 3, got undefined'), repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const log = traceText(repo);
+  return /test verdict=red target=tests\/a\.spec\.ts/.test(log) ? null : `a failing test run was not recorded as red: ${log || '(nothing traced)'}`;
+});
+
+t('run-trace does not call an interrupted test run red', (repo) => {
+  runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts', 'Interrupted', { is_interrupt: true }), repo);
+  const log = traceText(repo);
+  return /test verdict=\? target=tests\/a\.spec\.ts/.test(log) ? null : `an interrupted run was given a verdict: ${log || '(nothing traced)'}`;
+});
+
+t('hooks.json registers run-trace for a failing Bash call', () => {
+  const manifest = JSON.parse(readFileSync(join(ENGINE, 'hooks', 'hooks.json'), 'utf8'));
+  const entries = manifest.hooks?.PostToolUseFailure ?? [];
+  const wired = entries.some(
+    (e) => /(^|\|)Bash(\||$)/.test(e.matcher ?? '') && (e.hooks ?? []).some((h) => (h.args ?? []).some((a) => a.endsWith('/hooks/run-trace.mjs'))),
+  );
+  return wired ? null : 'no PostToolUseFailure entry runs run-trace on Bash — a red test run is never traced';
+});
+
 t('run-trace is silent outside a run', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   const r = runHook('run-trace.mjs', { tool_name: 'Write', tool_input: { file_path: 'example/thing.ts' } }, repo);

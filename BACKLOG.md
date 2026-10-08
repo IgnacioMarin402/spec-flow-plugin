@@ -17,7 +17,10 @@ branch, and how the gate learns it was approved.
 ### B36 — test-first is not happening
 
 In the adopting repo, 18 of 18 measured requirements had no red test run before
-their code. A test written after the code mirrors it, which is the gap ADR-020
+their code — but that trace could not see a red run at all: a test command that
+exits non-zero arrives as `PostToolUseFailure`, which run-trace did not hear
+until this item was restated. Re-measure on the next real runs before sizing
+the fix. A test written after the code mirrors it, which is the gap ADR-020
 leaves to a model's reading. **Candidate:** run each ADDED requirement's test
 against the base commit; one that passes there proves nothing. Report, not
 gate — it runs the suite twice and flaky tests exist.
