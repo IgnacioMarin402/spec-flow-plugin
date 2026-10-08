@@ -41,6 +41,18 @@ agent frontmatter that already names each tier. `max_opus_calls` is the part
 with a demonstrated job (cost control). **Decide by use:** keep what a real
 project has set.
 
+### B40 — what the orchestrator costs a run
+
+The orchestrator is the human's session (ADR-029), so its model is whatever
+they run, and nothing reports what it spends. **Done:** its tokens per run,
+apart from each role's, over at least three real runs — then decide whether
+the command pins a model. Needs B37.
+
+### B41 — which hooks could be mods
+
+A mod may only show (ADR-029). **Done:** a list of the hooks and scripts that
+only observe, each with what a mod would add, before any is moved.
+
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full
