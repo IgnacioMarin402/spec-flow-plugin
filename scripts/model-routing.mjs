@@ -27,7 +27,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ALIASES, shippedAgents, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
+import { ALIASES, EFFORT_LEVELS, shippedAgents, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
 
 const root = process.cwd();
 
@@ -107,7 +107,9 @@ function envEffort() {
   }
   const value = process.env.CLAUDE_CODE_EFFORT_LEVEL;
   if (typeof value === 'string' && value) found = { value, source: 'the environment' };
-  return found;
+  // A value that is not a level is not reported as every row's answer:
+  // that would name a layer as deciding on a value no level matches.
+  return found && { ...found, valid: EFFORT_LEVELS.includes(found.value.toLowerCase()) };
 }
 
 const meta = shippedAgents();
@@ -138,7 +140,8 @@ if (agents.length === 0) {
 
 const pins = envPins();
 const session = sessionEffort();
-const forced = envEffort();
+const envLevel = envEffort();
+const forced = envLevel?.valid ? envLevel : null;
 const declaredLower = Object.fromEntries(Object.entries(declared).map(([k, v]) => [k.toLowerCase(), v]));
 
 const rows = agents.map((agent) => {
@@ -211,6 +214,12 @@ console.log(
     `  cannot change it: a project override routes a tier, not an effort. The rest follow\n` +
     `  the session, which "effortLevel" in .claude/settings.json sets for all of them at once.`,
 );
+if (envLevel && !envLevel.valid) {
+  console.log(
+    `\n  CLAUDE_CODE_EFFORT_LEVEL=${envLevel.value} (${envLevel.source}) is not an effort level (${EFFORT_LEVELS.join(', ')}),\n` +
+      `  so this report does not read it as overriding the column above.`,
+  );
+}
 if (forced) {
   console.log(
     `\n  CLAUDE_CODE_EFFORT_LEVEL is set (${forced.source}), so every agent runs at ${forced.value}:\n` +

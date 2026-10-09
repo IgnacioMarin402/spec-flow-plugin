@@ -46,21 +46,43 @@ function traceWrite(input, suffixes) {
 }
 
 /**
+ * Whether the runner is the program this command runs, rather than a word in
+ * it: `npx vitest run x.test.ts` runs it, `grep vitest package.json` does not.
+ * Wrappers and leading `VAR=value` assignments are skipped; a multi-word name
+ * (`node --test`) needs its first word in program position and the rest after.
+ */
+function runsRunner(cmd, testName) {
+  const words = testName.split(/\s+/);
+  const tokens = cmd.trim().split(/\s+/);
+  let i = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i] ?? '')) i++;
+  if (/^(npx|pnpm|yarn|bunx)$/.test(tokens[i] ?? '') || (tokens[i] === 'npm' && tokens[i + 1] === 'exec')) {
+    i += tokens[i] === 'npm' ? 2 : 1;
+    if (/^(exec|dlx|run)$/.test(tokens[i] ?? '')) i++;
+  }
+  const program = (tokens[i] ?? '').replace(/^.*[\\/]/, '');
+  return program === words[0] && words.slice(1).every((w) => tokens.slice(i + 1).includes(w));
+}
+
+/**
  * A scoped test run and whether it was red.
  *
  * The event is the exit status: a command that exits non-zero arrives as
  * PostToolUseFailure, with its output in `error` and no `tool_response`, and
- * only a zero exit arrives as PostToolUse. So a failure is red unless it was
- * interrupted, found no tests, or its own summary says everything passed (a
- * coverage threshold, say). A PostToolUse run is read from its text, because
- * a pipe can hide a failing exit.
+ * only a zero exit arrives as PostToolUse. A failure is red only when it is
+ * the runner itself, run on a path, that failed: not a command that merely
+ * names the runner, not a runner the shell could not find, not a run that
+ * found no tests or whose own summary says everything passed (a coverage
+ * threshold, say). A red verdict is what credits a requirement with
+ * test-first, so an unsure failure is `?`. A PostToolUse run is read from its
+ * text, because a pipe can hide a failing exit.
  */
 function traceTest(input, res, testName, failure) {
   if (!testName) return ''; // no contract read -> no runner name to look for, trace nothing rather than guess one
 
   const cmd = String(input.command ?? '')
     .split('<<')[0] // everything after a heredoc operator is data fed TO the command
-    .replace(/"[^"]*"/g, ' '); // and a quoted message, e.g. a commit -m, is not the command either
+    .replace(/"[^"]*"|'[^']*'/g, ' '); // and a quoted message, e.g. a commit -m, is not the command either
 
   if (/^\s*git(\s|$)/.test(cmd)) return ''; // git never runs tests
 
@@ -71,17 +93,27 @@ function traceTest(input, res, testName, failure) {
     ? failure.error
     : [res?.stdout, res?.stderr, typeof res === 'string' ? res : ''].filter((v) => typeof v === 'string').join('\n');
 
-  let verdict = '?';
-  if (/^\s*Tests:.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
-  else if (/^\s*Tests:.*\bpassed\b/m.test(out)) verdict = failure ? '?' : 'green';
-  else if (/\bNo tests found\b/.test(out)) verdict = 'none';
-  else if (failure && !failure.interrupted) verdict = 'red';
-
   const target =
     cmd
       .split(/\s+/)
       .filter((t) => !t.startsWith('-') && /[/.]/.test(t) && !t.includes(testName) && !/^(pnpm|npm|npx|yarn|node)$/.test(t))
       .join(',') || '-';
+
+  // `Tests:` is jest's summary, `Tests  N` vitest's; mocha and node's own
+  // runner say no files were found, or could not find one.
+  let verdict = '?';
+  if (/^\s*Tests:?\s.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
+  else if (/^\s*Tests:?\s.*\bpassed\b/m.test(out)) verdict = failure ? '?' : 'green';
+  else if (/\bNo tests? (files )?found\b/i.test(out) || /^Could not find '/m.test(out)) verdict = 'none';
+  else if (
+    failure &&
+    !failure.interrupted &&
+    target !== '-' &&
+    runsRunner(cmd, testName) &&
+    !/Exit code 12[67]\b|command not found|is not recognized as/.test(out)
+  ) {
+    verdict = 'red';
+  }
 
   return `test verdict=${verdict} target=${target}`;
 }

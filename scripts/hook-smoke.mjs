@@ -434,6 +434,26 @@ t('no-gate-cmds does not tell the implementer to skip its red run', (repo) => {
   return /test file's path/.test(r.stderr) ? null : `the denial never names the scoped form a red run takes:\n${r.stderr.slice(0, 400)}`;
 });
 
+t('no-gate-cmds reads quoted text as data, not as a command', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'git commit -m "fix; ftest covers it"' } }, repo);
+  return r.status === 0 ? null : `exit ${r.status}: a commit message was read as a test run. stderr: ${r.stderr.slice(0, 200)}`;
+});
+
+t('no-gate-cmds still reads a quoted test path as a scope', (repo) => {
+  const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'ftest "tests/a.spec.ts"' } }, repo);
+  return r.status === 0 ? null : `exit ${r.status}: a quoted path was not read as a scope`;
+});
+
+t('a runtime that is also the runner is denied only for its test subcommand', (repo) => {
+  const config = JSON.parse(readFileSync(join(repo, '.spec-flow/config.json'), 'utf8'));
+  config.unscoped_denied.tools = ['bun'];
+  writeFileSync(join(repo, '.spec-flow/config.json'), JSON.stringify(config));
+  const add = runHook('no-gate-cmds.mjs', { tool_input: { command: 'bun add zod' } }, repo);
+  if (add.status !== 0) return `exit ${add.status}: \`bun add\` was denied as a whole-suite run`;
+  const test = runHook('no-gate-cmds.mjs', { tool_input: { command: 'bun test' } }, repo);
+  return test.status === 2 ? null : `exit ${test.status}: an unscoped \`bun test\` was allowed`;
+});
+
 t('no-gate-cmds is transparent outside implement', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   const r = runHook('no-gate-cmds.mjs', { tool_input: { command: 'npm run test' } }, repo);
@@ -635,6 +655,37 @@ t('run-trace does not call an interrupted test run red', (repo) => {
   runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts', 'Interrupted', { is_interrupt: true }), repo);
   const log = traceText(repo);
   return /test verdict=\? target=tests\/a\.spec\.ts/.test(log) ? null : `an interrupted run was given a verdict: ${log || '(nothing traced)'}`;
+});
+
+// A red verdict credits a requirement with test-first, so a failure is red
+// only when the runner itself failed on a path. Each case below was traced
+// red, and counted as red-first, before that rule.
+const verdictOf = (repo) => /test verdict=(\S+)/.exec(traceText(repo))?.[1] ?? '(nothing traced)';
+
+t('a failing command that only names the runner is not a red run', (repo) => {
+  runHook('run-trace.mjs', bashFailure('grep -n ftest package.json', 'Exit code 1'), repo);
+  return verdictOf(repo) === 'red' ? `grep was traced as a failing test run: ${traceText(repo)}` : null;
+});
+
+t('a runner the shell could not find is not a red run', (repo) => {
+  runHook('run-trace.mjs', bashFailure('ftest tests/a.spec.ts', 'Exit code 127\nbash: line 1: ftest: command not found'), repo);
+  return verdictOf(repo) === '?' ? null : `want ?, got ${verdictOf(repo)}`;
+});
+
+t('a failing run that found no test file is none, in vitest and node wording', (repo) => {
+  runHook('run-trace.mjs', bashFailure('npx ftest run tests/typo.spec.ts', 'Exit code 1\nNo test files found, exiting with code 1'), repo);
+  runHook('run-trace.mjs', bashFailure('npx ftest run tests/typo.spec.ts', "Exit code 1\nCould not find '/x/tests/typo.spec.ts'"), repo);
+  const verdicts = [...traceText(repo).matchAll(/test verdict=(\S+)/g)].map((m) => m[1]);
+  return verdicts.join(',') === 'none,none' ? null : `want none,none, got ${verdicts.join(',') || '(nothing traced)'}`;
+});
+
+t('a failing run whose own summary says every test passed is not red', (repo) => {
+  runHook(
+    'run-trace.mjs',
+    bashFailure('npx ftest run tests/a.spec.ts', 'Exit code 1\n      Tests  3 passed (3)\nERROR: Coverage for lines (12%) does not meet global threshold (80%)'),
+    repo,
+  );
+  return verdictOf(repo) === '?' ? null : `want ?, got ${verdictOf(repo)}`;
 });
 
 t('hooks.json registers run-trace for a failing Bash call', () => {

@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
+import { RUNTIMES } from '../scripts/argv.mjs';
 
 /**
  * This plugin copy's own root — never the repo being checked. Same rule and
@@ -39,8 +40,15 @@ const toolName = (tok) => tok.replace(/^.*[\\/]/, '');
 function classify(cmd, denied) {
   if (!cmd) return { verdict: 'allow' };
 
+  // Quoted text and heredoc bodies are data, not commands: a commit message
+  // saying `; ftest covers it` runs nothing. A quoted path still scopes, so a
+  // quoted string that looks like one stays a path-shaped token.
+  const command = cmd
+    .split('<<')[0]
+    .replace(/"[^"]*"|'[^']*'/g, (q) => (/[\\/.]/.test(q.slice(1, -1)) ? ' ./quoted ' : ' '));
+
   // A compound command is denied if ANY of its parts is denied.
-  for (const part of cmd.split(/&&|\|\||;|\|/)) {
+  for (const part of command.split(/&&|\|\||;|\|/)) {
     const t = part.trim().split(/\s+/).filter(Boolean);
     if (t.length === 0) continue;
 
@@ -69,6 +77,11 @@ function classify(cmd, denied) {
     } else if (!denied.tools.has(toolName(t[i]))) {
       continue; // not our business
     }
+
+    // A runtime that is also the runner (`bun test`, `deno test`) runs tests
+    // only through its `test` subcommand; `bun install` and `bun run build`
+    // are not test runs.
+    if (RUNTIMES.has(toolName(t[i])) && t[i + 1] !== 'test') continue;
 
     // Direct tool invocation: allowed only if it names a path to scope it.
     // Path-SHAPED, as unscoped-checks.mjs reads argv[1]: a subcommand (`run`)

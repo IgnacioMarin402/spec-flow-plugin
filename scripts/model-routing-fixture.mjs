@@ -206,6 +206,14 @@ check("CLAUDE_CODE_EFFORT_LEVEL in a settings env block is reported with that fi
   return /medium \(CLAUDE_CODE_EFFORT_LEVEL, \.claude\/settings\.json\)/.test(r) ? '' : `the settings-file override was not reported: ${r}`;
 });
 
+check('a CLAUDE_CODE_EFFORT_LEVEL that is not a level is not reported as deciding', () => {
+  const { code, out } = report({}, { CLAUDE_CODE_EFFORT_LEVEL: 'bogus' });
+  if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
+  const r = row(out, 'reviewer');
+  if (!/low \(agent\)/.test(r)) return `an invalid value displaced the agent's own effort: ${r}`;
+  return /is not an effort level/.test(out) ? '' : `the invalid value was not called out:\n${out}`;
+});
+
 check('every column stays aligned when a heading is longer than its values', () => {
   const { out } = report({});
   const lines = out.split('\n');
