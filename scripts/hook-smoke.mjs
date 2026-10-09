@@ -565,6 +565,78 @@ t('agent-gate that crashes lets the return through', (repo) => {
   }
 }, { phase: 'review' });
 
+// ---- agent-gate: what a spec-writer hands back (ADR-030) ------------------
+const writerSpec = (deltas) => `# Spec — my-change: x\n\n## Requirement deltas\n${deltas}\n\n## Assumptions\n- none\n\n## Out of scope\n- nothing\n`;
+const specReady = (extra = {}) => ({
+  agent_type: 'spec-flow:spec-writer',
+  agent_id: 'writer1',
+  last_assistant_message: '```\nSTATUS: SPEC_READY\nSPEC_PATH: specflow/my-change/spec.md\nPROPOSAL_PATH: specflow/my-change/proposal.md\nSUMMARY: x\n```',
+  ...extra,
+});
+/** specs/ with its contract and one capability, and the change's two files. */
+function writerRepo(repo, deltas = '- ADDED REQ-USER-002 — another thing') {
+  mkdirSync(join(repo, 'specs'), { recursive: true });
+  writeFileSync(join(repo, 'specs', 'README.md'), '# specs\n');
+  writeFileSync(join(repo, 'specs', 'user.md'), '<!-- spec-scope: lib/user -->\n### REQ-USER-001 — a thing\n');
+  writeChange(repo, writerSpec(deltas));
+}
+const readBy = (repo, agentId, ...files) =>
+  writeFileSync(
+    join(repo, '.claude/state/run-trace.log'),
+    files.map((f) => `2026-01-01T00:00:00Z phase=spec session=spawner-session read file=${join(repo, f)} agent_id=${agentId}\n`).join(''),
+  );
+
+t('agent-gate holds a NEEDS_INPUT round to one to three questions, options not counted', (repo) => {
+  const ask = (items) => gateReturn(repo, { agent_type: 'spec-flow:spec-writer', agent_id: `w${items.length}`, last_assistant_message: `STATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n${items.join('\n')}` });
+  const four = ask(['- a?', '- b?', '- c?', '- d?']);
+  if (!blocked(four) || !/at most 3/.test(four.stdout)) return `four questions were let through: ${four.stdout}`;
+  if (!blocked(ask([]))) return 'a NEEDS_INPUT with no question was let through';
+  const three = ask(['- a?', '  - (1) this', '  - (2) that', '- b?', '- c?']);
+  return blocked(three) ? `three questions with options were sent back: ${three.stdout}` : null;
+}, { phase: 'spec' });
+
+t('agent-gate sends back a SPEC_READY whose spec phase-guard would not let leave spec', (repo) => {
+  writerRepo(repo);
+  writeChange(repo, writerSpec('- ADDED REQ-USER-002 — x').replace('## Assumptions\n- none\n\n', ''));
+  readBy(repo, 'writer1', 'specs/README.md', 'specs/user.md');
+  const r = gateReturn(repo, specReady());
+  return blocked(r) && /## Assumptions/.test(r.stdout) ? null : `a spec with no Assumptions was let through: ${r.stdout}`;
+}, { phase: 'spec' });
+
+t('agent-gate sends back a CHANGED or REMOVED on an id specs/ never declared', (repo) => {
+  writerRepo(repo, '- CHANGED REQ-USER-009 (wording) — clearer\n- REMOVED REQ-USER-001 — gone');
+  readBy(repo, 'writer1', 'specs/README.md', 'specs/user.md');
+  const r = gateReturn(repo, specReady());
+  if (!blocked(r) || !/CHANGED REQ-USER-009/.test(r.stdout)) return `an unknown CHANGED id was let through: ${r.stdout}`;
+  return /REMOVED REQ-USER-001/.test(r.stdout) ? `a declared REMOVED id was reported: ${r.stdout}` : null;
+}, { phase: 'spec' });
+
+t('agent-gate sends back a SPEC_READY written without reading the capability its deltas touch', (repo) => {
+  writerRepo(repo);
+  readBy(repo, 'writer1', 'specs/README.md');
+  const r = gateReturn(repo, specReady());
+  if (!blocked(r) || !/specs\/user\.md/.test(r.stdout) || /README/.test(r.stdout)) return `the unread capability was not the one named: ${r.stdout}`;
+  readBy(repo, 'writer1', 'specs/README.md', 'specs/user.md');
+  const ok = gateReturn(repo, specReady({ agent_id: 'writer1' }));
+  return blocked(ok) ? `a spec-writer that read both was sent back: ${ok.stdout}` : null;
+}, { phase: 'spec' });
+
+t('agent-gate does not judge reads it cannot attribute, and says so', (repo) => {
+  writerRepo(repo);
+  writeFileSync(join(repo, '.claude/state/run-trace.log'), `2026-01-01T00:00:00Z phase=spec read file=${join(repo, 'specs/README.md')}\n`);
+  const r = gateReturn(repo, specReady());
+  if (blocked(r)) return `unattributed reads were judged: ${r.stdout}`;
+  return /agent-check agent=spec-flow:spec-writer result=skip why=unattributed/.test(traceText(repo)) ? null : `no skip line: ${traceText(repo)}`;
+}, { phase: 'spec' });
+
+t('agent-gate lets a ready fix brief through without the reads or the assumptions a change spec owes', (repo) => {
+  writerRepo(repo);
+  writeChange(repo, '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (correction) — now right\n', { proposal: false });
+  readBy(repo, 'someone-else', 'specs/README.md');
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: 'STATUS: TRIAGED\nCASE: 3\nSPEC_PATH: specflow/my-change/spec.md' });
+  return blocked(r) ? `a ready fix brief was sent back: ${r.stdout}` : null;
+}, { phase: 'spec' });
+
 t('run-trace logs a subagent STATUS', (repo) => {
   const r = runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: APPROVED' }), repo);
   if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;

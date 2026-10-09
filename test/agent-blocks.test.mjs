@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { returnBlocks, unroutedFields, declaredStatuses, parseReturn } from '../scripts/agent-blocks.mjs';
+import { returnBlocks, unroutedFields, declaredStatuses, parseReturn, openQuestions } from '../scripts/agent-blocks.mjs';
 
 /**
  * The contract this file defends is one line long: an agent's markdown is read
@@ -58,4 +58,11 @@ test('parseReturn reads the first status and the fields after it, up to a fence'
   const reply = 'Done.\n\n```\nSTATUS: SPEC_READY\nSPEC_PATH: specflow/x/spec.md\nSUMMARY: two lines\n```\nSTATUS: NOT_THIS\n';
   assert.deepEqual(parseReturn(reply), { status: 'SPEC_READY', fields: { SPEC_PATH: 'specflow/x/spec.md', SUMMARY: 'two lines' } });
   assert.equal(parseReturn('no block here'), null);
+});
+
+test('openQuestions counts the top-level questions, not the options under them', () => {
+  const reply = '```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n- Which store?\n  - (a) Postgres\n  - (b) Redis\n- Soft delete?\n```\nThanks.\n- not a question';
+  assert.equal(openQuestions(reply), 2);
+  assert.equal(openQuestions('STATUS: NEEDS_INPUT\r\nOPEN_QUESTIONS:\r\n1. a\r\n2. b\r\n3. c\r\n4. d\r\n'), 4);
+  assert.equal(openQuestions('STATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n'), 0);
 });

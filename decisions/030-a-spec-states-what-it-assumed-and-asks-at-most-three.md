@@ -1,6 +1,6 @@
 # ADR-030 — a spec states what it assumed, and a round asks at most three
 
-**Date:** 2026-10-09 · **Status:** accepted · **Governs:** `agents/spec-writer.md`, `scripts/spec-shape.mjs`, `scripts/spec-time.mjs`, `hooks/phase-guard.mjs`, `scripts/resume.mjs`, `scripts/agent-blocks.mjs`, `scripts/agent-contracts.mjs`, `commands/` · **Related:** ADR-015, ADR-026
+**Date:** 2026-10-09 · **Status:** accepted · **Governs:** `agents/spec-writer.md`, `scripts/spec-shape.mjs`, `scripts/spec-time.mjs`, `hooks/phase-guard.mjs`, `hooks/agent-gate.mjs`, `scripts/resume.mjs`, `scripts/agent-blocks.mjs`, `scripts/agent-contracts.mjs`, `commands/` · **Related:** ADR-015, ADR-026
 
 **Question.** The spec-writer is told to stop and ask when anything material
 is ambiguous. It decides what counts as material, and whatever it decides
@@ -28,8 +28,15 @@ fresh spawn with the answers in its prompt, so a second round costs one spawn.
 - Both are held at spec time only, never by the gate: a run planned before the
   section existed must not fail its milestones over it. `phase-guard` denies
   leaving `spec` while a live spec lacks its assumptions, or fails what
-  spec-trace will check of it at the first gate; `resume` names the same problems before it
-  asks for a sign-off.
+  spec-trace will check of it at the first gate; `resume` names the same
+  problems before it asks for a sign-off.
+- The agent gate (ADR-031) holds the spec-writer to both while it is still
+  running: a `NEEDS_INPUT` with no question or more than three, and a
+  `SPEC_READY` or `TRIAGED` whose spec phase-guard would refuse, or that
+  changes or removes an id `specs/` never declared, is sent back. A
+  `SPEC_READY` is also sent back when the trace shows its writer never read
+  `specs/README.md` or a capability spec its deltas touch — Read calls only,
+  and not judged where the trace carries no agent id.
 - The number is code (`MAX_OPEN_QUESTIONS`); the contract's prose must state
   the same number, and its template must pass the same check.
 

@@ -26,6 +26,9 @@ the machine that wrote this.
 - At most two blocks per agent, counted from its own `agent-check` lines in
   `run-trace.log`. With no agent id, only a first stop is blocked. No state
   file.
+- A spec-writer's return is also held to ADR-030. What it cannot judge — no
+  contract, or reads with no agent id — goes through, with an `agent-check`
+  line saying what was skipped.
 - Anything it cannot read lets the return through, and so does a crash.
 - run-trace stays the only recorder of returns, and both read the status
   through one function.

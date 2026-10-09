@@ -305,7 +305,11 @@ if (checks.length > 0) {
       .join(', ');
   const sent = checks.filter((e) => e.result === 'block').length;
   const capped = checks.filter((e) => e.result === 'cap').length;
-  say(`  agent gate: ${sent} return(s) sent back${sent ? ` (${tally('block')})` : ''}, ${capped} let through at the cap${capped ? ` (${tally('cap')})` : ''}.`);
+  const skipped = checks.filter((e) => e.result === 'skip').length;
+  say(
+    `  agent gate: ${sent} return(s) sent back${sent ? ` (${tally('block')})` : ''}, ${capped} let through at the cap${capped ? ` (${tally('cap')})` : ''}` +
+      `${skipped ? `, ${skipped} not fully judged (${tally('skip')})` : ''}.`,
+  );
 }
 say('');
 

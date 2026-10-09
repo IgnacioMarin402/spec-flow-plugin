@@ -50,7 +50,7 @@ export function unroutedFields(fields, commandsText, exempt = {}) {
   return fields.filter((f) => !(f in exempt) && !new RegExp(`(?<![A-Za-z0-9_])${f}(?![A-Za-z0-9_])`).test(commandsText));
 }
 
-/** How many questions one `NEEDS_INPUT` round may ask. The spec-writer's contract must state the same number (ADR-030). */
+/** How many questions one `NEEDS_INPUT` round may ask. The spec-writer's contract must state the same number, and the agent gate holds a NEEDS_INPUT to it (ADR-030). */
 export const MAX_OPEN_QUESTIONS = 3;
 
 /**
@@ -85,4 +85,26 @@ export function parseReturn(text) {
     if (kv && !(kv[1] in fields)) fields[kv[1]] = kv[2].trim();
   }
   return { status: m[1], fields };
+}
+
+/**
+ * How many questions a `NEEDS_INPUT` reply asks: the top-level items under
+ * `OPEN_QUESTIONS:`. Options nested under a question are part of it.
+ *
+ * @param {string} text What the agent handed back.
+ * @returns {number}
+ */
+export function openQuestions(text) {
+  const lines = String(text ?? '').split(/\r?\n/);
+  const at = lines.findIndex((l) => /^\s*OPEN_QUESTIONS:/.test(l));
+  if (at === -1) return 0;
+  const indents = [];
+  for (const line of lines.slice(at + 1)) {
+    if (/^\s*```/.test(line) || /^\s*[A-Z][A-Z_]+:/.test(line)) break;
+    const item = /^(\s*)(?:[-*]|\d+[.)])\s+\S/.exec(line);
+    if (item) indents.push(item[1].length);
+  }
+  if (indents.length === 0) return 0;
+  const top = Math.min(...indents);
+  return indents.filter((n) => n === top).length;
 }

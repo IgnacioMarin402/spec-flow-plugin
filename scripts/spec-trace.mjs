@@ -46,6 +46,7 @@ import {
   idsIn,
   ARCHIVE_STATUS,
   liveSpecProblems,
+  expectedPrefix,
 } from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -121,11 +122,6 @@ function walk(dir, test, found = [], seen = new Set()) {
     }
   }
   return found;
-}
-
-/** `specs/user-profile.md` -> `REQ-USER-PROFILE-`, so ids cannot drift across files. */
-function expectedPrefix(specFile) {
-  return `REQ-${basename(specFile, '.md').toUpperCase()}-`;
 }
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();

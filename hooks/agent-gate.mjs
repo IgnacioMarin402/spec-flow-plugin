@@ -6,7 +6,8 @@
  * A reply with no return block, a status the contract does not declare, or a
  * `*_PATH` naming a file that is not there reaches the orchestrator as
  * something no step of the command routes. Blocking makes the agent continue
- * with the reason, and its caller receives the corrected return.
+ * with the reason, and its caller receives the corrected return. A
+ * spec-writer's return is also held to ADR-030; see specWriterProblems().
  *
  * Narrow on purpose, because it blocks:
  *   - only `spec-flow:<name>` for an agent this plugin ships, and only in a run
@@ -20,11 +21,14 @@
  * `agent-check` line says it was blocked.
  */
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
-import { join, dirname, isAbsolute } from 'node:path';
+import { join, dirname, isAbsolute, resolve, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, stateDir, readOwnedPhase, readPayload, run } from './lib/io.mjs';
 import { handedBack } from './lib/handback.mjs';
-import { declaredStatuses, parseReturn } from '../scripts/agent-blocks.mjs';
+import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS } from '../scripts/agent-blocks.mjs';
+import { deltas, declaredIds, capabilityOf } from '../scripts/spec-shape.mjs';
+import { specTimeProblems } from '../scripts/spec-time.mjs';
+import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -65,6 +69,103 @@ function problemWith(text, statuses, root) {
   return null;
 }
 
+/** A path as a comparable key: Windows paths compare without case or slash style. */
+function samePath(root, path) {
+  const full = resolve(root, path);
+  return process.platform === 'win32' ? full.toLowerCase() : full;
+}
+
+/**
+ * What a spec-writer's return must also satisfy (ADR-030): a round asks one
+ * to MAX_OPEN_QUESTIONS questions, and a spec it hands back is live, passes
+ * its spec-time checks, changes or removes only ids `specs/` declares, and —
+ * for SPEC_READY — was written after reading `specs/README.md` and every
+ * capability spec its deltas touch. The read check sees the Read tool only.
+ *
+ * `skips` name what could not be judged: no contract, or a trace whose reads
+ * carry no agent id.
+ */
+function specWriterProblems(ret, text, root, agentId, trace) {
+  const problems = [];
+  const skips = [];
+  if (ret.status === 'NEEDS_INPUT') {
+    const n = openQuestions(text);
+    if (n === 0) problems.push({ why: 'no-questions', reason: '`STATUS: NEEDS_INPUT` with no question under `OPEN_QUESTIONS:` gives the human nothing to answer. List the questions, or write the spec.' });
+    if (n > MAX_OPEN_QUESTIONS) {
+      problems.push({
+        why: 'too-many-questions',
+        reason: `You asked ${n} questions; a round asks at most ${MAX_OPEN_QUESTIONS}. Keep the ${MAX_OPEN_QUESTIONS} whose answers would change the deltas most. Decide the rest and record each in the spec's \`## Assumptions\`, or ask it next round.`,
+      });
+    }
+    return { problems, skips };
+  }
+  if (!['SPEC_READY', 'TRIAGED'].includes(ret.status)) return { problems, skips };
+
+  const raw = (ret.fields.SPEC_PATH ?? '').replace(/^[`'"]|[`'"]$/g, '');
+  const slug = /^specflow\/([^/]+)\/spec\.md$/.exec(relative(root, resolve(root, raw)).split(sep).join('/'))?.[1];
+  if (!slug || slug === 'archive') {
+    problems.push({ why: 'not-live', reason: `\`SPEC_PATH: ${raw}\` is not a live change spec. It names \`specflow/<SLUG>/spec.md\`, outside \`specflow/archive/\`.` });
+    return { problems, skips };
+  }
+
+  const shape = specTimeProblems(root, [slug]);
+  if (shape.length > 0) problems.push({ why: 'spec-shape', reason: `The spec is not ready to build from:\n${shape.map((p) => `- ${p}`).join('\n')}` });
+
+  let config;
+  try {
+    config = loadConfig(root);
+  } catch {
+    skips.push('no-contract');
+    return { problems, skips };
+  }
+  const specsDir = join(root, config.trace.specs_dir);
+  const notCapability = new Set(config.trace.not_a_capability);
+  const specs = existsSync(specsDir)
+    ? readdirSync(specsDir, { recursive: true })
+        .map(String)
+        .filter((f) => f.endsWith('.md') && !notCapability.has(basename(f)))
+        .map((f) => ({ file: join(specsDir, f), ids: declaredIds(readFileSync(join(specsDir, f), 'utf8')) }))
+    : [];
+  const own = [...deltas(readFileSync(join(root, 'specflow', slug, 'spec.md'), 'utf8'))];
+
+  const unknown = own.filter((d) => d.verb !== 'ADDED' && !specs.some((s) => s.ids.has(d.id)));
+  if (unknown.length > 0) {
+    problems.push({
+      why: 'unknown-id',
+      reason: `${unknown.map((d) => `\`${d.verb} ${d.id}\``).join(', ')} name no requirement declared under ${config.trace.specs_dir}/. A CHANGED or REMOVED id must already exist there: use the id it declares, or make it an ADDED.`,
+    });
+  }
+
+  if (ret.status !== 'SPEC_READY') return { problems, skips };
+  const expected = new Set(own.map((d) => capabilityOf(d.id, specs)).filter(Boolean));
+  if (existsSync(join(specsDir, 'README.md'))) expected.add(join(specsDir, 'README.md'));
+  if (expected.size === 0) return { problems, skips };
+
+  // Attribution exists when some tool call in this trace was recorded with
+  // an agent id; without it, no read can be told from a missing one.
+  const lines = trace.split('\n');
+  const attributed = lines.some((l) => / agent_id=[\w-]+$/.test(l) && !/ agent type=| agent-check /.test(l));
+  if (!agentId || !attributed) {
+    skips.push('unattributed');
+    return { problems, skips };
+  }
+  const read = new Set(
+    lines
+      .filter((l) => l.endsWith(` agent_id=${agentId}`))
+      .map((l) => / read file=(.*) agent_id=/.exec(l)?.[1])
+      .filter(Boolean)
+      .map((f) => samePath(root, f)),
+  );
+  const unread = [...expected].filter((f) => !read.has(samePath(root, f))).map((f) => relative(root, f).split(sep).join('/'));
+  if (unread.length > 0) {
+    problems.push({
+      why: 'unread',
+      reason: `You wrote this spec without reading ${unread.join(', ')} in this run. Read them — the contract, and the requirements your deltas add to or change — and check the deltas against them. (This check sees the Read tool only.)`,
+    });
+  }
+  return { problems, skips };
+}
+
 await run(async () => {
   const root = projectDir();
   const payload = await readPayload();
@@ -78,25 +179,39 @@ await run(async () => {
   const statuses = contractStatuses(name);
   if (statuses.length === 0) return;
 
-  const found = problemWith(handedBack(payload), statuses, root);
-  if (!found) return;
-
   const agentId = typeof payload.agent_id === 'string' && /^[\w-]+$/.test(payload.agent_id) ? payload.agent_id : '';
   const traceFile = join(stateDir(root), 'run-trace.log');
+  const trace = existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '';
+
+  const text = handedBack(payload);
+  const found = problemWith(text, statuses, root);
+  let problems = found ? [found] : [];
+  let skips = [];
+  if (!found && name === 'spec-writer') ({ problems, skips } = specWriterProblems(parseReturn(text), text, root, agentId, trace));
+
+  // `agent=`, not run-trace's `type=`: stats reads a `type=` line with an
+  // agent id as that agent's return.
+  const record = (result, why) =>
+    appendFileSync(
+      traceFile,
+      `${new Date().toISOString()} phase=${phase}${/^[\w-]+$/.test(session) ? ` session=${session}` : ''} agent-check agent=${type} result=${result} why=${why}${agentId ? ` agent_id=${agentId}` : ''}\n`,
+    );
+
+  if (problems.length === 0) {
+    if (skips.length > 0) record('skip', skips.join(','));
+    return;
+  }
+
   let blocks = 0;
   if (agentId) {
     const mine = new RegExp(` agent-check .*result=block .*agent_id=${agentId}(\\s|$)`);
-    blocks = (existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '').split('\n').filter((l) => mine.test(l)).length;
+    blocks = trace.split('\n').filter((l) => mine.test(l)).length;
   } else if (payload.stop_hook_active === true) {
     blocks = MAX_BLOCKS;
   }
   const result = blocks >= MAX_BLOCKS ? 'cap' : 'block';
-
-  appendFileSync(
-    traceFile,
-    // `agent=`, not run-trace's `type=`: stats reads a `type=` line with an
-    // agent id as that agent's return.
-    `${new Date().toISOString()} phase=${phase}${/^[\w-]+$/.test(session) ? ` session=${session}` : ''} agent-check agent=${type} result=${result} why=${found.why}${agentId ? ` agent_id=${agentId}` : ''}\n`,
-  );
-  if (result === 'block') process.stdout.write(JSON.stringify({ decision: 'block', reason: `[spec-flow] ${found.reason}` }));
+  record(result, problems.map((p) => p.why).join(','));
+  if (result === 'block') {
+    process.stdout.write(JSON.stringify({ decision: 'block', reason: `[spec-flow] ${problems.map((p) => p.reason).join('\n\n')}` }));
+  }
 });

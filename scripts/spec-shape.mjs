@@ -9,6 +9,7 @@
  *
  * Pure: no file is read here. Callers hand in text.
  */
+import { basename } from 'node:path';
 
 // `### REQ-USER-001 — Title`. The separator is optional and may be an em
 // dash, a hyphen or a colon: the id is what matters.
@@ -46,6 +47,38 @@ export function idsIn(line) {
   const found = new Set(line.match(REQ_TAG) ?? []);
   for (const id of line.replace(/_/g, '-').match(REQ_TAG) ?? []) found.add(id);
   return found;
+}
+
+/** `specs/user-profile.md` -> `REQ-USER-PROFILE-`, so ids cannot drift across files. */
+export function expectedPrefix(specFile) {
+  return `REQ-${basename(specFile, '.md').toUpperCase()}-`;
+}
+
+/** The ids a capability spec declares, one per `### REQ-…` heading. */
+export function declaredIds(body) {
+  return new Set(
+    String(body)
+      .split(/\r?\n/)
+      .map((l) => REQ_HEADING.exec(l.trim())?.[1])
+      .filter(Boolean),
+  );
+}
+
+/**
+ * The capability spec a delta on `id` touches: the file declaring it, else the
+ * one whose name gives the longest prefix of it (`REQ-USER-PROFILE-001` is
+ * `user-profile.md`'s, not `user.md`'s), else null — a new capability.
+ *
+ * @param {string} id
+ * @param {{ file: string, ids: Set<string> }[]} specs
+ * @returns {string | null}
+ */
+export function capabilityOf(id, specs) {
+  const declaring = specs.find((s) => s.ids.has(id));
+  if (declaring) return declaring.file;
+  const byPrefix = specs.filter((s) => id.startsWith(expectedPrefix(s.file)));
+  byPrefix.sort((a, b) => expectedPrefix(b.file).length - expectedPrefix(a.file).length);
+  return byPrefix[0]?.file ?? null;
 }
 
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
