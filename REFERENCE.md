@@ -369,7 +369,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
 | `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, and the phase write that would start a run where the engine cannot run |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
@@ -377,13 +377,20 @@ Without it, run the same scripts by path, from your repo's root:
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
 | `run-trace` | `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` (a failure: `Bash`) | The run's timeline, and each subagent's return. Enforces nothing |
+| `agent-gate` | `SubagentStop` | — | Sends back, at most twice per agent, a return the orchestrator cannot route — no `STATUS:`, a status the agent's contract does not declare, a `*_PATH` to nothing — and a spec-writer's that breaks [ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md) ([ADR-031](decisions/031-an-agents-return-is-checked-before-it-is-acted-on.md)) |
 | `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
-`preflight`, `opus-budget`, `arm-gate`, `stale-resume` and `phase-guard` stand down outside a
-run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
+`preflight`, `opus-budget`, `arm-gate`, `stale-resume`, `phase-guard` and `agent-gate` stand down
+outside a run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
 fails open on its own crash.
+
+What the agent gate can see is a return's shape, the files on disk, the ids in
+`specs/`, and which files the agent opened with Read. It cannot see an
+ambiguity the spec-writer resolved without asking and did not list, a delta no
+test could prove, or a contradiction with `specs/` nobody declared. Those stay
+with the human at sign-off and with the reviewer.
 
 ---
 
@@ -407,6 +414,11 @@ armed.
   first run phase written while no run is in progress is denied unless the
   directory is a repository root, the contract loads and the base resolves;
   nothing is armed by a refused start.
+- **A run leaves `spec` with a spec its first gate would accept**
+  ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
+  `plan`, `review` or `implement` written from `spec` is denied while a live
+  spec has no `## Assumptions` (a `/spec-fix` brief needs none) or fails a
+  check spec-trace makes of live changes.
 - **A run does not end itself without a verdict**
   ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
   `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,
@@ -433,7 +445,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `opus_calls` | Planner + architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, token counts |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts |
 | `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |

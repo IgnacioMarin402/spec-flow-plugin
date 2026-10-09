@@ -17,7 +17,7 @@ This is not a style preference. Every enforcement hook decides whether it is arm
 
 Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
 
-`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, an unarchived `specflow/<SLUG>/`, or a current commit the gate has not passed say otherwise. `idle` is denied from `implement`, and elsewhere until the change is stamped and archived; `blocked` is denied to anything but the gate. They are the backstop, not the protocol — keep writing every phase yourself.
+`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and a phase write the run has not earned is denied with a message that says why. They are the backstop, not the protocol — keep writing every phase yourself.
 
 ## 0. Init — intake
 
