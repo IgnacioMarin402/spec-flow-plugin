@@ -106,6 +106,7 @@ Return:
 STATUS: PLAN_READY
 PLAN_PATH: specflow/<SLUG>/plan.md
 MILESTONES: M1..Mn
+NOTES: <spec bugs, a missing anatomy statement — or "none">
 ```
 
 ### MODE = CONSULT

@@ -35,6 +35,7 @@ If they instead want a different shape rather than nothing at all, that is not a
 ## 2. PLAN  (subagent: planner)
 - Write `plan` to `.claude/state/phase`.
 - Invoke `planner` in `MODE=PLAN` with the spec path. Expect `STATUS: PLAN_READY`, `specflow/<SLUG>/plan.md` (shared approach + milestone index) and one `specflow/<SLUG>/milestones/Mk.md` per milestone.
+- If its `NOTES` are not `none`, show them to the human: a spec bug the planner planned around, or a statement the repo should write. They do not stop the run.
 
 ## 3. REVIEW THE PLAN  (subagent: reviewer, escalates to the planner)
 - Write `review` to `.claude/state/phase`.

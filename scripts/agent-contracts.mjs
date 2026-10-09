@@ -137,9 +137,15 @@ const NOT_ROUTED = {
   SUMMARY: 'step 1 already tells the orchestrator to show the user a summary drawn from both artifacts; the key adds nothing to that instruction',
   DELTAS: '/spec-fix routes on CASE, and the deltas it names are the ones the spec file already carries',
 
+  // The planner's, read by meaning: each answers the step that asked for it.
+  PLAN_PATH: 'same as SPEC_PATH: the commands work from `specflow/<SLUG>/plan.md` directly',
+  MILESTONES: 'step 4 walks the milestone index in plan.md, not this line',
+  ANSWERS: 'handed whole to the re-invoked reviewer ("with the answers"), which reads them by meaning',
+  CHANGES: 'REPLAN\'s account of what it rewrote; the implementer is sent back to the revised Mk.md, not to this line',
+
   // The reviewer's remarks on a plan it APPROVED. Nothing branches on them:
   // a doubt comes back as ESCALATE, a fixable problem as CHANGES_REQUESTED.
-  NOTES: 'optional remarks on an APPROVED plan; a doubt or a problem comes back under a status that is routed',
+  'reviewer.NOTES': 'optional remarks on an APPROVED plan; a doubt or a problem comes back under a status that is routed',
 
   // Confirmations of work already done. There is no branch to take: a fold
   // that archived nothing fails the phase-guard on `done`, and a fold that
@@ -150,14 +156,14 @@ const NOT_ROUTED = {
 };
 
 // The agents whose return blocks carry a finding the orchestrator itself must
-// act on. The planner's, the implementer's and the architect's are left out
-// on purpose: what they return is handed whole to the next agent (a plan to
-// the reviewer, guidance to the implementer, a block to the planner), so the
-// orchestrator relays it rather than branching on its fields.
+// act on. The implementer's and the architect's are left out on purpose: what
+// they return is handed whole to the next agent (guidance to the implementer,
+// a block to the planner), so the orchestrator relays it rather than
+// branching on its fields. The planner is in: its NOTES are for the human.
 //
 // An agent's blocks live in `agents/<name>.md` and in its `modes/<name>-*.md`,
 // which it reads per mode; they are its blocks as much as the main file's are.
-const ROUTED_AGENTS = ['spec-writer', 'reviewer'];
+const ROUTED_AGENTS = ['spec-writer', 'planner', 'reviewer'];
 const MODES = join(ROOT, 'modes');
 
 const returnedBy = new Map(); // field -> agents declaring it
@@ -176,16 +182,23 @@ for (const name of ROUTED_AGENTS) {
   for (const field of declared.fields) returnedBy.set(field, [...(returnedBy.get(field) ?? []), name]);
 }
 
-for (const field of unroutedFields([...returnedBy.keys()].sort(), commandsText, NOT_ROUTED)) {
-  problems.push(
-    `agents/${returnedBy.get(field).join('.md, agents/')}.md returns "${field}:" and neither command names it. A return field no command reads is a finding that reaches the orchestrator and stops there — which for a field like GAPS is the only report of something no check in this engine can produce. Name it in the command that drives that mode, or add it to NOT_ROUTED in this file with the reason it needs no handling.`,
-  );
+// An exemption covers a field for every routed agent (`FIELD`) or for one
+// (`agent.FIELD`): the same label can be a finding from one agent and a remark
+// from another — the planner's NOTES report a spec bug, the reviewer's do not.
+for (const [field, agents] of [...returnedBy].sort()) {
+  for (const agent of agents) {
+    if (`${agent}.${field}` in NOT_ROUTED || unroutedFields([field], commandsText, NOT_ROUTED).length === 0) continue;
+    problems.push(
+    `agents/${agent}.md returns "${field}:" and neither command names it. A return field no command reads is a finding that reaches the orchestrator and stops there — which for a field like GAPS is the only report of something no check in this engine can produce. Name it in the command that drives that mode, or add it to NOT_ROUTED in this file with the reason it needs no handling.`,
+    );
+  }
 }
 
-for (const field of Object.keys(NOT_ROUTED)) {
-  if (!returnedBy.has(field)) {
+for (const key of Object.keys(NOT_ROUTED)) {
+  const [agent, field] = key.includes('.') ? key.split('.') : [null, key];
+  if (agent ? !(returnedBy.get(field) ?? []).includes(agent) : !returnedBy.has(field)) {
     problems.push(
-      `NOT_ROUTED exempts "${field}", which no routed agent's return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
+      `NOT_ROUTED exempts "${key}", which no routed agent's return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
     );
   }
 }
