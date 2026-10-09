@@ -52,3 +52,37 @@ export function unroutedFields(fields, commandsText, exempt = {}) {
 
 /** How many questions one `NEEDS_INPUT` round may ask. The spec-writer's contract must state the same number (ADR-030). */
 export const MAX_OPEN_QUESTIONS = 3;
+
+/**
+ * The statuses an agent contract declares: the `STATUS:` line of each fenced
+ * return block.
+ *
+ * @param {string} text An agent contract's markdown, modes included.
+ * @returns {string[]}
+ */
+export function declaredStatuses(text) {
+  return [...new Set([...String(text ?? '').matchAll(/```\r?\nSTATUS:[ \t]*([A-Z_]+)/g)].map((m) => m[1]))];
+}
+
+/**
+ * The return block in an agent's reply: its status and the `KEY: value` lines
+ * after it, up to a closing fence. The first `STATUS:` wins — run-trace has
+ * always recorded that one, and the agent gate must judge what is recorded.
+ * A key that repeats keeps its first value; a list field's items are not read.
+ *
+ * @param {string} text What the agent handed back.
+ * @returns {{ status: string, fields: Record<string, string> } | null}
+ */
+export function parseReturn(text) {
+  const s = String(text ?? '');
+  const m = /STATUS:\s*([A-Z_]+)/.exec(s);
+  if (!m) return null;
+  /** @type {Record<string, string>} */
+  const fields = {};
+  for (const line of s.slice(m.index).split(/\r?\n/).slice(1)) {
+    if (/^\s*```/.test(line)) break;
+    const kv = /^\s*([A-Z][A-Z_]+):[ \t]*(.*)$/.exec(line);
+    if (kv && !(kv[1] in fields)) fields[kv[1]] = kv[2].trim();
+  }
+  return { status: m[1], fields };
+}

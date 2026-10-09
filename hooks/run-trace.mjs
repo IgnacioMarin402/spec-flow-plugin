@@ -23,6 +23,8 @@ import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
+import { parseReturn } from '../scripts/agent-blocks.mjs';
+import { handedBack } from './lib/handback.mjs';
 
 function appendUnique(path, line) {
   try {
@@ -119,38 +121,6 @@ function traceTest(input, res, testName, failure) {
 }
 
 /**
- * The report a stopped subagent handed back — the text its caller received.
- *
- * A build that delivers reports through `SubagentHandback` ends the agent on a
- * line like "Report delivered", so `last_assistant_message` alone finds no
- * STATUS there; the report is the handback's `message`, in the agent's own
- * transcript. Without a handback, the last message IS the report.
- */
-function handedBack(payload) {
-  const path = typeof payload.agent_transcript_path === 'string' ? payload.agent_transcript_path : '';
-  if (path) {
-    try {
-      const lines = readFileSync(path, 'utf8').split('\n');
-      for (let i = lines.length - 1; i >= 0; i -= 1) {
-        if (!lines[i].includes('"SubagentHandback"')) continue;
-        let entry;
-        try {
-          entry = JSON.parse(lines[i]);
-        } catch {
-          continue;
-        }
-        const content = Array.isArray(entry?.message?.content) ? entry.message.content : [];
-        const call = content.findLast((c) => c?.type === 'tool_use' && c.name === 'SubagentHandback');
-        if (typeof call?.input?.message === 'string') return call.input.message;
-      }
-    } catch {
-      /* unreadable: fall back to the payload's own copy of the last message */
-    }
-  }
-  return typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message : '';
-}
-
-/**
  * Whether this agent's return is already on a line — see traceReturn().
  * Return lines only: the agent's own reads and writes carry its id too.
  */
@@ -180,7 +150,8 @@ function traceReturn(payload, traceFile, missLog) {
   if (agentId && alreadyTraced(traceFile, agentId)) return '';
 
   const text = handedBack(payload);
-  const status = /STATUS:\s*([A-Z_]+)/.exec(text);
+  // The agent gate reads the same status through the same function.
+  const status = parseReturn(text)?.status;
   if (status) {
     // `SKILL_MISS:` mirrors `STATUS:` on purpose — a skill the milestone
     // failed to route is the one observable this flow produces that had
@@ -202,7 +173,7 @@ function traceReturn(payload, traceFile, missLog) {
     // `effort.level` is what was applied after the frontmatter, a spawn's own
     // effort and CLAUDE_CODE_EFFORT_LEVEL had their say.
     const level = typeof payload.effort?.level === 'string' && /^[a-z]+$/.test(payload.effort.level) ? payload.effort.level : '';
-    return `agent type=${type} status=${status[1]}${missField}${level ? ` effort=${level}` : ''}${agentId ? ` agent_id=${agentId}` : ''}`;
+    return `agent type=${type} status=${status}${missField}${level ? ` effort=${level}` : ''}${agentId ? ` agent_id=${agentId}` : ''}`;
   }
 
   appendUnique(

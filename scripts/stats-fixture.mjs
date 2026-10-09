@@ -321,6 +321,15 @@ check('passed-the-first-time counts a PASS with no failure since the previous on
   return contains(out, 'passed the first time: 1 of 3 PASS(es)');
 });
 
+check('returns the agent gate sent back are counted by why, and so are the ones let through at the cap', () => {
+  const line = (minute, result, why) => `${stamp(minute)} phase=review agent-check agent=spec-flow:reviewer result=${result} why=${why} agent_id=a1`;
+  const { out } = report({
+    trace: [line(1, 'block', 'no-status'), line(2, 'block', 'no-status'), line(3, 'cap', 'no-status'), `${agent(4, 'spec-flow:reviewer', 's1')} agent_id=a1`],
+    gate: [pass(5)],
+  });
+  return contains(out, 'agent gate: 2 return(s) sent back (no-status x2), 1 let through at the cap (no-status x1).') || contains(out, 'reviewer: 1 DONE');
+});
+
 check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;

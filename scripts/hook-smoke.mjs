@@ -484,6 +484,87 @@ const traceText = (repo) => {
   return existsSync(log) ? readFileSync(log, 'utf8') : '';
 };
 
+// ---- agent-gate: a return the orchestrator cannot route is sent back (ADR-031)
+const blocked = (r) => {
+  try {
+    return JSON.parse(r.stdout).decision === 'block';
+  } catch {
+    return false;
+  }
+};
+const gateReturn = (repo, extra) => runHook('agent-gate.mjs', subagentStop(extra), repo);
+
+t('agent-gate sends back an empty reply, one with no STATUS, and an undeclared status', (repo) => {
+  for (const [reply, why] of [
+    ['', 'empty'],
+    ['Looks fine to me.', 'no-status'],
+    ['STATUS: SPEC_READY', 'undeclared-status'],
+  ]) {
+    const r = gateReturn(repo, { agent_id: `a-${why}`, last_assistant_message: reply });
+    if (r.status !== 0 || !blocked(r)) return `"${reply}" was not sent back (exit ${r.status}): ${r.stdout}${r.stderr}`;
+    if (!new RegExp(`agent-check agent=spec-flow:reviewer result=block why=${why} agent_id=a-${why}`).test(traceText(repo))) {
+      return `no agent-check line for ${why}: ${traceText(repo)}`;
+    }
+  }
+  return null;
+}, { phase: 'review' });
+
+t('agent-gate sends back a path to a file that is not there, and passes one that is', (repo) => {
+  const plan = { agent_type: 'spec-flow:planner', last_assistant_message: '```\nSTATUS: PLAN_READY\nPLAN_PATH: specflow/x/plan.md\n```' };
+  const r = gateReturn(repo, plan);
+  if (!blocked(r) || !/PLAN_PATH/.test(r.stdout)) return `a missing PLAN_PATH was not sent back: ${r.stdout}`;
+  mkdirSync(join(repo, 'specflow', 'x'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'x', 'plan.md'), '# Plan\n');
+  const ok = gateReturn(repo, { ...plan, agent_id: 'another-agent' });
+  return blocked(ok) ? `an existing PLAN_PATH was sent back: ${ok.stdout}` : null;
+}, { phase: 'plan' });
+
+t('agent-gate passes a declared status and writes nothing', (repo) => {
+  const r = gateReturn(repo, { last_assistant_message: 'STATUS: APPROVED\nNOTES: none' });
+  if (r.status !== 0 || r.stdout) return `a declared status was not let through (exit ${r.status}): ${r.stdout}`;
+  return /agent-check/.test(traceText(repo)) ? `a clean return left a line: ${traceText(repo)}` : null;
+}, { phase: 'review' });
+
+t('agent-gate sends an agent back at most twice, then lets it through and says so', (repo) => {
+  for (const n of [1, 2]) {
+    if (!blocked(gateReturn(repo, { last_assistant_message: 'no block' }))) return `block ${n} did not happen`;
+  }
+  const third = gateReturn(repo, { last_assistant_message: 'no block', stop_hook_active: true });
+  if (blocked(third)) return 'a third stop was sent back: the cap is two';
+  return /result=cap why=no-status/.test(traceText(repo)) ? null : `the cap left no line: ${traceText(repo)}`;
+}, { phase: 'review' });
+
+t('agent-gate with no agent id blocks only a first stop', (repo) => {
+  if (!blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: '' }))) return 'a first stop was let through';
+  return blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: '', stop_hook_active: true }))
+    ? 'a stop the hook already continued was sent back again, with nothing to count blocks by'
+    : null;
+}, { phase: 'review' });
+
+t('agent-gate leaves alone another plugin\'s agent, a run it does not own, and no run', (repo) => {
+  for (const agent_type of ['spec-writer', 'other:reviewer', 'spec-flow:nobody']) {
+    if (blocked(gateReturn(repo, { agent_type, last_assistant_message: '' }))) return `${agent_type} was judged against spec-flow's contracts`;
+  }
+  writeFileSync(join(repo, '.claude/state/phase.session'), 'someone-else');
+  if (blocked(gateReturn(repo, { last_assistant_message: '' }))) return 'a return in another session\'s run was sent back';
+  writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+  return blocked(gateReturn(repo, { last_assistant_message: '' })) ? 'a return outside any run was sent back' : null;
+}, { phase: 'review' });
+
+t('agent-gate that crashes lets the return through', (repo) => {
+  const engine = mkdtempSync(join(tmpdir(), 'spec-flow-engine-'));
+  try {
+    for (const dir of ['hooks', 'scripts', 'agents', 'modes']) cpSync(join(ENGINE, dir), join(engine, dir), { recursive: true });
+    rmSync(join(engine, 'agents', 'reviewer.md'));
+    mkdirSync(join(engine, 'agents', 'reviewer.md')); // reading it throws
+    const r = runHook('agent-gate.mjs', subagentStop({ last_assistant_message: '' }), repo, engine);
+    if (!/hook error/.test(r.stderr)) return `the crash path was not reached: ${r.stderr}`;
+    return r.status === 0 && !blocked(r) ? null : `a crash blocked the agent (exit ${r.status}): ${r.stdout}`;
+  } finally {
+    rmSync(engine, { recursive: true, force: true });
+  }
+}, { phase: 'review' });
+
 t('run-trace logs a subagent STATUS', (repo) => {
   const r = runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: APPROVED' }), repo);
   if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;

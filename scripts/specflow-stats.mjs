@@ -292,6 +292,21 @@ if (agents.length === 0) {
     }
   }
 }
+// The return line records an agent's FIRST stop, so a return the agent gate
+// sent back and the agent then changed is counted under the status it was
+// sent back with. These lines say how often that happens (ADR-031).
+const checks = trace.filter((e) => e.raw?.includes(' agent-check '));
+if (checks.length > 0) {
+  const tally = (result) =>
+    Object.entries(
+      checks.filter((e) => e.result === result).reduce((acc, e) => ({ ...acc, [e.why]: (acc[e.why] ?? 0) + 1 }), {}),
+    )
+      .map(([why, n]) => `${why} x${n}`)
+      .join(', ');
+  const sent = checks.filter((e) => e.result === 'block').length;
+  const capped = checks.filter((e) => e.result === 'cap').length;
+  say(`  agent gate: ${sent} return(s) sent back${sent ? ` (${tally('block')})` : ''}, ${capped} let through at the cap${capped ? ` (${tally('cap')})` : ''}.`);
+}
 say('');
 
 // ---- 3b. does the plan's skill routing actually land? ----------------------

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { returnBlocks, unroutedFields } from '../scripts/agent-blocks.mjs';
+import { returnBlocks, unroutedFields, declaredStatuses, parseReturn } from '../scripts/agent-blocks.mjs';
 
 /**
  * The contract this file defends is one line long: an agent's markdown is read
@@ -47,4 +47,15 @@ test('a field named only inside a longer field name is not routed', () => {
 
 test('a field the commands name is routed, and an exempt one needs no name', () => {
   assert.deepEqual(unroutedFields(['GAPS', 'STATUS'], 'read its `GAPS:` line', { STATUS: 'discriminator' }), []);
+});
+
+test('declaredStatuses reads each return block, CRLF included', () => {
+  const md = 'x\n```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n```\ny\r\n```\r\nSTATUS: SPEC_READY\r\nSPEC_PATH: a\r\n```\r\n';
+  assert.deepEqual(declaredStatuses(md), ['NEEDS_INPUT', 'SPEC_READY']);
+});
+
+test('parseReturn reads the first status and the fields after it, up to a fence', () => {
+  const reply = 'Done.\n\n```\nSTATUS: SPEC_READY\nSPEC_PATH: specflow/x/spec.md\nSUMMARY: two lines\n```\nSTATUS: NOT_THIS\n';
+  assert.deepEqual(parseReturn(reply), { status: 'SPEC_READY', fields: { SPEC_PATH: 'specflow/x/spec.md', SUMMARY: 'two lines' } });
+  assert.equal(parseReturn('no block here'), null);
 });
