@@ -494,9 +494,8 @@ const blocked = (r) => {
 };
 const gateReturn = (repo, extra) => runHook('agent-gate.mjs', subagentStop(extra), repo);
 
-t('agent-gate sends back an empty reply, one with no STATUS, and an undeclared status', (repo) => {
+t('agent-gate sends back a first reply with no STATUS, and an undeclared status', (repo) => {
   for (const [reply, why] of [
-    ['', 'empty'],
     ['Looks fine to me.', 'no-status'],
     ['STATUS: SPEC_READY', 'undeclared-status'],
   ]) {
@@ -508,6 +507,37 @@ t('agent-gate sends back an empty reply, one with no STATUS, and an undeclared s
   }
   return null;
 }, { phase: 'review' });
+
+// An empty reply is one this hook cannot read — a payload without the field,
+// or an agent stopped from outside — so it passes, and says so.
+t('agent-gate lets an empty reply through and records it', (repo) => {
+  const r = gateReturn(repo, { last_assistant_message: '' });
+  if (blocked(r)) return `an empty reply was sent back: ${r.stdout}`;
+  return /result=skip why=empty/.test(traceText(repo)) ? null : `no skip line: ${traceText(repo)}`;
+}, { phase: 'review' });
+
+// /spec-flow step 4 resumes the implementer to "fix and report back only",
+// and the fold spec-writer is resumed with a failure log: both answer in prose.
+t('agent-gate lets a resumed agent answer in prose', (repo) => {
+  writeFileSync(join(repo, '.claude/state/run-trace.log'), '2026-01-01T00:00:00Z phase=implement agent type=spec-flow:implementer status=IMPLEMENTED agent_id=impl1\n');
+  const r = gateReturn(repo, { agent_type: 'spec-flow:implementer', agent_id: 'impl1', last_assistant_message: 'Fixed both lint violations in lib/a.ts.' });
+  return blocked(r) ? `a resumed implementer's prose answer was sent back: ${r.stdout}` : null;
+}, { phase: 'implement' });
+
+t('agent-gate reads a status and a path the way a model decorates them', (repo) => {
+  mkdirSync(join(repo, 'specflow', 'x'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'x', 'plan.md'), '# Plan\n');
+  for (const [i, reply] of [
+    '**STATUS:** PLAN_READY\n**PLAN_PATH:** specflow/x/plan.md',
+    'STATUS: PLAN_READY\nPLAN_PATH: specflow/x/plan.md (index + 3 milestones)',
+    'STATUS: PLAN_READY\nPLAN_PATH: [plan.md](specflow/x/plan.md)',
+    'Round two; the last one ended with STATUS: NEEDS_INPUT.\n\nSTATUS: PLAN_READY\nPLAN_PATH: `specflow/x/plan.md`',
+  ].entries()) {
+    const r = gateReturn(repo, { agent_type: 'spec-flow:planner', agent_id: `p${i}`, last_assistant_message: reply });
+    if (blocked(r)) return `a well-formed return was sent back: ${JSON.stringify(reply)} -> ${r.stdout}`;
+  }
+  return null;
+}, { phase: 'plan' });
 
 t('agent-gate sends back a path to a file that is not there, and passes one that is', (repo) => {
   const plan = { agent_type: 'spec-flow:planner', last_assistant_message: '```\nSTATUS: PLAN_READY\nPLAN_PATH: specflow/x/plan.md\n```' };
@@ -534,21 +564,27 @@ t('agent-gate sends an agent back at most twice, then lets it through and says s
   return /result=cap why=no-status/.test(traceText(repo)) ? null : `the cap left no line: ${traceText(repo)}`;
 }, { phase: 'review' });
 
-t('agent-gate with no agent id blocks only a first stop', (repo) => {
-  if (!blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: '' }))) return 'a first stop was let through';
-  return blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: '', stop_hook_active: true }))
-    ? 'a stop the hook already continued was sent back again, with nothing to count blocks by'
-    : null;
+t('agent-gate with no agent id blocks only a first stop, and cannot tell a first reply from a resumed one', (repo) => {
+  if (!blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: 'STATUS: SPEC_READY' }))) return 'a first stop was let through';
+  if (blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: 'STATUS: SPEC_READY', stop_hook_active: true }))) {
+    return 'a stop the hook already continued was sent back again, with nothing to count blocks by';
+  }
+  return blocked(gateReturn(repo, { agent_id: undefined, last_assistant_message: 'prose' })) ? 'prose with no agent id was judged as a first reply' : null;
 }, { phase: 'review' });
 
-t('agent-gate leaves alone another plugin\'s agent, a run it does not own, and no run', (repo) => {
-  for (const agent_type of ['spec-writer', 'other:reviewer', 'spec-flow:nobody']) {
-    if (blocked(gateReturn(repo, { agent_type, last_assistant_message: '' }))) return `${agent_type} was judged against spec-flow's contracts`;
-  }
+// ADR-017 keeps the owner check to hooks certain to run in the sealing
+// session; a SubagentStop's session id is the harness's to define.
+t('agent-gate judges a return whatever session sealed the phase', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase.session'), 'someone-else');
-  if (blocked(gateReturn(repo, { last_assistant_message: '' }))) return 'a return in another session\'s run was sent back';
+  return blocked(gateReturn(repo, { last_assistant_message: 'STATUS: SPEC_READY' })) ? null : 'the owner seal stood the agent gate down';
+}, { phase: 'review' });
+
+t('agent-gate leaves alone another plugin\'s agent, and a return outside a run', (repo) => {
+  for (const agent_type of ['spec-writer', 'other:reviewer', 'spec-flow:nobody']) {
+    if (blocked(gateReturn(repo, { agent_type, last_assistant_message: 'prose' }))) return `${agent_type} was judged against spec-flow's contracts`;
+  }
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
-  return blocked(gateReturn(repo, { last_assistant_message: '' })) ? 'a return outside any run was sent back' : null;
+  return blocked(gateReturn(repo, { last_assistant_message: 'prose' })) ? 'a return outside any run was sent back' : null;
 }, { phase: 'review' });
 
 t('agent-gate that crashes lets the return through', (repo) => {
@@ -557,7 +593,7 @@ t('agent-gate that crashes lets the return through', (repo) => {
     for (const dir of ['hooks', 'scripts', 'agents', 'modes']) cpSync(join(ENGINE, dir), join(engine, dir), { recursive: true });
     rmSync(join(engine, 'agents', 'reviewer.md'));
     mkdirSync(join(engine, 'agents', 'reviewer.md')); // reading it throws
-    const r = runHook('agent-gate.mjs', subagentStop({ last_assistant_message: '' }), repo, engine);
+    const r = runHook('agent-gate.mjs', subagentStop({ last_assistant_message: 'prose' }), repo, engine);
     if (!/hook error/.test(r.stderr)) return `the crash path was not reached: ${r.stderr}`;
     return r.status === 0 && !blocked(r) ? null : `a crash blocked the agent (exit ${r.status}): ${r.stdout}`;
   } finally {
@@ -619,6 +655,33 @@ t('agent-gate sends back a SPEC_READY written without reading the capability its
   readBy(repo, 'writer1', 'specs/README.md', 'specs/user.md');
   const ok = gateReturn(repo, specReady({ agent_id: 'writer1' }));
   return blocked(ok) ? `a spec-writer that read both was sent back: ${ok.stdout}` : null;
+}, { phase: 'spec' });
+
+// token-trace takes agent ids from transcript file names, not from tool
+// payloads, so its lines say nothing about whether a read was attributed.
+t('agent-gate does not take a token line as proof that reads are attributed', (repo) => {
+  writerRepo(repo);
+  writeFileSync(
+    join(repo, '.claude/state/run-trace.log'),
+    `2026-01-01T00:00:00Z phase=spec read file=${join(repo, 'specs/user.md')}\n` +
+      '2026-01-01T00:00:01Z phase=spec tokens model=m sidechain=true in=1 out=1 cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=2 agent_id=writer1\n',
+  );
+  const r = gateReturn(repo, specReady());
+  return blocked(r) ? `reads with no agent id were judged: ${r.stdout}` : null;
+}, { phase: 'spec' });
+
+t('agent-gate does not demand a read of another capability for a new one', (repo) => {
+  writerRepo(repo, '- ADDED REQ-USER-PROFILE-001 — a profile');
+  readBy(repo, 'writer1', 'specs/README.md');
+  const r = gateReturn(repo, specReady());
+  return blocked(r) ? `specs/user.md was demanded for REQ-USER-PROFILE-001: ${r.stdout}` : null;
+}, { phase: 'spec' });
+
+t('agent-gate lets a case 5 brief through: it is rejected, not built', (repo) => {
+  writerRepo(repo);
+  writeChange(repo, '# Fix — my-change\n\n## Case\n5 NOT-A-FIX\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — would stop cascading\n', { proposal: false });
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: 'STATUS: TRIAGED\nCASE: 5 NOT-A-FIX\nSPEC_PATH: specflow/my-change/spec.md' });
+  return blocked(r) ? `a case 5 brief was held to "ready to build": ${r.stdout}` : null;
 }, { phase: 'spec' });
 
 t('agent-gate does not judge reads it cannot attribute, and says so', (repo) => {
@@ -1282,6 +1345,14 @@ t('phase-guard allows leaving spec with a signed-off spec, and a fix brief witho
   const r = writePhase(repo, 'plan');
   if (r.status !== 0) return `a ready spec and a ready fix brief were denied (exit ${r.status}): ${r.stderr.slice(0, 400)}`;
   return null;
+}, { phase: 'spec' });
+
+t('phase-guard does not hold the change being signed off to another one already planned', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('## Assumptions\n- none\n\n', ''), { slug: 'planned-before' });
+  writeFileSync(join(repo, 'specflow', 'planned-before', 'plan.md'), '# Plan\n');
+  writeChange(repo, SIGNED_SPEC);
+  const r = writePhase(repo, 'plan');
+  return r.status === 0 ? null : `plan was denied over a change that already has a plan (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
 }, { phase: 'spec' });
 
 t('phase-guard does not hold a run already past spec to the assumptions rule', (repo) => {

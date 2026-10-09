@@ -28,9 +28,9 @@
  *      contract that loads, no base that resolves (ADR-028). Nothing is armed
  *      then, so a refused start leaves nothing for `session-start` to reset
  *      and denies no later spawn in that repository.
- *   5. A write that LEAVES `spec` needs every live spec to pass what
- *      spec-trace will check of it at the first gate, and to state its
- *      assumptions (ADR-030).
+ *   5. A write that LEAVES `spec` needs every live spec with no plan yet to
+ *      pass what spec-trace will check of it at the first gate, and to state
+ *      its assumptions (ADR-030).
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
  * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
@@ -255,9 +255,12 @@ await run(async () => {
 
   // ---- leaving `spec` needs a spec its first gate would accept (ADR-030) ---
   // Otherwise a planner and a reviewer are spent before spec-trace rejects
-  // it. From the files alone, so it holds whoever wrote the spec.
+  // it. From the files alone, so it holds whoever wrote the spec. Only the
+  // changes with no plan yet: one with a plan left `spec` already, and a run
+  // planned before ADR-030 is not held to it.
   if (phase === 'spec' && LEAVES_SPEC.includes(written)) {
-    const found = specTimeProblems(root, liveChanges(root));
+    const unplanned = liveChanges(root).filter((slug) => !existsSync(join(root, 'specflow', slug, 'plan.md')));
+    const found = specTimeProblems(root, unplanned);
     if (found.length > 0) {
       deny(
         `writing '${written}' while the spec is not ready to build from:\n${found.map((p) => `  - ${p}`).join('\n')}\n\n` +

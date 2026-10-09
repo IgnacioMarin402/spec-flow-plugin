@@ -66,3 +66,18 @@ test('openQuestions counts the top-level questions, not the options under them',
   assert.equal(openQuestions('STATUS: NEEDS_INPUT\r\nOPEN_QUESTIONS:\r\n1. a\r\n2. b\r\n3. c\r\n4. d\r\n'), 4);
   assert.equal(openQuestions('STATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n'), 0);
 });
+
+test('parseReturn reads a status that opens a line, emphasis allowed, and not one named mid-sentence', () => {
+  const round2 = 'The previous round ended with STATUS: NEEDS_INPUT; the answers are in.\n\n```\nSTATUS: SPEC_READY\nSPEC_PATH: specflow/x/spec.md\n```';
+  assert.equal(parseReturn(round2)?.status, 'SPEC_READY');
+  assert.deepEqual(parseReturn('**STATUS:** APPROVED\n**NOTES:** none'), { status: 'APPROVED', fields: { NOTES: 'none' } });
+  assert.equal(parseReturn('STATUS: **APPROVED**')?.status, 'APPROVED');
+  assert.equal(parseReturn('The plan header says STATUS: N/A.'), null);
+});
+
+test('openQuestions stops at the end of the list and counts numbered questions over flush options', () => {
+  const trailing = 'STATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n- Which store?\n- Soft delete?\n\nWhat I found:\n- the table has no index\n- the API is versioned\n';
+  assert.equal(openQuestions(trailing), 2);
+  const flush = '```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n1. Which store?\n- Postgres\n- Redis\n2. Soft delete?\n- yes\n- no\n```';
+  assert.equal(openQuestions(flush), 2);
+});

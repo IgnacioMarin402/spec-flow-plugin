@@ -66,45 +66,59 @@ export function declaredStatuses(text) {
 
 /**
  * The return block in an agent's reply: its status and the `KEY: value` lines
- * after it, up to a closing fence. The first `STATUS:` wins — run-trace has
- * always recorded that one, and the agent gate must judge what is recorded.
- * A key that repeats keeps its first value; a list field's items are not read.
+ * after it, up to a closing fence. The first LINE opening with `STATUS:` wins
+ * — markdown emphasis, a heading mark or a quote mark around it allowed; a
+ * status named mid-sentence ("the last round ended with STATUS: X") is prose.
+ * run-trace records this status and the agent gate judges it, so both read it
+ * here. A key that repeats keeps its first value; a list field's items are
+ * not read.
  *
  * @param {string} text What the agent handed back.
  * @returns {{ status: string, fields: Record<string, string> } | null}
  */
 export function parseReturn(text) {
   const s = String(text ?? '');
-  const m = /STATUS:\s*([A-Z_]+)/.exec(s);
+  const m = /^[ \t>#*]*STATUS:[ \t*]*([A-Z_]+)/m.exec(s);
   if (!m) return null;
   /** @type {Record<string, string>} */
   const fields = {};
   for (const line of s.slice(m.index).split(/\r?\n/).slice(1)) {
     if (/^\s*```/.test(line)) break;
-    const kv = /^\s*([A-Z][A-Z_]+):[ \t]*(.*)$/.exec(line);
+    const kv = /^[ \t>*]*([A-Z][A-Z_]+):[ \t*]*(.*)$/.exec(line);
     if (kv && !(kv[1] in fields)) fields[kv[1]] = kv[2].trim();
   }
   return { status: m[1], fields };
 }
 
 /**
- * How many questions a `NEEDS_INPUT` reply asks: the top-level items under
- * `OPEN_QUESTIONS:`. Options nested under a question are part of it.
+ * How many questions a `NEEDS_INPUT` reply asks: the top-level items of the
+ * list under `OPEN_QUESTIONS:`. Options nested under a question are part of
+ * it, and so are bullets flush with numbered questions. The list ends at a
+ * blank line, a flush line that is not an item, a fence or the next field:
+ * bullets after it are context, not questions. Questions separated by blank
+ * lines therefore undercount, which lets a round through rather than send a
+ * good one back.
  *
  * @param {string} text What the agent handed back.
  * @returns {number}
  */
 export function openQuestions(text) {
   const lines = String(text ?? '').split(/\r?\n/);
-  const at = lines.findIndex((l) => /^\s*OPEN_QUESTIONS:/.test(l));
+  const at = lines.findIndex((l) => /^[ \t>*]*OPEN_QUESTIONS:/.test(l));
   if (at === -1) return 0;
-  const indents = [];
+  const items = [];
   for (const line of lines.slice(at + 1)) {
-    if (/^\s*```/.test(line) || /^\s*[A-Z][A-Z_]+:/.test(line)) break;
-    const item = /^(\s*)(?:[-*]|\d+[.)])\s+\S/.exec(line);
-    if (item) indents.push(item[1].length);
+    if (/^\s*```/.test(line) || /^[ \t>*]*[A-Z][A-Z_]+:/.test(line)) break;
+    if (!line.trim()) {
+      if (items.length > 0) break;
+      continue;
+    }
+    const item = /^(\s*)([-*+]|\d+[.)])\s+\S/.exec(line);
+    if (item) items.push({ indent: item[1].length, numbered: /\d/.test(item[2]) });
+    else if (items.length > 0 && !/^\s/.test(line)) break;
   }
-  if (indents.length === 0) return 0;
-  const top = Math.min(...indents);
-  return indents.filter((n) => n === top).length;
+  if (items.length === 0) return 0;
+  const top = Math.min(...items.map((i) => i.indent));
+  const level = items.filter((i) => i.indent === top);
+  return level.some((i) => i.numbered) ? level.filter((i) => i.numbered).length : level.length;
 }

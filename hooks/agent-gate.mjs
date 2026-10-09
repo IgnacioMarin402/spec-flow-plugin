@@ -3,18 +3,20 @@
  * SubagentStop hook — holds a spec-flow agent's return to its own contract
  * before the orchestrator acts on it (ADR-031).
  *
- * A reply with no return block, a status the contract does not declare, or a
- * `*_PATH` naming a file that is not there reaches the orchestrator as
+ * A first reply with no return block, a status the contract does not declare,
+ * or a `*_PATH` naming a file that is not there reaches the orchestrator as
  * something no step of the command routes. Blocking makes the agent continue
  * with the reason, and its caller receives the corrected return. A
  * spec-writer's return is also held to ADR-030; see specWriterProblems().
  *
  * Narrow on purpose, because it blocks:
- *   - only `spec-flow:<name>` for an agent this plugin ships, and only in a run
- *     this session owns;
+ *   - only `spec-flow:<name>` for an agent this plugin ships, during a run;
  *   - at most MAX_BLOCKS blocks per agent, counted from its own `agent-check`
  *     lines in run-trace.log; with no agent id, only a first stop is blocked;
- *   - anything it cannot read passes, and a crash exits 0.
+ *   - a missing `STATUS:` only at an agent's first stop or after a block: a
+ *     resumed agent (SendMessage) answers in prose, as the commands ask;
+ *   - anything it cannot read passes — an empty reply included, recorded as
+ *     a skip — and a crash exits 0.
  *
  * run-trace records the return, at the agent's FIRST stop. A return this
  * blocks and the agent then changes stays recorded as the first one; the
@@ -23,7 +25,7 @@
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join, dirname, isAbsolute, resolve, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { projectDir, stateDir, readOwnedPhase, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { handedBack } from './lib/handback.mjs';
 import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS } from '../scripts/agent-blocks.mjs';
 import { deltas, declaredIds, capabilityOf } from '../scripts/spec-shape.mjs';
@@ -51,19 +53,26 @@ function contractStatuses(name) {
   return declaredStatuses(texts.join('\n'));
 }
 
+/**
+ * The path a `*_PATH` value names: a markdown link's target, else its first
+ * token, with backticks, quotes and emphasis stripped — `**a/b.md** (index)`
+ * is `a/b.md`.
+ */
+function pathIn(raw) {
+  const target = /\]\(([^)\s]+)\)/.exec(raw)?.[1] ?? raw;
+  return target.replace(/[`'"*]/g, '').trim().split(/\s+/)[0] ?? '';
+}
+
 /** Why this return cannot be acted on, or null when it can. */
-function problemWith(text, statuses, root) {
-  if (!text.trim()) return { why: 'empty', reason: `Your reply is empty. The orchestrator acts only on your return block: end with one of ${statuses.map((s) => `STATUS: ${s}`).join(', ')}.` };
-  const ret = parseReturn(text);
-  if (!ret) return { why: 'no-status', reason: `Your reply has no \`STATUS:\` line, so the orchestrator has nothing to route. End with the return block your contract declares: ${statuses.map((s) => `STATUS: ${s}`).join(', ')}.` };
+function problemWith(ret, statuses, root) {
   if (!statuses.includes(ret.status)) {
     return { why: 'undeclared-status', reason: `\`STATUS: ${ret.status}\` is not a status your contract declares (${statuses.join(', ')}), and the orchestrator routes only those. Return the one that fits.` };
   }
   for (const [key, raw] of Object.entries(ret.fields)) {
     if (!key.endsWith('_PATH') || !raw) continue;
-    const path = raw.replace(/^[`'"]|[`'"]$/g, '');
+    const path = pathIn(raw);
     if (!existsSync(isAbsolute(path) ? path : join(root, path))) {
-      return { why: 'missing-path', reason: `\`${key}: ${raw}\` names a file that does not exist. Write it, or return the path you wrote.` };
+      return { why: 'missing-path', reason: `\`${key}: ${raw}\` — there is no file at \`${path}\`. Write it, or return the path you wrote.` };
     }
   }
   return null;
@@ -100,8 +109,11 @@ function specWriterProblems(ret, text, root, agentId, trace) {
     return { problems, skips };
   }
   if (!['SPEC_READY', 'TRIAGED'].includes(ret.status)) return { problems, skips };
+  // Case 5 is not a fix: the orchestrator stamps the brief REJECTED and
+  // archives it, so nothing builds from it.
+  if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) return { problems, skips };
 
-  const raw = (ret.fields.SPEC_PATH ?? '').replace(/^[`'"]|[`'"]$/g, '');
+  const raw = pathIn(ret.fields.SPEC_PATH ?? '');
   const slug = /^specflow\/([^/]+)\/spec\.md$/.exec(relative(root, resolve(root, raw)).split(sep).join('/'))?.[1];
   if (!slug || slug === 'archive') {
     problems.push({ why: 'not-live', reason: `\`SPEC_PATH: ${raw}\` is not a live change spec. It names \`specflow/<SLUG>/spec.md\`, outside \`specflow/archive/\`.` });
@@ -142,9 +154,11 @@ function specWriterProblems(ret, text, root, agentId, trace) {
   if (expected.size === 0) return { problems, skips };
 
   // Attribution exists when some tool call in this trace was recorded with
-  // an agent id; without it, no read can be told from a missing one.
+  // an agent id; without it, no read can be told from a missing one. Tool
+  // calls only: token-trace takes its ids from transcript file names, so its
+  // lines carry one whatever the tool payloads did.
   const lines = trace.split('\n');
-  const attributed = lines.some((l) => / agent_id=[\w-]+$/.test(l) && !/ agent type=| agent-check /.test(l));
+  const attributed = lines.some((l) => / (?:read|write) file=.* agent_id=[\w-]+$| test verdict=.* agent_id=[\w-]+$/.test(l));
   if (!agentId || !attributed) {
     skips.push('unattributed');
     return { problems, skips };
@@ -172,8 +186,10 @@ await run(async () => {
   const type = String(payload.agent_type ?? '');
   const name = /^spec-flow:([a-z][a-z-]*)$/.exec(type)?.[1];
   if (!name) return;
+  // `readPhase`, not the owner check: ADR-017 keeps that to hooks certain to
+  // run in the session that sealed the phase.
   const session = String(payload.session_id ?? '');
-  const phase = readOwnedPhase(root, session);
+  const phase = readPhase(root);
   if (!RUN_PHASES.includes(phase)) return;
 
   const statuses = contractStatuses(name);
@@ -184,10 +200,27 @@ await run(async () => {
   const trace = existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '';
 
   const text = handedBack(payload);
-  const found = problemWith(text, statuses, root);
-  let problems = found ? [found] : [];
+  const ret = parseReturn(text);
+  let problems = [];
   let skips = [];
-  if (!found && name === 'spec-writer') ({ problems, skips } = specWriterProblems(parseReturn(text), text, root, agentId, trace));
+  if (!ret) {
+    // A reply with no status is judged only where a return is owed: at an
+    // agent's first stop, or after a block. Once run-trace holds a return
+    // for this id, the agent is answering a SendMessage, in prose.
+    const returned = agentId && new RegExp(` agent type=\\S+ status=\\S+.* agent_id=${agentId}(\\s|$)`).test(trace);
+    const owed = payload.stop_hook_active === true || (agentId && !returned);
+    if (!text.trim()) skips.push('empty');
+    else if (owed) {
+      problems.push({
+        why: 'no-status',
+        reason: `Your reply has no line opening with \`STATUS:\`, so the orchestrator has nothing to route. End with the return block your contract declares: ${statuses.map((s) => `STATUS: ${s}`).join(', ')}.`,
+      });
+    }
+  } else {
+    const found = problemWith(ret, statuses, root);
+    if (found) problems.push(found);
+    else if (name === 'spec-writer') ({ problems, skips } = specWriterProblems(ret, text, root, agentId, trace));
+  }
 
   // `agent=`, not run-trace's `type=`: stats reads a `type=` line with an
   // agent id as that agent's return.

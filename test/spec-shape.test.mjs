@@ -34,3 +34,13 @@ test('a delta touches the spec declaring its id, else the longest prefix, else n
   assert.equal(capabilityOf('REQ-USER-002', specs), 'specs/user.md');
   assert.equal(capabilityOf('REQ-ORDER-001', specs), null);
 });
+
+test('a numbered or plus-sign assumptions list is a list', () => {
+  assert.equal(assumptionsProblem(spec('\n## Assumptions\n1. emails are unique — a merge flow if not\n')), '');
+  assert.equal(assumptionsProblem(spec('\n## Assumptions\n+ none\n')), '');
+});
+
+test('an ADDED id whose capability has no file touches no other capability', () => {
+  const specs = [{ file: 'specs/user.md', ids: declaredIds('### REQ-USER-001 — a\n') }];
+  assert.equal(capabilityOf('REQ-USER-PROFILE-001', specs), null);
+});

@@ -66,8 +66,8 @@ export function declaredIds(body) {
 
 /**
  * The capability spec a delta on `id` touches: the file declaring it, else the
- * one whose name gives the longest prefix of it (`REQ-USER-PROFILE-001` is
- * `user-profile.md`'s, not `user.md`'s), else null — a new capability.
+ * file its capability names (`REQ-USER-PROFILE-001` is `user-profile.md`'s,
+ * never `user.md`'s), else null — a capability with no file yet.
  *
  * @param {string} id
  * @param {{ file: string, ids: Set<string> }[]} specs
@@ -76,9 +76,8 @@ export function declaredIds(body) {
 export function capabilityOf(id, specs) {
   const declaring = specs.find((s) => s.ids.has(id));
   if (declaring) return declaring.file;
-  const byPrefix = specs.filter((s) => id.startsWith(expectedPrefix(s.file)));
-  byPrefix.sort((a, b) => expectedPrefix(b.file).length - expectedPrefix(a.file).length);
-  return byPrefix[0]?.file ?? null;
+  const prefix = `${id.replace(/-\d{3}$/, '')}-`;
+  return specs.find((s) => expectedPrefix(s.file) === prefix)?.file ?? null;
 }
 
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
@@ -181,7 +180,7 @@ export function assumptionsProblem(body) {
   const after = body.slice(heading.index + heading[0].length);
   const next = after.search(/^## /m);
   const section = next === -1 ? after : after.slice(0, next);
-  return /^\s*[-*]\s+\S/m.test(section) ? '' : `has an empty \`${ASSUMPTIONS_HEADING}\` section — write what was assumed, or \`- none\``;
+  return /^\s*(?:[-*+]|\d+[.)])\s+\S/m.test(section) ? '' : `has an empty \`${ASSUMPTIONS_HEADING}\` section — write what was assumed, or \`- none\``;
 }
 
 /**

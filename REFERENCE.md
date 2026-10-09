@@ -377,7 +377,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
 | `run-trace` | `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` (a failure: `Bash`) | The run's timeline, and each subagent's return. Enforces nothing |
-| `agent-gate` | `SubagentStop` | — | Sends back, at most twice per agent, a return the orchestrator cannot route — no `STATUS:`, a status the agent's contract does not declare, a `*_PATH` to nothing — and a spec-writer's that breaks [ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md) ([ADR-031](decisions/031-an-agents-return-is-checked-before-it-is-acted-on.md)) |
+| `agent-gate` | `SubagentStop` | — | Sends back, at most twice per agent, a return the orchestrator cannot route — no `STATUS:` where a return is owed, a status the agent's contract does not declare, a `*_PATH` to nothing — and a spec-writer's that breaks [ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md) ([ADR-031](decisions/031-an-agents-return-is-checked-before-it-is-acted-on.md)) |
 | `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
@@ -414,11 +414,13 @@ armed.
   first run phase written while no run is in progress is denied unless the
   directory is a repository root, the contract loads and the base resolves;
   nothing is armed by a refused start.
-- **A run leaves `spec` with a spec its first gate would accept**
+- **A phase write leaving `spec` needs a spec its first gate would accept**
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
   `plan`, `review` or `implement` written from `spec` is denied while a live
-  spec has no `## Assumptions` (a `/spec-fix` brief needs none) or fails a
-  check spec-trace makes of live changes.
+  spec with no plan yet has no `## Assumptions` (a `/spec-fix` brief needs
+  none) or fails a check spec-trace makes of live changes. `arm-gate`'s own
+  write of `implement` is not checked; the first gate repeats every check but
+  the assumptions.
 - **A run does not end itself without a verdict**
   ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
   `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,

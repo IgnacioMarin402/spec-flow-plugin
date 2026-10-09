@@ -26,14 +26,17 @@ fresh spawn with the answers in its prompt, so a second round costs one spawn.
 - A `NEEDS_INPUT` round asks at most three questions, the ones that would
   change the deltas most. The rest become assumptions or a later round.
 - Both are held at spec time only, never by the gate: a run planned before the
-  section existed must not fail its milestones over it. `phase-guard` denies
-  leaving `spec` while a live spec lacks its assumptions, or fails what
-  spec-trace will check of it at the first gate; `resume` names the same
-  problems before it asks for a sign-off.
+  section existed must not fail its milestones over it. `phase-guard` denies a
+  phase write leaving `spec` while a live spec with no plan yet lacks its
+  assumptions, or fails what spec-trace will check of it at the first gate;
+  `resume` names the same problems before it asks for a sign-off. `arm-gate`'s
+  own write of `implement` is not checked: the first gate repeats every check
+  but the assumptions, which a `/spec-fix` brief does not owe.
 - The agent gate (ADR-031) holds the spec-writer to both while it is still
   running: a `NEEDS_INPUT` with no question or more than three, and a
   `SPEC_READY` or `TRIAGED` whose spec phase-guard would refuse, or that
-  changes or removes an id `specs/` never declared, is sent back. A
+  changes or removes an id `specs/` never declared, is sent back — except a
+  case 5 brief, which is rejected rather than built. A
   `SPEC_READY` is also sent back when the trace shows its writer never read
   `specs/README.md` or a capability spec its deltas touch — Read calls only,
   and not judged where the trace carries no agent id.
