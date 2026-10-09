@@ -33,7 +33,7 @@ Before your first subagent, a `preflight` hook checks the same again, plus the N
 If they instead want a different shape rather than nothing at all, that is not a rejection: invoke a **new** `spec-writer` with their feedback and `specflow/<SLUG>/`, and stay in the loop.
 
 ## 2. PLAN  (subagent: planner)
-- Write `plan` to `.claude/state/phase`.
+- Write `plan` to `.claude/state/phase`. `phase-guard` denies it while the spec fails a spec-time check (ADR-030); its message routes the fix, and the human signs off the revised spec.
 - Invoke `planner` in `MODE=PLAN` with the spec path. Expect `STATUS: PLAN_READY`, `specflow/<SLUG>/plan.md` (shared approach + milestone index) and one `specflow/<SLUG>/milestones/Mk.md` per milestone.
 - If its `NOTES` are not `none`, show them to the human: a spec bug the planner planned around, or a statement the repo should write. They do not stop the run.
 

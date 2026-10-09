@@ -1086,6 +1086,58 @@ t('phase-guard allows idle from blocked', (repo) => {
   return null;
 }, { phase: 'blocked' });
 
+// ---- leaving `spec` needs a spec its first gate would accept (ADR-030) ----
+const SIGNED_SPEC = '# Spec — my-change: x\n\n## Requirement deltas\n- ADDED REQ-USER-001 — a thing\n\n## Assumptions\n- none\n\n## Out of scope\n- nothing\n';
+
+function writeChange(repo, body, { proposal = true, slug = 'my-change' } = {}) {
+  mkdirSync(join(repo, 'specflow', slug), { recursive: true });
+  writeFileSync(join(repo, 'specflow', slug, 'spec.md'), body);
+  if (proposal) writeFileSync(join(repo, 'specflow', slug, 'proposal.md'), '# Proposal — x\n');
+}
+
+const writePhase = (repo, value) =>
+  runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command: `printf '${value}' > .claude/state/phase` } }, repo);
+
+t('phase-guard denies plan from spec while the spec says nothing of what it assumed', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('## Assumptions\n- none\n\n', ''));
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a spec with no Assumptions (exit ${r.status})`;
+  if (!/my-change\/spec\.md has no `## Assumptions`/.test(r.stderr)) return `the denial does not name the spec and the section: ${r.stderr.slice(0, 300)}`;
+  if (!/sign-off again/.test(r.stderr)) return `the denial does not send the change back to sign-off: ${r.stderr.slice(0, 400)}`;
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over what spec-trace would reject at the first gate', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('## Out of scope', '## Decision\nchosen\n\n## Out of scope'), { proposal: false });
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a spec carrying ## Decision with no proposal.md (exit ${r.status})`;
+  if (!/## Decision/.test(r.stderr) || !/no proposal\.md/.test(r.stderr)) return `the denial misses one of the two problems: ${r.stderr.slice(0, 400)}`;
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard denies implement from spec over a fix brief whose CHANGED says no kind', (repo) => {
+  writeChange(repo, '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — now right\n', { proposal: false });
+  const r = writePhase(repo, 'implement');
+  if (r.status !== 2) return `implement was allowed over a CHANGED with no kind (exit ${r.status})`;
+  return null;
+}, { phase: 'spec' });
+
+// Guards: these passed before the check existed and must keep passing.
+t('phase-guard allows leaving spec with a signed-off spec, and a fix brief without assumptions', (repo) => {
+  writeChange(repo, SIGNED_SPEC);
+  writeChange(repo, '# Fix — a-fix\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-002 (correction) — now right\n', { proposal: false, slug: 'a-fix' });
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 0) return `a ready spec and a ready fix brief were denied (exit ${r.status}): ${r.stderr.slice(0, 400)}`;
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard does not hold a run already past spec to the assumptions rule', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('## Assumptions\n- none\n\n', ''));
+  const r = writePhase(repo, 'review');
+  if (r.status !== 0) return `a run planned before the section existed was denied review (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
+  return null;
+}, { phase: 'plan' });
+
 t('phase-guard denies blocked from anything but the gate', (repo) => {
   const r = runHook(
     'phase-guard.mjs',

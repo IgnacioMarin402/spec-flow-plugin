@@ -62,7 +62,7 @@ Do not chain into `/spec-flow` yourself. "Fix this" is not authorisation to chan
 
 ## 3. WORK ORDER — you write it, no planner runs
 
-Write `implement` to `.claude/state/phase`, then write two small files yourself:
+Write `implement` to `.claude/state/phase` — `phase-guard` denies it while the brief fails a spec-time check, and its message routes the fix — then write two small files yourself:
 
 - `specflow/<SLUG>/plan.md` — a handful of lines: the triage case, the root cause, and "one milestone: M1".
 - `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it — **by path** on the contract's proof surface (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`) **and by name**, with the REQ id in the name the runner will report, since `spec-trace` binds through that name and a test whose title omits the id leaves the fix reading as unproven — a **Spec deltas** section (the deltas from the triage, or `none`), and a **Skills** field.

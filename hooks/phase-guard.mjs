@@ -11,7 +11,7 @@
  * at once**, silently. Code written with the gate off looks exactly like code
  * that passed it.
  *
- * One question — is this transition legitimate? — asked of three kinds of
+ * One question — is this transition legitimate? — asked of each kind of
  * write:
  *
  *   1. A value outside the vocabulary is denied before it disarms anything.
@@ -28,6 +28,9 @@
  *      contract that loads, no base that resolves (ADR-028). Nothing is armed
  *      then, so a refused start leaves nothing for `session-start` to reset
  *      and denies no later spawn in that repository.
+ *   5. A write that LEAVES `spec` needs every live spec to pass what
+ *      spec-trace will check of it at the first gate, and to state its
+ *      assumptions (ADR-030).
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
  * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
@@ -49,6 +52,7 @@ import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDedu
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
+import { specTimeProblems } from '../scripts/spec-time.mjs';
 
 /** Change folders under `specflow/` that were never stamped and archived. */
 function liveChanges(root) {
@@ -88,6 +92,9 @@ const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 
 /** The phases a tool may write to START a run; `blocked` is the gate's alone. */
 const STARTS_A_RUN = ['spec', 'plan', 'review', 'implement'];
+
+/** What a run moves to once its spec is signed off or triaged. */
+const LEAVES_SPEC = ['plan', 'review', 'implement'];
 
 // Anchored past the name: `phase.session` and `phase-guard-unmatched.log` sit
 // beside the phase file, and a write to either is not a phase write.
@@ -244,6 +251,20 @@ await run(async () => {
         `orchestrator, that constraint is the design, not an obstacle to route around.\n`,
     );
     process.exit(2); // PreToolUse denial protocol
+  }
+
+  // ---- leaving `spec` needs a spec its first gate would accept (ADR-030) ---
+  // Otherwise a planner and a reviewer are spent before spec-trace rejects
+  // it. From the files alone, so it holds whoever wrote the spec.
+  if (phase === 'spec' && LEAVES_SPEC.includes(written)) {
+    const found = specTimeProblems(root, liveChanges(root));
+    if (found.length > 0) {
+      deny(
+        `writing '${written}' while the spec is not ready to build from:\n${found.map((p) => `  - ${p}`).join('\n')}\n\n` +
+          `Hand these to a new spec-writer with specflow/<SLUG>/ (MODE=TRIAGE for a /spec-fix brief). For a /spec-flow ` +
+          `change, show the human the sign-off again before writing '${written}': what they approved is not what is on disk.`,
+      );
+    }
   }
 
   // ---- a write that ends the run is decided from evidence (ADR-022) -------

@@ -45,10 +45,7 @@ import {
   REQ_TAG,
   idsIn,
   ARCHIVE_STATUS,
-  changedDeltas,
-  explainKind,
-  HEAVY_HEADINGS,
-  reusedIds,
+  liveSpecProblems,
 } from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -382,88 +379,8 @@ for (const slug of live) {
   const body = readFileSync(specPath, 'utf8');
   const isFixBrief = /^## Case\b/m.test(body);
 
-  // ---- a CHANGED delta says which kind it is ------------------------------
-  //
-  // ADDED and REMOVED are both PROVEN by this script: a new id with no test
-  // that ran fails, and a test naming an id no spec declares fails. CHANGED
-  // is neither, and the asymmetry is invisible because the three read as
-  // peers in the template. The id already exists and already has a test, so
-  // the binding this file checks is satisfied before the edit and after it,
-  // whatever the body now says.
-  //
-  // The suite covers most of the gap without help: if behaviour really
-  // changed, the code changed, and a test asserting the old behaviour goes
-  // red. What survives is a CHANGED that WIDENS — "A and B" becomes "A, B and
-  // C". Nothing breaks, because nothing that used to pass stopped passing,
-  // and C is now claimed by the spec layer and proven by nobody. Declared as
-  // ADDED, that same clause fails this script on sight.
-  //
-  // So the rule routes the unprovable case back into the provable deltas: a
-  // behaviour claim that appears, disappears or changes is REMOVED + ADDED —
-  // ids are permanent, which is exactly what makes retiring one safe — and
-  // CHANGED keeps only the two edits that genuinely move no proof:
-  //
-  //   (wording)    the requirement means what it meant; the text is clearer.
-  //                What MODE=FOLD does when it fixes tense, and the only
-  //                delta a pure re-wording run has to declare.
-  //   (correction) the requirement was WRONG and is corrected to match
-  //                behaviour that already exists and is already proven.
-  //                `/spec-fix` case 3, and fix briefs only — the one case
-  //                that flow stops for a human on, precisely because a diff
-  //                cannot tell it from rewriting the spec to agree with the
-  //                bug. The marker records that the human was asked; it does
-  //                not stand in for them.
-  //
-  // What this does NOT do: verify the kind is TRUE. `(wording)` written over a
-  // requirement that grew three clauses passes, exactly as a bare CHANGED did.
-  // The machine checks that the claim was declared; the reviewer and the
-  // sign-off check that it holds. Said here because a check whose reach is
-  // overestimated is the same failure as one that is disarmed. See ADR-009.
-  //
-  // Unconditional, unlike `require_skills_field` below, and the difference is
-  // the peer test that field's own history turned on: its siblings are
-  // checked by the reviewer alone, so enforcing one of them was an asymmetry.
-  // This delta's siblings are enforced HERE, on every gate. Leaving CHANGED
-  // out is the asymmetry. See ADR-009.
-  for (const { line, id, kind } of changedDeltas(body)) {
-    if (kind === 'wording') continue;
-    if (kind === 'correction' && isFixBrief) continue;
-
-    problems.push(
-      `specflow/${slug}/spec.md: "${line.trim()}" ${explainKind(kind)}. ` +
-        `CHANGED is the one delta this script cannot prove — ${id} already exists and already has a test, ` +
-        `so the spec/test binding passes before the edit and after it, whatever the body now says. ` +
-        `If the requirement means exactly what it meant and no test moves, write \`CHANGED ${id} (wording)\`. ` +
-        `Otherwise this is not a CHANGED: split it into \`REMOVED ${id}\` plus an \`ADDED\` on a NEW id, ` +
-        `which this script proves in both directions. Widening counts — a clause added to an existing ` +
-        `requirement is claimed by the spec layer and proven by nobody.`,
-    );
-  }
-
-  // ---- an ADDED id is new ---------------------------------------------------
-  const reused = reusedIds(body, archivedBodies);
-  if (reused.length > 0) {
-    problems.push(
-      `specflow/${slug}/spec.md ADDs ${reused.join(', ')}, which this spec or a shipped change REMOVED. ` +
-        `A retired id keeps meaning the behaviour that was removed — in the archive and in any test or record that names it — ` +
-        `so a new requirement takes the next unused id in its capability's sequence.`,
-    );
-  }
-
-  if (isFixBrief) continue; // exempt from the split below, by design
-
-  const leaked = HEAVY_HEADINGS.filter((h) => new RegExp(`^${h}\\b`, 'm').test(body));
-  if (leaked.length > 0) {
-    problems.push(
-      `specflow/${slug}/spec.md carries ${leaked.join(', ')}. Those belong in specflow/${slug}/proposal.md — the spec says what changes, the proposal says why it was chosen and what was rejected. The planner reads the first on every fresh context; only a human reads the second.`,
-    );
-  }
-
-  if (!existsSync(join(SPECFLOW_DIR, slug, 'proposal.md'))) {
-    problems.push(
-      `specflow/${slug}/ has no proposal.md. A change spec with no recorded reasoning is a decision nobody can audit later — the archive's whole job is answering "was this considered, and what was turned down?".`,
-    );
-  }
+  problems.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(SPECFLOW_DIR, slug, 'proposal.md')), archivedBodies }));
+  if (isFixBrief) continue; // exempt from the split, by design — and so from the milestone check below
 
   // ---- every live milestone says what skills it needs ---------------------
   //
