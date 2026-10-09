@@ -21,7 +21,7 @@
  * and the planner never writes is noise in a prompt; a field the planner
  * writes and nobody checks is the bug above.
  *
- * Three more halves, each the same rule aimed at a different seam where prose
+ * Four more halves, each the same rule aimed at a different seam where prose
  * has to agree with prose or with code:
  *
  *   - a field the spec-writer RETURNS must be read by a command, or be exempt
@@ -32,13 +32,16 @@
  *     project left it off.
  *   - a `tools:` list nobody wrote is not a blank: it is the widest grant the
  *     harness offers, and it looks identical to a deliberate one.
+ *   - the spec-writer's contract must state the question cap and carry the
+ *     assumptions section the checks hold its output to.
  *
  *   node scripts/agent-contracts.mjs
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { returnBlocks, unroutedFields } from './agent-blocks.mjs';
+import { returnBlocks, unroutedFields, MAX_OPEN_QUESTIONS } from './agent-blocks.mjs';
+import { assumptionsProblem } from './spec-shape.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = join(ROOT, 'agents');
@@ -261,6 +264,34 @@ for (const field of gatedFields) {
       );
       break;
     }
+  }
+}
+
+// ---- the spec-writer's contract states what the checks hold it to --------
+//
+// The question cap and the assumptions section are enforced on the
+// spec-writer's output, and it learns both only from its contract. Prose that
+// says 4 where the code holds 3, or a template the check would reject, fails
+// a writer that did what it was told (ADR-030). The sign-off reads the
+// section, so both commands that drive one must show it to the human.
+const specWriter = readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8');
+const specTemplate = (() => {
+  const intro = specWriter.indexOf('## Spec format (spec.md)');
+  const open = intro === -1 ? -1 : specWriter.indexOf('```', intro);
+  const close = open === -1 ? -1 : specWriter.indexOf('```', open + 3);
+  return close === -1 ? null : specWriter.slice(open + 3, close);
+})();
+if (specTemplate === null) {
+  problems.push('the spec template could not be found in agents/spec-writer.md (a fenced block after `## Spec format (spec.md)`). Fix this check rather than leaving it matching nothing.');
+} else if (assumptionsProblem(specTemplate)) {
+  problems.push(`agents/spec-writer.md's spec template ${assumptionsProblem(specTemplate)}: a writer following it writes a spec the check rejects.`);
+}
+if (!specWriter.includes(`at most ${MAX_OPEN_QUESTIONS} questions`)) {
+  problems.push(`agents/spec-writer.md does not say "at most ${MAX_OPEN_QUESTIONS} questions", the cap in MAX_OPEN_QUESTIONS (scripts/agent-blocks.mjs).`);
+}
+for (const file of ['spec-flow.md', 'resume.md']) {
+  if (!/\bAssumptions\b/.test(readFileSync(join(ROOT, 'commands', file), 'utf8'))) {
+    problems.push(`commands/${file} never names the spec's Assumptions, so its sign-off does not show the human what the writer decided without asking.`);
   }
 }
 

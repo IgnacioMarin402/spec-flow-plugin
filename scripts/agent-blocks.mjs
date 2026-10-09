@@ -49,3 +49,6 @@ export function returnBlocks(text) {
 export function unroutedFields(fields, commandsText, exempt = {}) {
   return fields.filter((f) => !(f in exempt) && !new RegExp(`(?<![A-Za-z0-9_])${f}(?![A-Za-z0-9_])`).test(commandsText));
 }
+
+/** How many questions one `NEEDS_INPUT` round may ask. The spec-writer's contract must state the same number (ADR-030). */
+export const MAX_OPEN_QUESTIONS = 3;

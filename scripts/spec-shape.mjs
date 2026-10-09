@@ -126,3 +126,27 @@ export function reusedIds(body, archivedBodies) {
   }
   return [...new Set(own.filter((d) => d.verb === 'ADDED' && retired.has(d.id)).map((d) => d.id))];
 }
+
+/** The section where a spec says what its writer decided without asking. */
+export const ASSUMPTIONS_HEADING = '## Assumptions';
+
+/**
+ * Why a change spec's assumptions section does not do its job, or '' when it
+ * does. `- none` is an answer; a missing section or one with no item is not —
+ * neither can be told from a writer that never looked, which is the case the
+ * section exists to make visible at sign-off. A fix brief (`## Case`) is
+ * exempt: it is triaged against `specs/`, not signed off as a new claim.
+ *
+ * Read at spec time only (leaving `spec`, the spec-writer's return), never at
+ * the gate: it is a sign-off artifact, and a run planned before the section
+ * existed must not fail its milestones over it (ADR-030).
+ */
+export function assumptionsProblem(body) {
+  if (/^## Case\b/m.test(body)) return '';
+  const heading = new RegExp(`^${ASSUMPTIONS_HEADING}\\b.*$`, 'm').exec(body);
+  if (!heading) return `has no \`${ASSUMPTIONS_HEADING}\` section`;
+  const after = body.slice(heading.index + heading[0].length);
+  const next = after.search(/^## /m);
+  const section = next === -1 ? after : after.slice(0, next);
+  return /^\s*[-*]\s+\S/m.test(section) ? '' : `has an empty \`${ASSUMPTIONS_HEADING}\` section — write what was assumed, or \`- none\``;
+}

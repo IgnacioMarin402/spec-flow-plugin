@@ -16,7 +16,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/commands/spec-flow.md` for a `/spec-flow` change, or
 
 ## 3. Enter at NEXT
 
-- `SIGN-OFF` — write `spec`. Show the Requirement deltas from `spec.md` and the Decision from `proposal.md`, and wait for an explicit OK, exactly as step 1 of `/spec-flow` says, rejection path included. The human may have approved it before the session died; nothing on disk says so, so ask.
+- `SIGN-OFF` — write `spec`. Show the Requirement deltas and the Assumptions from `spec.md` and the Decision from `proposal.md`, and wait for an explicit OK, exactly as step 1 of `/spec-flow` says, rejection path included. The human may have approved it before the session died; nothing on disk says so, so ask.
 - `SPEC` — the spec step never finished and the requirement was only in the lost chat. Ask the human for it, then run `/spec-flow`'s step 1 with it, into the same `<SLUG>`.
 - `WORK-ORDER` — write `spec`, then `/spec-fix` steps 2 and 3.
 - `REVIEW` — `/spec-flow` step 3.

@@ -43,7 +43,7 @@ requirement (e.g. `add-refund-endpoint`).
 If the requirement contradicts an existing requirement in `specs/`, that is never something to resolve silently: say which id it conflicts with and ask (see the HITL rule).
 
 ## HITL rule — do not guess
-If **anything material is ambiguous** (scope, acceptance criteria, edge cases, data shapes, external contracts, non-functional needs), STOP and ask. Return exactly:
+If **anything material is ambiguous** (scope, acceptance criteria, edge cases, data shapes, external contracts, non-functional needs), STOP and ask — at most 3 questions per round, the ones whose answers would change the deltas most. Whatever material you decide without asking goes in the spec's `## Assumptions`, where the human sees it at sign-off (ADR-030). Return exactly:
 
 ```
 STATUS: NEEDS_INPUT
@@ -141,6 +141,11 @@ briefs from `MODE=TRIAGE` are exempt — they are ~80 lines whole.
 <perf, security, compatibility, this repo's own architecture conventions —
 everything that BINDS the implementation, stated flatly. The reasoning lives
 in proposal.md; what the implementation must obey lives here.>
+
+## Assumptions
+- <what you decided without asking> — <what changes if it is wrong>
+<or `- none`. Never absent and never empty: the human signs these off with the
+deltas, and the planner treats them as binding.>
 
 ## Out of scope
 <explicitly excluded>
