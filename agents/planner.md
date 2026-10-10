@@ -40,7 +40,7 @@ Read the spec and the code it touches — to decide the plan, not to survey the 
 
 **Read the proposal once, here in `MODE=PLAN`, with one question in mind:** is there anything in it that binds the implementation and is not stated in `spec.md`? That is the one failure the two-file split can cause — the spec-writer leaves an operative clause buried in a Decision paragraph, and you were told the file is optional, so nobody sees it until a milestone contradicts a decision that was actually made. Reading it with that question is cheap and it is not the same as reading it as context.
 
-Report anything you find in your `NOTES` as a spec bug, and plan against it anyway — a binding decision does not stop binding because it was filed in the wrong place.
+Report anything you find in your `NOTES` as a spec bug, and plan against it anyway — a binding decision does not stop binding because it was filed in the wrong place. The spec's `## Assumptions` bind too: the human signed them off. One the code shows to be false is a spec bug of the same kind.
 
 Do **not** re-read it in `MODE=CONSULT` or `MODE=REPLAN`: by then `spec.md` and the plan carry everything, and the proposal is the larger of the two files.
 
@@ -106,6 +106,7 @@ Return:
 STATUS: PLAN_READY
 PLAN_PATH: specflow/<SLUG>/plan.md
 MILESTONES: M1..Mn
+NOTES: <spec bugs, a missing anatomy statement — or "none">
 ```
 
 ### MODE = CONSULT

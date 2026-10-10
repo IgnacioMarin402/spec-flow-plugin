@@ -36,14 +36,14 @@ requirement (e.g. `add-refund-endpoint`).
 
 ## Steps
 1. Ingest the requirement.
-2. **Read `specs/` first.** Those are the capability specs: what the system does today, as numbered requirements (`REQ-USER-001`). They are the source of truth for behaviour — the requirement you were handed is a *delta* against them. Read `specs/README.md` for the contract and the glossary if there is one, then only the capability specs this change adds to or changes, plus any the requirement names as its model ("the same rules as X"). The rest of `specs/` is not precedent you need: how a shape was built elsewhere is the planner's question.
+2. **Read `specs/` first.** Those are the capability specs: what the system does today, as numbered requirements (`REQ-USER-001`). They are the source of truth for behaviour — the requirement you were handed is a *delta* against them. Read `specs/README.md` for the contract and the glossary if there is one, then only the capability specs this change adds to or changes, plus any the requirement names as its model ("the same rules as X"). Open these with the Read tool: the agent gate counts Read calls, not Grep or Bash, when it checks that a spec was written after reading them. The rest of `specs/` is not precedent you need: how a shape was built elsewhere is the planner's question.
 3. **Ground it in the code, narrowly** (Grep/Glob/Read): the public surface of the modules those specs cover — routes, access rules, the errors they answer with — in this repo's own language, per `CLAUDE.md`. Stop there. Repositories, entities, migrations and error plumbing are the planner's reading, done with the code in front of it, and `specflow/archive/` is not a template: the format is below. Do NOT modify code.
 4. Decide whether you have everything you need.
 
 If the requirement contradicts an existing requirement in `specs/`, that is never something to resolve silently: say which id it conflicts with and ask (see the HITL rule).
 
 ## HITL rule — do not guess
-If **anything material is ambiguous** (scope, acceptance criteria, edge cases, data shapes, external contracts, non-functional needs), STOP and ask. Return exactly:
+If **anything material is ambiguous** (scope, acceptance criteria, edge cases, data shapes, external contracts, non-functional needs), STOP and ask — at most 3 questions per round, the ones whose answers would change the deltas most. Whatever material you decide without asking goes in the spec's `## Assumptions`, where the human sees it at sign-off (ADR-030). Return exactly:
 
 ```
 STATUS: NEEDS_INPUT
@@ -141,6 +141,11 @@ briefs from `MODE=TRIAGE` are exempt — they are ~80 lines whole.
 <perf, security, compatibility, this repo's own architecture conventions —
 everything that BINDS the implementation, stated flatly. The reasoning lives
 in proposal.md; what the implementation must obey lives here.>
+
+## Assumptions
+- <what you decided without asking> — <what changes if it is wrong>
+<or `- none`. Never absent and never empty: the human signs these off with the
+deltas, and the planner treats them as binding.>
 
 ## Out of scope
 <explicitly excluded>

@@ -43,7 +43,7 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // shipped skill is instruction a model acts on, so it both carries citations
 // and is a place someone will look for one.
 const CITE_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills'];
-const CITE_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md'];
+const CITE_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
 const CITE_EXTENSIONS = ['.mjs', '.md', '.json'];
 
 /** `ADR-004`, wherever it appears. Three digits, so a year or an id cannot match. */

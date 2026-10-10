@@ -126,17 +126,18 @@ one implementer pass through the same gate.
 
 ## The agents
 
-| agent | does | ships on |
-|---|---|---|
-| `spec-writer` | Writes the spec, triages defects, folds shipped changes into `specs/` | Sonnet |
-| `planner` | Turns the spec into milestones; escalation consultant | Opus |
-| `reviewer` | Reads the plan against the spec before an implementer is spent | Haiku |
-| `implementer` | Implements one milestone | Sonnet |
-| `architect` | Consulted when the implementer hits a design decision | Opus |
+| agent | does |
+|---|---|
+| `spec-writer` | Writes the spec, triages defects, folds shipped changes into `specs/` |
+| `planner` | Turns the spec into milestones; escalation consultant |
+| `reviewer` | Reads the plan against the spec before an implementer is spent |
+| `implementer` | Implements one milestone |
+| `architect` | Consulted when the implementer hits a design decision |
 
-Those are tiers, not versions. A project can re-route any agent and cap
-escalations ([REFERENCE](REFERENCE.md#the-second-config-file));
-`/spec-flow:models` shows what each will run on and who decided.
+Each ships on a model tier, not a version, named in its own description.
+`/spec-flow:models` shows what each will run on, at which effort, and who
+decided. A project can re-route any agent and cap escalations
+([REFERENCE](REFERENCE.md#the-second-config-file)).
 
 ## How it works
 

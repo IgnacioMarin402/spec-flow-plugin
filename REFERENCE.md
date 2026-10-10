@@ -216,7 +216,7 @@ could not be named, `files=0` means it resolved to HEAD.
 `.claude/spec-flow.config.json` — preferences, not facts about the repo:
 
 ```json
-{ "max_opus_calls": 6, "agents": { "reviewer": "sonnet" } }
+{ "max_opus_calls": 6, "agents": { "architect": "sonnet" } }
 ```
 
 - **`max_opus_calls`** (default 6) caps planner + architect calls per run, by
@@ -225,10 +225,12 @@ could not be named, `files=0` means it resolved to HEAD.
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
   `fable`. A hook applies it to the spawn; an unknown agent or tier denies the
   spawn ([ADR-014](decisions/014-a-project-routes-tiers-not-versions.md)).
-- **No `effort`**: a spawn discards it silently. Four agents declare their own;
-  the implementer takes the session's `effortLevel`
+- **No `effort`**: the file routes a tier, not an effort. Four agents declare
+  their own; the implementer takes the session's `effortLevel`
   ([ADR-015](decisions/015-effort-is-declared-where-the-role-is-emphatic.md),
   [ADR-026](decisions/026-anatomy-is-stated-not-learned-from-source.md)).
+  `CLAUDE_CODE_EFFORT_LEVEL`, when set, overrides all of them, and
+  `spec-flow models` says so.
 - **A concrete model version** is session-wide, set in the project's
   `.claude/settings.json` as `{"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "<id>"}}`
   ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
@@ -320,7 +322,7 @@ description is listed in every turn of the agents that carry the `Skill` tool.
 | `/spec-fix <what's broken>` | Defect flow: triage, one implementer pass, same gate |
 | `/spec-flow:models` | Which tier each agent runs on and who decided. `<agent> <tier>` sets one, `<agent> default` clears it |
 | `/spec-flow:resume [<SLUG>]` | Picks up a run a dead session left, at the step the disk says it reached ([ADR-024](decisions/024-a-run-resumes-from-what-is-on-disk.md)) |
-| agents | `spec-writer` (Sonnet, effort medium), `planner` (Opus, effort high), `reviewer` (Haiku, effort low), `implementer` (Sonnet), `architect` (Opus, effort high) — shipped defaults |
+| agents | `spec-writer`, `planner`, `reviewer`, `implementer`, `architect` — each one's tier and effort are in its own frontmatter; `spec-flow models` prints them |
 
 ---
 
@@ -367,21 +369,28 @@ Without it, run the same scripts by path, from your repo's root:
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
 | `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, and the phase write that would start a run where the engine cannot run |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
 | `stale-resume` | `PreToolUse` | `SendMessage` | Denies resuming one of this plugin's agents whose prompt cache has expired ([ADR-025](decisions/025-an-agent-is-resumed-only-while-its-cache-is-warm.md)) |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
-| `run-trace` | `PostToolUse`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` | The run's timeline, and each subagent's return. Enforces nothing |
+| `run-trace` | `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` (a failure: `Bash`) | The run's timeline, and each subagent's return. Enforces nothing |
+| `agent-gate` | `SubagentStop` | — | Sends back, at most twice per agent, a return the orchestrator cannot route — no `STATUS:` where a return is owed, a status the agent's contract does not declare, a `*_PATH` to nothing — and a spec-writer's that breaks [ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md) ([ADR-031](decisions/031-an-agents-return-is-checked-before-it-is-acted-on.md)) |
 | `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
-`preflight`, `opus-budget`, `arm-gate`, `stale-resume` and `phase-guard` stand down outside a
-run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
+`preflight`, `opus-budget`, `arm-gate`, `stale-resume`, `phase-guard` and `agent-gate` stand down
+outside a run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
 fails open on its own crash.
+
+What the agent gate can see is a return's shape, the files on disk, the ids in
+`specs/`, and which files the agent opened with Read. It cannot see an
+ambiguity the spec-writer resolved without asking and did not list, a delta no
+test could prove, or a contradiction with `specs/` nobody declared. Those stay
+with the human at sign-off and with the reviewer.
 
 ---
 
@@ -405,6 +414,13 @@ armed.
   first run phase written while no run is in progress is denied unless the
   directory is a repository root, the contract loads and the base resolves;
   nothing is armed by a refused start.
+- **A phase write leaving `spec` needs a spec its first gate would accept**
+  ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
+  `plan`, `review` or `implement` written from `spec` is denied while a live
+  spec with no plan yet has no `## Assumptions` (a `/spec-fix` brief needs
+  none) or fails a check spec-trace makes of live changes. `arm-gate`'s own
+  write of `implement` is not checked; the first gate repeats every check but
+  the assumptions.
 - **A run does not end itself without a verdict**
   ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
   `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,
@@ -431,7 +447,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `opus_calls` | Planner + architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, token counts |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts |
 | `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |
@@ -441,22 +457,9 @@ Gitignored working files; delete one to reset that piece of state.
 
 ## What an install costs
 
-Measured on `10bfbdf` with `claude plugin details spec-flow`, after a real
-install; a dated observation, not a standing claim. The hooks cost no model
+`claude plugin details spec-flow` prints what the plugin adds to every session
+and what each agent and command costs when invoked. The hooks cost no model
 context — the checks run outside the model.
-
-```
-Always-on:   ~580 tok   added to every session
-
-  component    always-on  on-invoke
-  architect          ~80       ~600
-  planner            ~80      ~3.5k
-  spec-writer       ~140      ~5.7k
-  reviewer           ~50      ~1.3k
-  implementer       ~100      ~3.8k
-  spec-fix           ~60      ~5.2k
-  spec-flow          ~60      ~5.6k
-```
 
 ---
 
@@ -471,18 +474,18 @@ orchestrator never writes code; the gate's block message *is* the next step.
 
 ```mermaid
 flowchart TD
-    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer, Sonnet <br/> writes spec.md and proposal.md"]
+    A(["/spec-flow &lt;requirement&gt;"]) --> B["SPEC — spec-writer <br/> writes spec.md and proposal.md"]
     B -->|"NEEDS_INPUT"| Q{{"HITL 1 — open questions, <br/> asked in the chat"}}
     Q -->|"answers"| B
     B -->|"SPEC_READY"| S{{"HITL 2 — sign-off on the <br/> deltas and the decision"}}
     S -->|"no"| REJ["stamp REJECTED, archive the folder, <br/> phase idle — the record is the deliverable"]
-    S -->|"yes"| P["PLAN — planner, Opus <br/> plan.md plus one file per milestone"]
-    P --> R["REVIEW — reviewer, Haiku <br/> reads the spec and every milestone file"]
+    S -->|"yes"| P["PLAN — planner <br/> plan.md plus one file per milestone"]
+    P --> R["REVIEW — reviewer <br/> reads the spec and every milestone file"]
     R -->|"ESCALATE"| CON["planner, MODE=CONSULT"]
     CON --> R
     R -->|"CHANGES_REQUESTED"| P
-    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer, Sonnet <br/> one fresh session per milestone"]
-    I -->|"NEEDS_ARCHITECT"| ARCH["architect, Opus"]
+    R -->|"APPROVED"| I["IMPLEMENT Mk — implementer <br/> one fresh session per milestone"]
+    I -->|"NEEDS_ARCHITECT"| ARCH["architect"]
     ARCH --> I
     I -->|"BLOCKED"| RE["planner, MODE=REPLAN"]
     RE --> I
@@ -493,7 +496,7 @@ flowchart TD
     G -->|"5 failures"| BLK["phase blocked — a human decides"]
     G -->|"green, first report for this commit — <br/> blocks and wakes the orchestrator"| MORE{"another milestone?"}
     MORE -->|"yes, Mk+1"| I
-    MORE -->|"no"| F["FOLD — spec-writer, Sonnet <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
+    MORE -->|"no"| F["FOLD — spec-writer <br/> verify the deltas landed, <br/> read each new test for what it asserts, <br/> stamp SHIPPED, archive"]
     F --> G2{{"the gate again, on the fold commit"}}
     G2 -->|"gap in the specs' wording"| F
     G2 -->|"gap in code or tests"| RE
@@ -512,7 +515,7 @@ and the reviewer.
 
 ```mermaid
 flowchart TD
-    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer, Sonnet <br/> phase spec, gate disarmed"]
+    A(["/spec-fix &lt;what is broken&gt;"]) --> T["TRIAGE — spec-writer <br/> phase spec, gate disarmed"]
     T --> C1["case 1 — UNSPECIFIED <br/> nothing lied, there was no claim"]
     T --> C2["case 2 — WEAK-TEST <br/> the requirement is right, <br/> its test proved too little"]
     T --> C3["case 3 — WRONG-SPEC <br/> the code obeyed, the requirement was wrong"]
@@ -526,7 +529,7 @@ flowchart TD
     C2 --> W
     C4 --> W
     W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
-    W --> I["FIX — implementer, Sonnet"]
+    W --> I["FIX — implementer"]
     I --> CM["commit, push, end the turn"]
     CM --> G{{"the same GATE"}}
     G -->|"lint or trace, attempts 1-2 <br/> a red test, attempt 1"| I

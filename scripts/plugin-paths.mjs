@@ -54,6 +54,15 @@ function walk(dir, found = []) {
   return found;
 }
 
+function walkMjs(dir, found = []) {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walkMjs(full, found);
+    else if (entry.endsWith('.mjs')) found.push(full);
+  }
+  return found;
+}
+
 const files = SCAN_DIRS.filter((d) => {
   try {
     return statSync(join(ROOT, d)).isDirectory();
@@ -102,6 +111,66 @@ for (const file of hookFiles) {
 for (const file of registered) {
   if (!hookFiles.includes(file)) {
     findings.push(`hooks.json registers hooks/${file}, which this package does not ship`);
+  }
+}
+
+// ---- every state file the code names has a row ----------------------------
+//
+// REFERENCE's `.claude/state/` table is what a human deletes from to reset a
+// piece of state, and what a reader of the state (a mod, a script) takes as
+// the list. A file the hooks write and the table does not name is state
+// nobody knows to look for. Code to table only: the table may describe a
+// family (`*-unmatched.log`) the code builds by name.
+//
+// Reach: the shapes this repo writes a state path in — `join(state, 'x')`,
+// `join(STATE, 'x')`, `join(stateDir(root), 'x')`, `'.claude', 'state', 'x'`
+// and `.claude/state/x` in a literal. A helper called with a bare file name
+// (`read('x')`) is not seen.
+const STATE_SHAPES = [
+  /join\(\s*(?:state|STATE|stateDir\([^)]*\))\s*,\s*'([^']+)'\s*\)/g,
+  /'\.claude',\s*'state',\s*'([^']+)'/g,
+  /\.claude\/state\/([A-Za-z0-9_-][A-Za-z0-9_.-]*[A-Za-z0-9_-])/g,
+];
+const engineSources = [
+  ...walkMjs(join(ROOT, 'hooks')),
+  ...readdirSync(join(ROOT, 'scripts')).map((f) => join(ROOT, 'scripts', f)),
+].filter((f) => f.endsWith('.mjs') && !/(fixture|smoke|cold-start|plugin-paths)\.mjs$/.test(f));
+
+const stateNames = new Map(); // name -> first file naming it
+for (const file of engineSources) {
+  const text = readFileSync(file, 'utf8');
+  for (const shape of STATE_SHAPES) {
+    for (const [, name] of text.matchAll(shape)) {
+      if (!stateNames.has(name)) stateNames.set(name, relative(ROOT, file).replace(/\\/g, '/'));
+    }
+  }
+}
+
+const reference = readFileSync(join(ROOT, 'REFERENCE.md'), 'utf8');
+const tableStart = reference.indexOf('## `.claude/state/`');
+const table = tableStart === -1 ? '' : reference.slice(tableStart, reference.indexOf('\n---', tableStart));
+const covers = [];
+for (const row of table.split('\n').filter((l) => l.startsWith('| `'))) {
+  const cell = row.split('|')[1];
+  let stem = '';
+  for (const [, token] of cell.matchAll(/`([^`]+)`/g)) {
+    // `gate-failure.log` / `.full.log`: a token starting with a dot is a
+    // sibling of the previous one, written short.
+    const name = token.startsWith('.') ? `${stem}${token}` : token;
+    if (!token.startsWith('.')) stem = token.replace(/\.[^.]+$/, '');
+    covers.push(new RegExp(`^${name.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`));
+  }
+}
+
+if (stateNames.size === 0 || covers.length === 0) {
+  findings.push(
+    `the .claude/state inventory found ${stateNames.size} state file name(s) in the code and ${covers.length} row name(s) in REFERENCE.md. One of the two stopped matching; a check that finds nothing passes forever.`,
+  );
+} else {
+  for (const [name, file] of stateNames) {
+    if (!covers.some((re) => re.test(name))) {
+      findings.push(`${file} names .claude/state/${name}, which REFERENCE.md's \`.claude/state/\` table does not list.`);
+    }
   }
 }
 
@@ -166,5 +235,6 @@ if (findings.length > 0) {
 console.log(
   `plugin-paths: OK — ${checked} plugin-root path(s) referenced, all present; ` +
     `${hookFiles.length} hook(s), each registered in hooks.json; ` +
+    `${stateNames.size} state file(s) named in the code, each listed in REFERENCE; ` +
     `${anchorsChecked} cross-doc anchor(s), every one resolving.`,
 );

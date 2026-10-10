@@ -37,7 +37,7 @@ const PINNED_ID = ['claude', 'opus', '5'].join('-');
 const NUMBERED_TIER = ['Opus', '5'].join(' ');
 
 // The surfaces the check claims. Written out, not imported.
-const SCANNED_DIRS = ['agents', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
+const SCANNED_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
 /**
@@ -192,9 +192,9 @@ check('naming another agent\'s tier in a description is allowed', () => {
 });
 
 // ---- effort: settled either way, never by omission ------------------------
-// A spawn discards an effort key, so nothing downstream complains about any of
-// this. These cases are the only thing between a typo here and a setting that
-// reads as applied and is not.
+// Nothing in this engine reads a frontmatter effort back, so nothing downstream
+// complains about any of this. These cases are the only thing between a typo
+// here and a setting that reads as applied and is not.
 
 check('an effort level that does not exist is reported', () => {
   const { code, out } = scan({ 'agents/typo.md': agent('typo', 'sonnet', 'Does a job (Sonnet).', 'hihg') });

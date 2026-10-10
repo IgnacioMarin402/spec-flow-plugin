@@ -181,7 +181,7 @@ async function fixture({
   // milestone nothing judged. Every case below went silent the moment that
   // import was added, which is the fixture doing its job: this list is the
   // engine's real dependency graph, and it has to be kept honest by hand.
-  for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs', 'test-report.mjs', 'engine-revision.mjs']) {
+  for (const f of ['spec-flow-config.mjs', 'unscoped-checks.mjs', 'changed-files.mjs', 'test-report.mjs', 'engine-revision.mjs', 'spec-shape.mjs']) {
     copyFileSync(join(ROOT, 'scripts', f), join(engineDir, 'scripts', f));
   }
 

@@ -272,6 +272,67 @@ check('one session id across several spawns is reported as unmeasured, not as re
   );
 });
 
+// A subagent's tool call carries its parent's session id and its own
+// agent_id (Claude Code 2.1.294). Read by session, two implementers look like
+// one; read by agent, the second one's cold start is visible.
+check('reads attributed to two agents under one spawner session are two sessions', () => {
+  const { out } = report({
+    trace: [
+      agent(1, 'implementer', 's1'),
+      `${read(2, 'x/one.ts', 's1')} agent_id=a1`,
+      agent(3, 'implementer', 's1'),
+      `${read(4, 'x/one.ts', 's1')} agent_id=a2`,
+    ],
+    gate: [pass(5)],
+  });
+  return contains(out, 're-read across sessions: one.ts x1') || contains(out, 'across 2 session(s)');
+});
+
+// Token lines name the agent whose transcript they were read from; the
+// return line names its role and effort. Joined, a run's cost reads by role.
+check("a run's tokens are reported by role, with the orchestrator apart", () => {
+  const tok = (minute, sidechain, out, agentId) =>
+    `${stamp(minute)} phase=implement tokens model=model-alpha sidechain=${sidechain} in=10 out=${out} cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=12000${agentId ? ` agent_id=${agentId}` : ''}`;
+  const { out } = report({
+    trace: [
+      `${agent(1, 'spec-flow:reviewer', 's1')} effort=low agent_id=a1`,
+      tok(2, 'true', 300, 'a1'),
+      tok(3, 'false', 900),
+      tok(4, 'true', 50, 'a9'),
+    ],
+    gate: [pass(5)],
+  });
+  return (
+    contains(out, 'orchestrator  model-alpha  in 10  out 900') ||
+    contains(out, 'reviewer (1 agent(s), effort low)  model-alpha  in 10  out 300') ||
+    contains(out, 'unattributed (1 agent(s))  model-alpha  in 10  out 50') ||
+    contains(out, 'largest prompt 12k')
+  );
+});
+
+// The measure the implementer experiment decides on: a PASS with no failure
+// since the previous PASS. A failure before the first PASS counts against it;
+// skip-dirty and running lines are not failures.
+check('passed-the-first-time counts a PASS with no failure since the previous one', () => {
+  const fail = (minute) =>
+    `${stamp(minute)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=fail lint=0 test=1 unscoped=ok files=1`;
+  const dirty = (minute) => `${stamp(minute)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=0 result=skip-dirty lint=- test=- unscoped=- files=1`;
+  const { out } = report({ gate: [fail(1), pass(2), dirty(3), pass(4), fail(5), fail(6), pass(7)] });
+  return contains(out, 'passed the first time: 1 of 3 PASS(es)');
+});
+
+check('returns the agent gate sent back are counted by why, and so are the ones let through or not fully judged', () => {
+  const line = (minute, result, why) => `${stamp(minute)} phase=review agent-check agent=spec-flow:reviewer result=${result} why=${why} agent_id=a1`;
+  const { out } = report({
+    trace: [line(1, 'block', 'no-status'), line(2, 'block', 'no-status'), line(3, 'cap', 'no-status'), line(4, 'skip', 'unattributed'), `${agent(5, 'spec-flow:reviewer', 's1')} agent_id=a1`],
+    gate: [pass(6)],
+  });
+  return (
+    contains(out, 'agent gate: 2 return(s) sent back (no-status x2), 1 let through at the cap (no-status x1), 1 not fully judged (unattributed x1).') ||
+    contains(out, 'reviewer: 1 DONE')
+  );
+});
+
 check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;

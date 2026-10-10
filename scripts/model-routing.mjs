@@ -27,7 +27,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ALIASES, shippedAgents, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
+import { ALIASES, EFFORT_LEVELS, shippedAgents, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
 
 const root = process.cwd();
 
@@ -79,9 +79,9 @@ function envPins() {
 /**
  * The session-wide effort this repo's settings ask for, if any.
  *
- * This is the ONLY effort lever a project has. An agent that declares no
- * effort of its own gets this; there is no per-agent override to report,
- * because a spawn discards the field (ADR-015).
+ * An agent that declares no effort of its own gets this; there is no
+ * per-agent override to report, because the project config routes a tier,
+ * not an effort (ADR-015).
  */
 function sessionEffort() {
   let found = null;
@@ -91,6 +91,25 @@ function sessionEffort() {
     }
   }
   return found;
+}
+
+/**
+ * CLAUDE_CODE_EFFORT_LEVEL, if the shell or a settings `env` block sets it.
+ * It beats an agent's own effort, a spawn's and the session's effortLevel,
+ * so when it is set it is every row's answer — and a report that kept
+ * printing the frontmatter under it would name a layer that is not deciding.
+ */
+function envEffort() {
+  let found = null;
+  for (const [label, settings] of settingsLayers()) {
+    const value = settings.env?.CLAUDE_CODE_EFFORT_LEVEL;
+    if (typeof value === 'string' && value) found = { value, source: label };
+  }
+  const value = process.env.CLAUDE_CODE_EFFORT_LEVEL;
+  if (typeof value === 'string' && value) found = { value, source: 'the environment' };
+  // A value that is not a level is not reported as every row's answer:
+  // that would name a layer as deciding on a value no level matches.
+  return found && { ...found, valid: EFFORT_LEVELS.includes(found.value.toLowerCase()) };
 }
 
 const meta = shippedAgents();
@@ -121,6 +140,8 @@ if (agents.length === 0) {
 
 const pins = envPins();
 const session = sessionEffort();
+const envLevel = envEffort();
+const forced = envLevel?.valid ? envLevel : null;
 const declaredLower = Object.fromEntries(Object.entries(declared).map(([k, v]) => [k.toLowerCase(), v]));
 
 const rows = agents.map((agent) => {
@@ -139,10 +160,17 @@ const rows = agents.map((agent) => {
   const pin = pins[tier];
   const resolves = pin ? `${pin.value} (${pin.source})` : 'unpinned';
 
-  // An agent declares an effort or takes the session's. There is no third
-  // source, and no project override to report — see this file's header.
+  // The env var over everything; otherwise an agent declares an effort or
+  // takes the session's. No project override to report — see this file's
+  // header.
   const own = meta[agent]?.effort;
-  const effort = own ? `${own} (agent)` : session ? `${session.value} (session)` : 'your session';
+  const effort = forced
+    ? `${forced.value} (CLAUDE_CODE_EFFORT_LEVEL, ${forced.source})`
+    : own
+      ? `${own} (agent)`
+      : session
+        ? `${session.value} (session)`
+        : 'your session';
 
   return { agent, tier, effort, decided, resolves };
 });
@@ -170,7 +198,7 @@ console.log('');
 if (overridden.length === 0) {
   console.log(
     `  Nothing is re-routed. To change one, add an "agents" block to\n` +
-      `  .claude/spec-flow.config.json — for example { "agents": { "reviewer": "sonnet" } }.\n` +
+      `  .claude/spec-flow.config.json — for example { "agents": { "architect": "sonnet" } }.\n` +
       `  The value is a tier (${ALIASES.join(', ')}), never a model id.`,
   );
 } else {
@@ -183,7 +211,18 @@ console.log(
     `  rather than this engine's: an ANTHROPIC_DEFAULT_<TIER>_MODEL entry in\n` +
     `  .claude/settings.json's "env" block. A tier is per agent; a pin is per session.\n\n` +
     `  EFFORT marked (agent) is declared in that agent's own frontmatter and this project\n` +
-    `  cannot change it — a spawn discards an effort key, so there is no per-agent override\n` +
-    `  to offer. The rest follow the session, which "effortLevel" in .claude/settings.json\n` +
-    `  sets for all of them at once.`,
+    `  cannot change it: a project override routes a tier, not an effort. The rest follow\n` +
+    `  the session, which "effortLevel" in .claude/settings.json sets for all of them at once.`,
 );
+if (envLevel && !envLevel.valid) {
+  console.log(
+    `\n  CLAUDE_CODE_EFFORT_LEVEL=${envLevel.value} (${envLevel.source}) is not an effort level (${EFFORT_LEVELS.join(', ')}),\n` +
+      `  so this report does not read it as overriding the column above.`,
+  );
+}
+if (forced) {
+  console.log(
+    `\n  CLAUDE_CODE_EFFORT_LEVEL is set (${forced.source}), so every agent runs at ${forced.value}:\n` +
+      `  it overrides each agent's own effort and the session's. Unset it to let them apply.`,
+  );
+}

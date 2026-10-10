@@ -17,7 +17,10 @@ branch, and how the gate learns it was approved.
 ### B36 — test-first is not happening
 
 In the adopting repo, 18 of 18 measured requirements had no red test run before
-their code. A test written after the code mirrors it, which is the gap ADR-020
+their code — but that trace could not see a red run at all: a test command that
+exits non-zero arrives as `PostToolUseFailure`, which run-trace did not hear
+until this item was restated. Re-measure on the next real runs before sizing
+the fix. A test written after the code mirrors it, which is the gap ADR-020
 leaves to a model's reading. **Candidate:** run each ADDED requirement's test
 against the base commit; one that passes there proves nothing. Report, not
 gate — it runs the suite twice and flaky tests exist.
@@ -37,6 +40,18 @@ Overrides, version pins and effort take about 1,200 lines with fixtures, next to
 agent frontmatter that already names each tier. `max_opus_calls` is the part
 with a demonstrated job (cost control). **Decide by use:** keep what a real
 project has set.
+
+### B40 — what the orchestrator costs a run
+
+The orchestrator is the human's session (ADR-029), so its model is whatever
+they run, and nothing reports what it spends. **Done:** its tokens per run,
+apart from each role's, over at least three real runs — then decide whether
+the command pins a model. Needs B37.
+
+### B41 — which hooks could be mods
+
+A mod may only show (ADR-029). **Done:** a list of the hooks and scripts that
+only observe, each with what a mod would add, before any is moved.
 
 ### B15 — model-graded checks
 

@@ -33,11 +33,9 @@ export const ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
  * The effort levels a subagent's frontmatter may declare.
  *
  * Here for the same one-home reason as `ALIASES`, and with a warning attached:
- * **nothing in this file applies it.** A spawn silently discards an `effort`
- * key — measured, with a positive control, in ADR-015 — so this list exists to
- * VALIDATE what the shipped frontmatter says and to REPORT it, never to route
- * it. Anything that starts sending effort through a hook is building on a
- * field the tool call throws away.
+ * **nothing in this file applies it.** The project config routes a tier, not an
+ * effort (ADR-015), so this list exists to VALIDATE what the shipped
+ * frontmatter says and to REPORT it, never to route it.
  */
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 

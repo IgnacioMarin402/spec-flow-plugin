@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * PostToolUse hook on Write|Edit|Read|Bash, and SubagentStop — the run's
- * observable timeline.
+ * PostToolUse hook on Write|Edit|Read|Bash, PostToolUseFailure on Bash, and
+ * SubagentStop — the run's observable timeline.
  *
  * This hook enforces NOTHING. It exists because the flow's change policy
  * only accepts a failing run as grounds for changing the flow, and several of
@@ -23,6 +23,8 @@ import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
+import { parseReturn } from '../scripts/agent-blocks.mjs';
+import { handedBack } from './lib/handback.mjs';
 
 function appendUnique(path, line) {
   try {
@@ -46,28 +48,52 @@ function traceWrite(input, suffixes) {
 }
 
 /**
- * A scoped test run and whether it was red. The verdict is read out of the
- * output text rather than an exit code, since a PostToolUse payload is not
- * guaranteed to carry the command's status.
+ * Whether the runner is the program this command runs, rather than a word in
+ * it: `npx vitest run x.test.ts` runs it, `grep vitest package.json` does not.
+ * Wrappers and leading `VAR=value` assignments are skipped; a multi-word name
+ * (`node --test`) needs its first word in program position and the rest after.
  */
-function traceTest(input, res, testName) {
+function runsRunner(cmd, testName) {
+  const words = testName.split(/\s+/);
+  const tokens = cmd.trim().split(/\s+/);
+  let i = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i] ?? '')) i++;
+  if (/^(npx|pnpm|yarn|bunx)$/.test(tokens[i] ?? '') || (tokens[i] === 'npm' && tokens[i + 1] === 'exec')) {
+    i += tokens[i] === 'npm' ? 2 : 1;
+    if (/^(exec|dlx|run)$/.test(tokens[i] ?? '')) i++;
+  }
+  const program = (tokens[i] ?? '').replace(/^.*[\\/]/, '');
+  return program === words[0] && words.slice(1).every((w) => tokens.slice(i + 1).includes(w));
+}
+
+/**
+ * A scoped test run and whether it was red.
+ *
+ * The event is the exit status: a command that exits non-zero arrives as
+ * PostToolUseFailure, with its output in `error` and no `tool_response`, and
+ * only a zero exit arrives as PostToolUse. A failure is red only when it is
+ * the runner itself, run on a path, that failed: not a command that merely
+ * names the runner, not a runner the shell could not find, not a run that
+ * found no tests or whose own summary says everything passed (a coverage
+ * threshold, say). A red verdict is what credits a requirement with
+ * test-first, so an unsure failure is `?`. A PostToolUse run is read from its
+ * text, because a pipe can hide a failing exit.
+ */
+function traceTest(input, res, testName, failure) {
   if (!testName) return ''; // no contract read -> no runner name to look for, trace nothing rather than guess one
 
   const cmd = String(input.command ?? '')
     .split('<<')[0] // everything after a heredoc operator is data fed TO the command
-    .replace(/"[^"]*"/g, ' '); // and a quoted message, e.g. a commit -m, is not the command either
+    .replace(/"[^"]*"|'[^']*'/g, ' '); // and a quoted message, e.g. a commit -m, is not the command either
 
   if (/^\s*git(\s|$)/.test(cmd)) return ''; // git never runs tests
 
   const runner = testName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!new RegExp(`(^|[^a-zA-Z-])${runner}([^a-zA-Z-]|$)`).test(cmd)) return '';
 
-  const out = [res?.stdout, res?.stderr, typeof res === 'string' ? res : ''].filter((v) => typeof v === 'string').join('\n');
-
-  let verdict = '?';
-  if (/^\s*Tests:.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
-  else if (/^\s*Tests:.*\bpassed\b/m.test(out)) verdict = 'green';
-  else if (/\bNo tests found\b/.test(out)) verdict = 'none';
+  const out = failure
+    ? failure.error
+    : [res?.stdout, res?.stderr, typeof res === 'string' ? res : ''].filter((v) => typeof v === 'string').join('\n');
 
   const target =
     cmd
@@ -75,45 +101,32 @@ function traceTest(input, res, testName) {
       .filter((t) => !t.startsWith('-') && /[/.]/.test(t) && !t.includes(testName) && !/^(pnpm|npm|npx|yarn|node)$/.test(t))
       .join(',') || '-';
 
+  // `Tests:` is jest's summary, `Tests  N` vitest's; mocha and node's own
+  // runner say no files were found, or could not find one.
+  let verdict = '?';
+  if (/^\s*Tests:?\s.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
+  else if (/^\s*Tests:?\s.*\bpassed\b/m.test(out)) verdict = failure ? '?' : 'green';
+  else if (/\bNo tests? (files )?found\b/i.test(out) || /^Could not find '/m.test(out)) verdict = 'none';
+  else if (
+    failure &&
+    !failure.interrupted &&
+    target !== '-' &&
+    runsRunner(cmd, testName) &&
+    !/Exit code 12[67]\b|command not found|is not recognized as/.test(out)
+  ) {
+    verdict = 'red';
+  }
+
   return `test verdict=${verdict} target=${target}`;
 }
 
 /**
- * The report a stopped subagent handed back — the text its caller received.
- *
- * A build that delivers reports through `SubagentHandback` ends the agent on a
- * line like "Report delivered", so `last_assistant_message` alone finds no
- * STATUS there; the report is the handback's `message`, in the agent's own
- * transcript. Without a handback, the last message IS the report.
+ * Whether this agent's return is already on a line — see traceReturn().
+ * Return lines only: the agent's own reads and writes carry its id too.
  */
-function handedBack(payload) {
-  const path = typeof payload.agent_transcript_path === 'string' ? payload.agent_transcript_path : '';
-  if (path) {
-    try {
-      const lines = readFileSync(path, 'utf8').split('\n');
-      for (let i = lines.length - 1; i >= 0; i -= 1) {
-        if (!lines[i].includes('"SubagentHandback"')) continue;
-        let entry;
-        try {
-          entry = JSON.parse(lines[i]);
-        } catch {
-          continue;
-        }
-        const content = Array.isArray(entry?.message?.content) ? entry.message.content : [];
-        const call = content.findLast((c) => c?.type === 'tool_use' && c.name === 'SubagentHandback');
-        if (typeof call?.input?.message === 'string') return call.input.message;
-      }
-    } catch {
-      /* unreadable: fall back to the payload's own copy of the last message */
-    }
-  }
-  return typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message : '';
-}
-
-/** Whether this agent's return is already on a line — see traceReturn(). */
 function alreadyTraced(traceFile, agentId) {
   try {
-    return new RegExp(` agent_id=${agentId}(\\s|$)`, 'm').test(readFileSync(traceFile, 'utf8'));
+    return new RegExp(` agent type=.* agent_id=${agentId}(\\s|$)`, 'm').test(readFileSync(traceFile, 'utf8'));
   } catch {
     return false;
   }
@@ -137,7 +150,8 @@ function traceReturn(payload, traceFile, missLog) {
   if (agentId && alreadyTraced(traceFile, agentId)) return '';
 
   const text = handedBack(payload);
-  const status = /STATUS:\s*([A-Z_]+)/.exec(text);
+  // The agent gate reads the same status through the same function.
+  const status = parseReturn(text)?.status;
   if (status) {
     // `SKILL_MISS:` mirrors `STATUS:` on purpose — a skill the milestone
     // failed to route is the one observable this flow produces that had
@@ -155,7 +169,11 @@ function traceReturn(payload, traceFile, missLog) {
       .map((m) => m[1].trim().replace(/\s+/g, '-'))
       .filter(Boolean);
     const missField = misses.length > 0 ? ` skill_miss=${[...new Set(misses)].join(',')}` : '';
-    return `agent type=${type} status=${status[1]}${missField}${agentId ? ` agent_id=${agentId}` : ''}`;
+    // The effort the agent actually ran at, once per agent: the payload's
+    // `effort.level` is what was applied after the frontmatter, a spawn's own
+    // effort and CLAUDE_CODE_EFFORT_LEVEL had their say.
+    const level = typeof payload.effort?.level === 'string' && /^[a-z]+$/.test(payload.effort.level) ? payload.effort.level : '';
+    return `agent type=${type} status=${status}${missField}${level ? ` effort=${level}` : ''}${agentId ? ` agent_id=${agentId}` : ''}`;
   }
 
   appendUnique(
@@ -210,7 +228,11 @@ await run(async () => {
     } catch {
       /* keep it empty — traceTest() then declines to trace, see its own guard */
     }
-    line = traceTest(input, res, testName);
+    const failure =
+      payload.hook_event_name === 'PostToolUseFailure'
+        ? { error: typeof payload.error === 'string' ? payload.error : '', interrupted: payload.is_interrupt === true }
+        : null;
+    line = traceTest(input, res, testName, failure);
   }
 
   if (!line) return;
@@ -231,5 +253,12 @@ await run(async () => {
   // itself is `agent_id=`.
   const id = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && /^[\w-]+$/.test(v));
 
-  appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''} ${line}\n`);
+  // Which agent made the call. A tool call inside a subagent carries the
+  // PARENT's session id and the agent's own `agent_id`, so without this every
+  // agent's reads land under the orchestrator and no split by session can see
+  // a fresh one. Absent in the main session. A return line has it already.
+  const agentId = typeof payload.agent_id === 'string' && /^[\w-]+$/.test(payload.agent_id) ? payload.agent_id : '';
+  const byAgent = agentId && !line.startsWith('agent type=') ? ` agent_id=${agentId}` : '';
+
+  appendFileSync(traceFile, `${new Date().toISOString()} phase=${phase}${id ? ` session=${id}` : ''} ${line}${byAgent}\n`);
 });

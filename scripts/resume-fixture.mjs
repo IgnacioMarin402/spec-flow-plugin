@@ -106,6 +106,19 @@ check('no change in flight: NONE', () => expect(resume(repo({ phase: 'idle' })),
 check('a spec and its proposal with no plan: SIGN-OFF — the one step no file records', () =>
   expect(resume(repo({ files: feature(), phase: 'idle' })), 'SIGN-OFF'));
 
+// A spec written before `## Assumptions` existed: phase-guard refuses to leave
+// `spec` with it, so the human must not be asked to approve it as it stands.
+check('a sign-off over a spec phase-guard would refuse says the spec-writer revises it first', () => {
+  const r = resume(repo({ files: feature(), phase: 'idle' }));
+  if (r.next !== 'SIGN-OFF') return `NEXT is ${r.next || '(none)'}, expected SIGN-OFF`;
+  return /revises it first/.test(r.why) && /## Assumptions/.test(r.why) ? '' : `WHY does not name the problem and the revision: ${r.why}`;
+});
+
+check('a sign-off over a ready spec asks for nothing else', () => {
+  const r = resume(repo({ files: feature({ 'specflow/add-cities/spec.md': `${SPEC}\n## Assumptions\n- none\n` }), phase: 'idle' }));
+  return r.next === 'SIGN-OFF' && !/revises/.test(r.why) ? '' : `NEXT ${r.next}, WHY: ${r.why}`;
+});
+
 check('a spec without its proposal: SPEC — the spec step never finished', () =>
   expect(resume(repo({ files: { 'specflow/add-cities/spec.md': SPEC }, phase: 'spec' })), 'SPEC'));
 

@@ -129,6 +129,24 @@ if (gate.length === 0) {
   const scope = withData > 1 ? ` across ${withData} run(s)` : '';
   say(`  ${gate.length} invocation(s)${scope}: ${summary}`);
 
+  // Passed the gate the first time: a PASS with no `fail` since the previous
+  // PASS (or the run's start). The history carries no milestone id, so a
+  // stretch between two passes stands in for a milestone, the fold's own
+  // gate included — the same segmentation the session-reuse section uses.
+  let passes = 0;
+  let firstTime = 0;
+  for (const run of runs) {
+    let failed = false;
+    for (const g of run.gate) {
+      if (g.result === 'fail') failed = true;
+      if (g.result !== 'pass') continue;
+      passes += 1;
+      if (!failed) firstTime += 1;
+      failed = false;
+    }
+  }
+  if (passes > 0) say(`  passed the first time: ${firstTime} of ${passes} PASS(es) had no failure since the previous one`);
+
   let worst = null;
   for (const run of runs) {
     for (let i = 0; i < run.gate.length - 1; i++) {
@@ -273,6 +291,25 @@ if (agents.length === 0) {
       warn.push(`the reviewer approved all ${total} plan(s) it saw, never escalating. Either the planner is that good or the step is a rubber-stamp — worth deciding once the sample is big enough.`);
     }
   }
+}
+// The return line records an agent's FIRST stop, so a return the agent gate
+// sent back and the agent then changed is counted under the status it was
+// sent back with. These lines say how often that happens (ADR-031).
+const checks = trace.filter((e) => e.raw?.includes(' agent-check '));
+if (checks.length > 0) {
+  const tally = (result) =>
+    Object.entries(
+      checks.filter((e) => e.result === result).reduce((acc, e) => ({ ...acc, [e.why]: (acc[e.why] ?? 0) + 1 }), {}),
+    )
+      .map(([why, n]) => `${why} x${n}`)
+      .join(', ');
+  const sent = checks.filter((e) => e.result === 'block').length;
+  const capped = checks.filter((e) => e.result === 'cap').length;
+  const skipped = checks.filter((e) => e.result === 'skip').length;
+  say(
+    `  agent gate: ${sent} return(s) sent back${sent ? ` (${tally('block')})` : ''}, ${capped} let through at the cap${capped ? ` (${tally('cap')})` : ''}` +
+      `${skipped ? `, ${skipped} not fully judged (${tally('skip')})` : ''}.`,
+  );
 }
 say('');
 
@@ -479,6 +516,13 @@ say('');
 // the segmentation is inferred from the gate, and a milestone that never
 // passed runs to the end of the log.
 
+/**
+ * Whose context a read landed in: the agent that made it when the line names
+ * one, else the session. A subagent's tool call carries its PARENT's session
+ * id, so the session alone files every agent's reads under the orchestrator.
+ */
+const readerOf = (e) => (e.agent_id ? `agent:${e.agent_id}` : e.session);
+
 /** Trace events split into milestones, each ending at a gate PASS. */
 function milestones(run) {
   const passes = run.gate.filter((g) => g.result === 'pass' && g.at).map((g) => g.at);
@@ -516,7 +560,7 @@ if (segments.length === 0) {
       if (!e.raw?.includes(' read file=') || !e.file) continue;
       const entry = seen.get(e.file) ?? { n: 0, sessions: new Set() };
       entry.n += 1;
-      if (e.session) entry.sessions.add(e.session);
+      if (readerOf(e)) entry.sessions.add(readerOf(e));
       seen.set(e.file, entry);
     }
     const repeated = [...seen].filter(([, v]) => v.n > 1);
@@ -561,14 +605,14 @@ if (segments.length === 0) {
   // and a single id is what the second of those looks like from here, and it
   // means no split can ever see a fresh session. Nothing downstream should be
   // built on this attribution until a real run has answered it.
-  const attributed = reads.filter((r) => r.session);
-  const ids = new Set(attributed.map((r) => r.session));
+  const attributed = reads.filter((r) => readerOf(r));
+  const ids = new Set(attributed.map((r) => readerOf(r)));
   const spawned = trace.filter((e) => e.type && e.status).length;
 
   if (reads.length === 0) {
     /* section 4 already said there are no reads */
   } else if (attributed.length === 0) {
-    say('  attribution: UNAVAILABLE — no read carries a session id, so "across sessions" above measured nothing.');
+    say('  attribution: UNAVAILABLE — no read carries an agent or session id, so "across sessions" above measured nothing.');
     say('  Either this trace predates the field or the payloads name no session.');
   } else if (ids.size === 1 && spawned > 1) {
     say(`  attribution: ONE session id across ${spawned} subagent spawn(s) — reads are landing under the spawner.`);
@@ -576,7 +620,7 @@ if (segments.length === 0) {
       `every read in this trace carries the same session id while ${spawned} subagent(s) were spawned. A subagent's reads are being attributed to whoever spawned it, so the across-session split cannot see a fresh session's cold start — treat those numbers as unmeasured, not as zero.`,
     );
   } else {
-    say(`  attribution: ${attributed.length}/${reads.length} read(s) carry a session id, across ${ids.size} session(s).`);
+    say(`  attribution: ${attributed.length}/${reads.length} read(s) carry an agent or session id, across ${ids.size} session(s).`);
   }
 
   say('  Both numbers are proxies: the trace carries no milestone id, so a milestone here is');
@@ -617,7 +661,35 @@ if (tokenLines.length === 0) {
   // per-agent figure the trace cannot support.
   const subagentOut = total('out', (r) => r.chain === 'subagent');
   const spawns = trace.filter((e) => e.type && e.status).length;
-  if (subagentOut > 0 && spawns > 0) {
+  const attributed = tokenLines.some((e) => e.agent_id);
+  if (attributed) {
+    // Who spent it, per run: the orchestrator (the session's own transcript)
+    // by model, then each role, joined by agent_id to the role and effort its
+    // return line recorded. A sidechain line naming no agent, or an agent
+    // with no return line yet, is `unattributed` rather than guessed.
+    for (const run of runs) {
+      const lines = run.trace.filter((e) => e.model && e.msgs !== undefined);
+      if (lines.length === 0) continue;
+      const returned = new Map(run.trace.filter((e) => e.type && e.agent_id).map((e) => [e.agent_id, e]));
+      const byRole = new Map();
+      for (const e of lines) {
+        const back = returned.get(e.agent_id);
+        const role = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
+        const key = `${role}|${e.model}`;
+        const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, maxPrompt: 0 };
+        if (e.agent_id) row.agents.add(e.agent_id);
+        if (back?.effort) row.efforts.add(back.effort);
+        for (const f of ['in', 'out', 'cache_read', 'cache_write']) row[f] += Number(e[f]) || 0;
+        row.maxPrompt = Math.max(row.maxPrompt, Number(e.max_prompt) || 0);
+        byRole.set(key, row);
+      }
+      say(`  by role${runs.length > 1 ? ` [${run.name}]` : ''}:`);
+      for (const r of [...byRole.values()].sort((a, b) => b.out - a.out)) {
+        const who = r.role === 'orchestrator' ? 'orchestrator' : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
+        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${human(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}`);
+      }
+    }
+  } else if (subagentOut > 0 && spawns > 0) {
     say(`  subagent output: ${human(subagentOut)} across ${spawns} recorded spawn(s) — ~${human(Math.round(subagentOut / spawns))}/spawn.`);
     say('  That average is the unit max_opus_calls does not charge; it says nothing about which agent.');
   } else if (subagentOut === 0 && spawns > 0) {

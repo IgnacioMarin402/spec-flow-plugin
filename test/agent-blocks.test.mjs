@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { returnBlocks } from '../scripts/agent-blocks.mjs';
+import { returnBlocks, unroutedFields, declaredStatuses, parseReturn, openQuestions } from '../scripts/agent-blocks.mjs';
 
 /**
  * The contract this file defends is one line long: an agent's markdown is read
@@ -38,4 +38,46 @@ test('returnBlocks reports zero blocks rather than throwing when the anchor is g
 test('a fenced block that is not a return block is not read as one', () => {
   const shell = ['```bash', 'STATUS=1 npm test', '```'].join('\n');
   assert.equal(returnBlocks(shell).blocks, 0);
+});
+
+test('a field named only inside a longer field name is not routed', () => {
+  assert.deepEqual(unroutedFields(['QUESTIONS'], 'route `OPEN_QUESTIONS:` to the human'), ['QUESTIONS']);
+  assert.deepEqual(unroutedFields(['READ'], 'expect `STATUS: SPEC_READY`'), ['READ']);
+});
+
+test('a field the commands name is routed, and an exempt one needs no name', () => {
+  assert.deepEqual(unroutedFields(['GAPS', 'STATUS'], 'read its `GAPS:` line', { STATUS: 'discriminator' }), []);
+});
+
+test('declaredStatuses reads each return block, CRLF included', () => {
+  const md = 'x\n```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n```\ny\r\n```\r\nSTATUS: SPEC_READY\r\nSPEC_PATH: a\r\n```\r\n';
+  assert.deepEqual(declaredStatuses(md), ['NEEDS_INPUT', 'SPEC_READY']);
+});
+
+test('parseReturn reads the first status and the fields after it, up to a fence', () => {
+  const reply = 'Done.\n\n```\nSTATUS: SPEC_READY\nSPEC_PATH: specflow/x/spec.md\nSUMMARY: two lines\n```\nSTATUS: NOT_THIS\n';
+  assert.deepEqual(parseReturn(reply), { status: 'SPEC_READY', fields: { SPEC_PATH: 'specflow/x/spec.md', SUMMARY: 'two lines' } });
+  assert.equal(parseReturn('no block here'), null);
+});
+
+test('openQuestions counts the top-level questions, not the options under them', () => {
+  const reply = '```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n- Which store?\n  - (a) Postgres\n  - (b) Redis\n- Soft delete?\n```\nThanks.\n- not a question';
+  assert.equal(openQuestions(reply), 2);
+  assert.equal(openQuestions('STATUS: NEEDS_INPUT\r\nOPEN_QUESTIONS:\r\n1. a\r\n2. b\r\n3. c\r\n4. d\r\n'), 4);
+  assert.equal(openQuestions('STATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n'), 0);
+});
+
+test('parseReturn reads a status that opens a line, emphasis allowed, and not one named mid-sentence', () => {
+  const round2 = 'The previous round ended with STATUS: NEEDS_INPUT; the answers are in.\n\n```\nSTATUS: SPEC_READY\nSPEC_PATH: specflow/x/spec.md\n```';
+  assert.equal(parseReturn(round2)?.status, 'SPEC_READY');
+  assert.deepEqual(parseReturn('**STATUS:** APPROVED\n**NOTES:** none'), { status: 'APPROVED', fields: { NOTES: 'none' } });
+  assert.equal(parseReturn('STATUS: **APPROVED**')?.status, 'APPROVED');
+  assert.equal(parseReturn('The plan header says STATUS: N/A.'), null);
+});
+
+test('openQuestions stops at the end of the list and counts numbered questions over flush options', () => {
+  const trailing = 'STATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n- Which store?\n- Soft delete?\n\nWhat I found:\n- the table has no index\n- the API is versioned\n';
+  assert.equal(openQuestions(trailing), 2);
+  const flush = '```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n1. Which store?\n- Postgres\n- Redis\n2. Soft delete?\n- yes\n- no\n```';
+  assert.equal(openQuestions(flush), 2);
 });

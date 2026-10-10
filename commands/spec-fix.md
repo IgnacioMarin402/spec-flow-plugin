@@ -17,7 +17,7 @@ This is not a style preference. Every enforcement hook decides whether it is arm
 
 Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
 
-`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and `done` is denied while spec-trace, any extra check the project declares, an unarchived `specflow/<SLUG>/`, or a current commit the gate has not passed say otherwise. `idle` is denied from `implement`, and elsewhere until the change is stamped and archived; `blocked` is denied to anything but the gate. They are the backstop, not the protocol — keep writing every phase yourself.
+`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and a phase write the run has not earned is denied with a message that says why. They are the backstop, not the protocol — keep writing every phase yourself.
 
 ## 0. Init — intake
 
@@ -62,7 +62,7 @@ Do not chain into `/spec-flow` yourself. "Fix this" is not authorisation to chan
 
 ## 3. WORK ORDER — you write it, no planner runs
 
-Write `implement` to `.claude/state/phase`, then write two small files yourself:
+Write `implement` to `.claude/state/phase` — `phase-guard` denies it while the brief fails a spec-time check, and its message routes the fix — then write two small files yourself:
 
 - `specflow/<SLUG>/plan.md` — a handful of lines: the triage case, the root cause, and "one milestone: M1".
 - `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it — **by path** on the contract's proof surface (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`) **and by name**, with the REQ id in the name the runner will report, since `spec-trace` binds through that name and a test whose title omits the id leaves the fix reading as unproven — a **Spec deltas** section (the deltas from the triage, or `none`), and a **Skills** field.
@@ -113,7 +113,7 @@ Then summarize: the triage case, the root cause, files changed, requirements add
 
 - **Every subagent runs in the background** (ADR-023): in an interactive session the `model-route` hook sets it on every spawn of this plugin's agents. When a spawn or a `SendMessage` comes back as launched rather than with a report, end your turn and let its completion notification wake you. Never poll or sleep while it works.
 - **Resume an agent with `SendMessage` only while its prompt cache is warm** (ADR-025), whatever its role: a subagent's lasts 5 minutes from its last turn, and past it a message re-sends the agent's whole context first. What waited on a human or on a long gate goes to a **new** `Agent` call of that role, with its predecessor's inputs plus the new one. The `stale-resume` hook denies a cold `SendMessage`; spawn the new agent rather than retrying.
-- Model routing holds: by default `spec-writer` and `implementer` are Sonnet and `architect` is Opus, a project can re-route any of them, and the `architect` is budgeted either way. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
+- Model routing holds: a project can re-route any agent, and the `architect` is budgeted either way. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
 - The gate is external and authoritative. On failure you re-triage; you do not hand-patch until green.
 - Every run ends with an archived `specflow/archive/<SLUG>/spec.md` carrying a status — `SHIPPED` for a fix that landed, `REJECTED` for one that turned out to be a feature. A run that shipped code without that is unfinished, and `phase-guard` will say so.
 - Do not edit `/spec-flow`'s command or agents to make something here fit. If a fix needs the full pipeline, it belongs to the full pipeline.

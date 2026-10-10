@@ -15,6 +15,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { specTimeProblems } from './spec-time.mjs';
 
 // A report that throws reads as a verdict. Anything unexpected still ends on
 // a NEXT line and exit 0 — see the header.
@@ -136,11 +137,15 @@ if (!change.fix && !change.proposal) {
   next('SPEC', 'spec.md exists without proposal.md, so the spec step never finished; the requirement has to come from the human again.');
 }
 if (!change.plan) {
+  // Named here so the human is not asked to approve a spec that phase-guard
+  // will refuse to leave `spec` with.
+  const unready = specTimeProblems(root, [slug]);
   next(
     change.fix ? 'WORK-ORDER' : 'SIGN-OFF',
-    change.fix
+    (change.fix
       ? 'the triage brief is written and no work order exists yet.'
-      : 'the spec is written and no plan exists: the human sign-off is the step no file records, so it is asked for again.',
+      : 'the spec is written and no plan exists: the human sign-off is the step no file records, so it is asked for again.') +
+      (unready.length ? ` The spec is not ready to build from, so a new spec-writer revises it first: ${unready.join(' ')}` : ''),
   );
 }
 if (!started) {

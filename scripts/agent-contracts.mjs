@@ -21,7 +21,7 @@
  * and the planner never writes is noise in a prompt; a field the planner
  * writes and nobody checks is the bug above.
  *
- * Three more halves, each the same rule aimed at a different seam where prose
+ * Four more halves, each the same rule aimed at a different seam where prose
  * has to agree with prose or with code:
  *
  *   - a field the spec-writer RETURNS must be read by a command, or be exempt
@@ -32,13 +32,16 @@
  *     project left it off.
  *   - a `tools:` list nobody wrote is not a blank: it is the widest grant the
  *     harness offers, and it looks identical to a deliberate one.
+ *   - the spec-writer's contract must state the question cap and carry the
+ *     assumptions section the checks hold its output to.
  *
  *   node scripts/agent-contracts.mjs
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { returnBlocks } from './agent-blocks.mjs';
+import { returnBlocks, unroutedFields, MAX_OPEN_QUESTIONS } from './agent-blocks.mjs';
+import { assumptionsProblem } from './spec-shape.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = join(ROOT, 'agents');
@@ -137,6 +140,16 @@ const NOT_ROUTED = {
   SUMMARY: 'step 1 already tells the orchestrator to show the user a summary drawn from both artifacts; the key adds nothing to that instruction',
   DELTAS: '/spec-fix routes on CASE, and the deltas it names are the ones the spec file already carries',
 
+  // The planner's, read by meaning: each answers the step that asked for it.
+  PLAN_PATH: 'same as SPEC_PATH: the commands work from `specflow/<SLUG>/plan.md` directly',
+  MILESTONES: 'step 4 walks the milestone index in plan.md, not this line',
+  ANSWERS: 'handed whole to the re-invoked reviewer ("with the answers"), which reads them by meaning',
+  CHANGES: 'REPLAN\'s account of what it rewrote; the implementer is sent back to the revised Mk.md, not to this line',
+
+  // The reviewer's remarks on a plan it APPROVED. Nothing branches on them:
+  // a doubt comes back as ESCALATE, a fixable problem as CHANGES_REQUESTED.
+  'reviewer.NOTES': 'optional remarks on an APPROVED plan; a doubt or a problem comes back under a status that is routed',
+
   // Confirmations of work already done. There is no branch to take: a fold
   // that archived nothing fails the phase-guard on `done`, and a fold that
   // stamped nothing shows as `0 insertions(+)`, which step 5 already reads.
@@ -145,36 +158,50 @@ const NOT_ROUTED = {
   ARCHIVED: 'a confirmation of the move; an unarchived specflow/<SLUG>/ is caught by phase-guard when `done` is written, which is a check rather than a prompt',
 };
 
-// The spec-writer's MODE=TRIAGE and MODE=FOLD live in `modes/`, where it reads
-// them from; their return blocks are this agent's as much as MODE=SPEC's are.
+// The agents whose return blocks carry a finding the orchestrator itself must
+// act on. The implementer's and the architect's are left out on purpose: what
+// they return is handed whole to the next agent (guidance to the implementer,
+// a block to the planner), so the orchestrator relays it rather than
+// branching on its fields. The planner is in: its NOTES are for the human.
+//
+// An agent's blocks live in `agents/<name>.md` and in its `modes/<name>-*.md`,
+// which it reads per mode; they are its blocks as much as the main file's are.
+const ROUTED_AGENTS = ['spec-writer', 'planner', 'reviewer'];
 const MODES = join(ROOT, 'modes');
-const specWriterModes = readdirSync(MODES)
-  .filter((f) => f.startsWith('spec-writer-') && f.endsWith('.md'))
-  .sort();
-const declared = returnBlocks(
-  [readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8'), ...specWriterModes.map((f) => readFileSync(join(MODES, f), 'utf8'))].join('\n'),
-);
 
-if (declared.blocks === 0) {
-  problems.push(
-    'agents/spec-writer.md and modes/spec-writer-*.md declare no `STATUS:` return block. They are anchored to a fenced block opening with `STATUS:`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.',
+const returnedBy = new Map(); // field -> agents declaring it
+for (const name of ROUTED_AGENTS) {
+  const modeFiles = readdirSync(MODES)
+    .filter((f) => f.startsWith(`${name}-`) && f.endsWith('.md'))
+    .sort();
+  const declared = returnBlocks(
+    [readFileSync(join(AGENTS, `${name}.md`), 'utf8'), ...modeFiles.map((f) => readFileSync(join(MODES, f), 'utf8'))].join('\n'),
   );
-}
-
-const returnFields = new Set(declared.fields);
-
-for (const field of [...returnFields].sort()) {
-  if (field in NOT_ROUTED) continue;
-  if (commandsText.includes(field)) continue;
-  problems.push(
-    `agents/spec-writer.md returns "${field}:" and neither command names it. A return field no command reads is a finding that reaches the orchestrator and stops there — which for a field like GAPS is the only report of something no check in this engine can produce. Name it in the command that drives that mode, or add it to NOT_ROUTED in this file with the reason it needs no handling.`,
-  );
-}
-
-for (const field of Object.keys(NOT_ROUTED)) {
-  if (!returnFields.has(field)) {
+  if (declared.blocks === 0) {
     problems.push(
-      `NOT_ROUTED exempts "${field}", which no spec-writer return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
+      `agents/${name}.md and modes/${name}-*.md declare no \`STATUS:\` return block. They are anchored to a fenced block opening with \`STATUS:\`; if that shape moved, fix this check rather than leaving it matching nothing — a check that silently finds no fields passes forever.`,
+    );
+  }
+  for (const field of declared.fields) returnedBy.set(field, [...(returnedBy.get(field) ?? []), name]);
+}
+
+// An exemption covers a field for every routed agent (`FIELD`) or for one
+// (`agent.FIELD`): the same label can be a finding from one agent and a remark
+// from another — the planner's NOTES report a spec bug, the reviewer's do not.
+for (const [field, agents] of [...returnedBy].sort()) {
+  for (const agent of agents) {
+    if (`${agent}.${field}` in NOT_ROUTED || unroutedFields([field], commandsText, NOT_ROUTED).length === 0) continue;
+    problems.push(
+    `agents/${agent}.md returns "${field}:" and neither command names it. A return field no command reads is a finding that reaches the orchestrator and stops there — which for a field like GAPS is the only report of something no check in this engine can produce. Name it in the command that drives that mode, or add it to NOT_ROUTED in this file with the reason it needs no handling.`,
+    );
+  }
+}
+
+for (const key of Object.keys(NOT_ROUTED)) {
+  const [agent, field] = key.includes('.') ? key.split('.') : [null, key];
+  if (agent ? !(returnedBy.get(field) ?? []).includes(agent) : !returnedBy.has(field)) {
+    problems.push(
+      `NOT_ROUTED exempts "${key}", which no routed agent's return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`,
     );
   }
 }
@@ -202,6 +229,15 @@ const specTrace = readFileSync(join(ROOT, 'scripts', 'spec-trace.mjs'), 'utf8');
 /** `if (!CONFIG.trace.require_skills_field) continue;` -> `require_skills_field`. */
 const gatedFields = [...specTrace.matchAll(/CONFIG\.trace\.(\w+)\)\s*continue/g)].map((m) => m[1]);
 
+// Same guard as the template's, for the same reason: a pattern that stops
+// matching reads exactly like a spec-trace with nothing gated, and passes
+// forever. If the last gated check is ever removed, remove this one with it.
+if (gatedFields.length === 0) {
+  problems.push(
+    'no contract-gated check was found in scripts/spec-trace.mjs (the `if (!CONFIG.trace.<field>) continue` shape). If that line was rewritten, fix the pattern here; if the last gated check was removed, remove this check too — matching nothing, it passes forever.',
+  );
+}
+
 for (const field of gatedFields) {
   // `require_skills_field` -> `skills`: the subject the field decides about,
   // and the word an agent's prose will be using instead of the field name.
@@ -209,7 +245,7 @@ for (const field of gatedFields) {
 
   const contracts = [
     ...readdirSync(AGENTS).filter((f) => f.endsWith('.md')).sort().map((f) => `agents/${f}`),
-    ...specWriterModes.map((f) => `modes/${f}`),
+    ...readdirSync(MODES).filter((f) => f.endsWith('.md')).sort().map((f) => `modes/${f}`),
   ];
   for (const file of contracts) {
     const text = readFileSync(join(ROOT, file), 'utf8');
@@ -228,6 +264,34 @@ for (const field of gatedFields) {
       );
       break;
     }
+  }
+}
+
+// ---- the spec-writer's contract states what the checks hold it to --------
+//
+// The question cap and the assumptions section are enforced on the
+// spec-writer's output, and it learns both only from its contract. Prose that
+// says 4 where the code holds 3, or a template the check would reject, fails
+// a writer that did what it was told (ADR-030). The sign-off reads the
+// section, so both commands that drive one must show it to the human.
+const specWriter = readFileSync(join(AGENTS, 'spec-writer.md'), 'utf8');
+const specTemplate = (() => {
+  const intro = specWriter.indexOf('## Spec format (spec.md)');
+  const open = intro === -1 ? -1 : specWriter.indexOf('```', intro);
+  const close = open === -1 ? -1 : specWriter.indexOf('```', open + 3);
+  return close === -1 ? null : specWriter.slice(open + 3, close);
+})();
+if (specTemplate === null) {
+  problems.push('the spec template could not be found in agents/spec-writer.md (a fenced block after `## Spec format (spec.md)`). Fix this check rather than leaving it matching nothing.');
+} else if (assumptionsProblem(specTemplate)) {
+  problems.push(`agents/spec-writer.md's spec template ${assumptionsProblem(specTemplate)}: a writer following it writes a spec the check rejects.`);
+}
+if (!specWriter.includes(`at most ${MAX_OPEN_QUESTIONS} questions`)) {
+  problems.push(`agents/spec-writer.md does not say "at most ${MAX_OPEN_QUESTIONS} questions", the cap in MAX_OPEN_QUESTIONS (scripts/agent-blocks.mjs).`);
+}
+for (const file of ['spec-flow.md', 'resume.md']) {
+  if (!/\bAssumptions\b/.test(readFileSync(join(ROOT, 'commands', file), 'utf8'))) {
+    problems.push(`commands/${file} never names the spec's Assumptions, so its sign-off does not show the human what the writer decided without asking.`);
   }
 }
 
@@ -277,6 +341,6 @@ console.log(
     `${fields.length - Object.keys(NOT_REVIEWED).length} named in the reviewer's checklist, ` +
     `${Object.keys(NOT_REVIEWED).length} exempt with a stated reason; ` +
     `${agentFiles.length} agent(s), every one declaring its tools; ` +
-    `${returnFields.size} spec-writer return field(s), ${returnFields.size - Object.keys(NOT_ROUTED).length} routed by a command and ${Object.keys(NOT_ROUTED).length} exempt with a stated reason; ` +
+    `${returnedBy.size} return field(s) from ${ROUTED_AGENTS.join(' and ')}, ${returnedBy.size - Object.keys(NOT_ROUTED).length} routed by a command and ${Object.keys(NOT_ROUTED).length} exempt with a stated reason; ` +
     `${gatedFields.length} contract-gated spec-trace check(s), none described as unconditional.`,
 );

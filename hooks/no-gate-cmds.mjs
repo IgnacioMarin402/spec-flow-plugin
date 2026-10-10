@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
+import { RUNTIMES } from '../scripts/argv.mjs';
 
 /**
  * This plugin copy's own root — never the repo being checked. Same rule and
@@ -39,8 +40,15 @@ const toolName = (tok) => tok.replace(/^.*[\\/]/, '');
 function classify(cmd, denied) {
   if (!cmd) return { verdict: 'allow' };
 
+  // Quoted text and heredoc bodies are data, not commands: a commit message
+  // saying `; ftest covers it` runs nothing. A quoted path still scopes, so a
+  // quoted string that looks like one stays a path-shaped token.
+  const command = cmd
+    .split('<<')[0]
+    .replace(/"[^"]*"|'[^']*'/g, (q) => (/[\\/.]/.test(q.slice(1, -1)) ? ' ./quoted ' : ' '));
+
   // A compound command is denied if ANY of its parts is denied.
-  for (const part of cmd.split(/&&|\|\||;|\|/)) {
+  for (const part of command.split(/&&|\|\||;|\|/)) {
     const t = part.trim().split(/\s+/).filter(Boolean);
     if (t.length === 0) continue;
 
@@ -70,9 +78,17 @@ function classify(cmd, denied) {
       continue; // not our business
     }
 
+    // A runtime that is also the runner (`bun test`, `deno test`) runs tests
+    // only through its `test` subcommand; `bun install` and `bun run build`
+    // are not test runs.
+    if (RUNTIMES.has(toolName(t[i])) && t[i + 1] !== 'test') continue;
+
     // Direct tool invocation: allowed only if it names a path to scope it.
+    // Path-SHAPED, as unscoped-checks.mjs reads argv[1]: a subcommand (`run`)
+    // or a flag's value (`--max-warnings 0`) is not a scope, and counting it
+    // as one let the whole suite through.
     const args = t.slice(i + 1);
-    const scoped = args.some((a) => !a.startsWith('-') && a !== '.' && a !== './');
+    const scoped = args.some((a) => !a.startsWith('-') && a !== '.' && a !== './' && /[\\/.]/.test(a));
     if (!scoped) return { verdict: 'deny', name: t[i] };
   }
   return { verdict: 'allow' };
@@ -132,8 +148,9 @@ await run(async () => {
       // guessing is how it would come back.
       `The same check with nothing installed, which is the copy the gate itself runs:\n\n` +
       `    node ${join(ENGINE_ROOT, 'scripts', 'check-changed.mjs')}\n\n` +
-      `Scoped invocations are allowed too${scopedHint}. If you are the implementer, ` +
-      `you do not need to run anything: end your turn and the gate reports back.\n\n` +
+      `Scoped invocations are allowed too${scopedHint}, and so is the tool run on a file path. ` +
+      `If you are the implementer, your test-first red run names the test file's path; ` +
+      `for anything else, end your turn and the gate reports back.\n\n` +
       // No disarm recipe here, on purpose. This message is read by an agent
       // mid-milestone far more often than by a human, and writing `idle` into
       // the phase file stands down the gate, the write-time linter, this deny
