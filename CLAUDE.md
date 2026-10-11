@@ -21,6 +21,14 @@ the commands describe both. After changing one member, re-read every file that
 reads or writes the same thing — each still reads correctly on its own, which
 is why the break is silent.
 
+## Merging
+
+- **A branch is tested on the `main` it merges into.** Bring `main` in before
+  opening the PR, and again whenever `main` moves. Two PRs can each pass on
+  their own and break each other with no textual conflict.
+- **Merge only on green CI.** With plugin auto-update on, a change on `main`
+  reaches every session that runs the engine.
+
 ## Where reasoning goes
 
 - **Invariant** (why this line must be so) → a short comment beside it.
