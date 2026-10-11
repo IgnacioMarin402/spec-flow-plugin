@@ -1963,6 +1963,94 @@ t('opus-budget charges a warm planner resume and not one stale-resume denies', (
   return count() === '1' ? null : `a warm planner resume was charged ${count()}, want 1`;
 });
 
+// ---- the orchestrator routes, and a hook keeps it routing (ADR-034) ------
+//
+// On real runs the session moved a human's parked plan out of specflow/ to
+// get past a refusal, and read eleven files a triage had just read. A
+// subagent's call carries its agent_id; the session's carries none.
+const scope = (repo, payload) => runHook('orchestrator-scope.mjs', payload, repo);
+const attributed = (repo) =>
+  writeFileSync(join(repo, '.claude/state/run-trace.log'), `2026-01-01T00:00:00Z phase=implement session=s read file=${join(repo, 'specs', 'user.md')} agent_id=writer1\n`);
+const sessionWrite = (repo, rel) => scope(repo, { session_id: 's', tool_name: 'Write', tool_input: { file_path: join(repo, rel), content: 'x' } });
+const sessionRead = (repo, path) => scope(repo, { session_id: 's', tool_name: 'Read', tool_input: { file_path: path } });
+const sessionBash = (repo, command) => scope(repo, { session_id: 's', tool_name: 'Bash', tool_input: { command } });
+
+t('orchestrator-scope denies the session writing code during a run, and names who does it', (repo) => {
+  attributed(repo);
+  const r = sessionWrite(repo, 'lib/a.ts');
+  if (r.status !== 2) return `the session wrote lib/a.ts mid-run (exit ${r.status})`;
+  return /implementer/.test(r.stderr) ? null : `the denial does not route the work: ${r.stderr}`;
+});
+
+t('orchestrator-scope lets a subagent write code', (repo) => {
+  attributed(repo);
+  const r = scope(repo, { session_id: 's', agent_id: 'impl1', tool_name: 'Edit', tool_input: { file_path: join(repo, 'lib/a.ts'), old_string: 'a', new_string: 'b' } });
+  return r.status === 0 ? null : `an implementer's edit was denied (exit ${r.status}): ${r.stderr}`;
+});
+
+t('orchestrator-scope lets the session write its state and the change folder', (repo) => {
+  attributed(repo);
+  for (const rel of ['.claude/state/gate_attempts', 'specflow/my-change/spec.md']) {
+    const r = sessionWrite(repo, rel);
+    if (r.status !== 0) return `the session was denied ${rel} (exit ${r.status}): ${r.stderr}`;
+  }
+  return null;
+});
+
+t('orchestrator-scope denies the session reading code, and lets it read specs, the change, the root docs and anything outside the repository', (repo) => {
+  attributed(repo);
+  const code = sessionRead(repo, join(repo, 'lib', 'a.ts'));
+  if (code.status !== 2) return `the session read lib/a.ts mid-run (exit ${code.status})`;
+  for (const path of [join(repo, 'specs', 'user.md'), join(repo, 'specflow', 'my-change', 'spec.md'), join(repo, 'CLAUDE.md'), join(tmpdir(), 'elsewhere', 'commands', 'spec-flow.md')]) {
+    const r = sessionRead(repo, path);
+    if (r.status !== 0) return `the session was denied ${path} (exit ${r.status}): ${r.stderr}`;
+  }
+  return null;
+});
+
+t("orchestrator-scope denies a Bash move of a human's plan out of specflow/", (repo) => {
+  attributed(repo);
+  const r = sessionBash(repo, 'git mv specflow/city-gym docs/backlog/city-gym');
+  return r.status === 2 ? null : `the session moved a parked plan out of specflow/ (exit ${r.status})`;
+});
+
+t('orchestrator-scope denies a redirect or a sed -i into code', (repo) => {
+  attributed(repo);
+  for (const command of ['echo x > lib/a.ts', "sed -i 's/a/b/' lib/a.ts"]) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 2) return `\`${command}\` went through (exit ${r.status})`;
+  }
+  return null;
+});
+
+// Guards: the session's own steps, as the commands write them.
+t("orchestrator-scope lets the session's own Bash steps through", (repo) => {
+  attributed(repo);
+  for (const command of [
+    'printf 0 > .claude/state/gate_attempts && printf 0 > .claude/state/opus_calls && node /x/telemetry-snapshot.mjs --mark',
+    'git add -A && git commit -m "move lib/a.ts into lib/b" && git push',
+    'git mv specflow/my-change specflow/archive/my-change',
+    'node /x/specflow-stats.mjs 2>&1 > /dev/null',
+  ]) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 0) return `\`${command}\` was denied (exit ${r.status}): ${r.stderr}`;
+  }
+  return null;
+});
+
+t('orchestrator-scope stands down outside a run', (repo) => {
+  attributed(repo);
+  writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+  const r = sessionWrite(repo, 'lib/a.ts');
+  return r.status === 0 ? null : `an edit outside any run was denied (exit ${r.status})`;
+});
+
+t('orchestrator-scope stands down until the trace shows this build attributes calls, and says so', (repo) => {
+  const r = sessionWrite(repo, 'lib/a.ts');
+  if (r.status !== 0) return `it denied with no evidence that subagent calls carry an agent_id (exit ${r.status}) — an implementer's write would read the same`;
+  return existsSync(join(repo, '.claude/state/orchestrator-scope-unmatched.log')) ? null : 'it stood down without recording why';
+});
+
 console.log('');
 let bad = 0;
 for (const [n, s] of results) {
