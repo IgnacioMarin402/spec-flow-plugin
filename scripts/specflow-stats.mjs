@@ -154,9 +154,10 @@ if (gate.length === 0) {
   const activity = (run) => [...run.gate, ...run.trace].map((e) => e.at).filter(Boolean);
   let worst = null;
   for (const run of runs) {
+    const times = activity(run).sort((a, b) => a - b);
     for (const g of run.gate) {
       if (g.result !== 'pass' || !g.at) continue;
-      const next = activity(run).filter((at) => at > g.at).sort((a, b) => a - b)[0];
+      const next = times.find((at) => at > g.at);
       if (!next) continue;
       const gap = minutesBetween(g.at, next);
       if (!worst || gap > worst.gap) worst = { gap, at: g.at, run: run.name };
