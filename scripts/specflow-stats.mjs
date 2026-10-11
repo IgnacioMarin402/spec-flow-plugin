@@ -223,12 +223,17 @@ try {
   pairingProblem = `the contract could not be read (${err.message.split('\n')[0]})`;
 }
 
+// A `?` run-trace could not judge is a run that may have been red; one whose
+// `why=` says no test failed (not the runner, not found, its own summary says
+// passed) is evidence of nothing. A line from before `why=` existed is the former.
+const NOT_A_FAILED_RUN = new Set(['not-the-runner', 'not-found', 'summary-passed']);
+
 const verdicts = [];
 for (const run of expectedTestName ? runs : []) {
   const firstWrite = new Map();
   const firstWriteByName = new Map();
   for (const [i, e] of run.trace.entries()) {
-    if (!e.file) continue;
+    if (!e.file || !e.raw.includes(' write file=')) continue; // a READ of a file says nothing about when it was written
     if (!firstWrite.has(e.file)) firstWrite.set(e.file, i);
     if (!firstWriteByName.has(baseOf(e.file))) firstWriteByName.set(baseOf(e.file), i);
   }
@@ -239,9 +244,13 @@ for (const run of expectedTestName ? runs : []) {
     const specIdx = firstWriteByName.get(testName);
     if (specIdx === undefined) continue;
 
-    const redBetween = run.trace.some((e, i) => i > specIdx && i < sourceIdx && e.verdict === 'red');
-    const status = specIdx > sourceIdx ? 'code-first' : redBetween ? 'red-first' : 'no-red-run';
-    verdicts.push({ file, status, run: run.name });
+    const between = run.trace.filter((e, i) => i > specIdx && i < sourceIdx && e.verdict);
+    const unjudged = between.filter((e) => e.verdict === '?' && !NOT_A_FAILED_RUN.has(e.why));
+    let status = 'no-red-run';
+    if (specIdx > sourceIdx) status = 'code-first';
+    else if (between.some((e) => e.verdict === 'red')) status = 'red-first';
+    else if (unjudged.length > 0) status = 'no-verdict';
+    verdicts.push({ file, status, why: [...new Set(unjudged.map((e) => e.why ?? 'not-recorded'))].join(','), run: run.name });
   }
 }
 
@@ -254,14 +263,20 @@ if (!expectedTestName) {
 } else if (verdicts.length === 0) {
   say('  no source file was written alongside its own test in this trace.');
 } else {
-  for (const { file, status, run } of verdicts) {
-    const mark = status === 'red-first' ? 'OK  ' : 'MISS';
+  for (const { file, status, why, run } of verdicts) {
+    const mark = { 'red-first': 'OK  ', 'no-verdict': '?   ' }[status] ?? 'MISS';
     const where = runs.length > 1 ? `  [${run}]` : '';
-    say(`  ${mark} ${file}  (${status})${where}`);
+    say(`  ${mark} ${file}  (${status === 'no-verdict' ? `a test run the trace could not judge: ${why}` : status})${where}`);
   }
-  const missed = verdicts.filter((v) => v.status !== 'red-first');
+  const across = new Set(verdicts.map((v) => v.run)).size;
+  const scope = across > 1 ? ` across ${across} runs` : '';
+  const missed = verdicts.filter((v) => v.status === 'code-first' || v.status === 'no-red-run');
   if (missed.length > 0) {
-    warn.push(`${missed.length}/${verdicts.length} requirement(s) show no red test run before the code. A test written after the implementation mirrors it and passes on day one.`);
+    warn.push(`${missed.length} of ${verdicts.length} source file(s)${scope} show no red test run before the code. A test written after the implementation mirrors it and passes on day one.`);
+  }
+  const unjudged = verdicts.filter((v) => v.status === 'no-verdict');
+  if (unjudged.length > 0) {
+    warn.push(`${unjudged.length} of ${verdicts.length} source file(s)${scope} had their test run before the code, with a verdict the trace could not read (why= in run-trace.log) — unmeasured, not missed.`);
   }
 }
 say('');

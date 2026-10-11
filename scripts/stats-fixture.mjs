@@ -448,10 +448,59 @@ check('a milestone held in both tiers is reported once', () => {
   return seen === 1 ? '' : `milestone 1 was reported ${seen} time(s); the run exists in both tiers but happened once.\n--- report ---\n${out}`;
 });
 
+// ---- test-first: a test written, run red, then the code ---------------------
+const write = (minute, file) => `${stamp(minute)} phase=implement write file=${file}`;
+const ran = (minute, verdict, why) => `${stamp(minute)} phase=implement test verdict=${verdict} target=tests/orders/place.spec.ts${why ? ` why=${why}` : ''}`;
+/** The Test-first section alone: the warnings below it carry other sections' words. */
+const testFirst = (out) => /^Test-first\n([\s\S]*?)\n\n/m.exec(out)?.[1] ?? '';
+
+check('a test written, run red, then its code is red-first', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, 'red'), write(3, 'lib/orders/place.ts')] });
+  return contains(testFirst(out), 'OK   lib/orders/place.ts  (red-first)');
+});
+
+check('code written before its test is code-first', () => {
+  const { out } = report({ trace: [write(1, 'lib/orders/place.ts'), write(2, 'tests/orders/place.spec.ts')] });
+  return contains(testFirst(out), 'MISS lib/orders/place.ts  (code-first)');
+});
+
+// The fabricated verdict: an agent reading a module and then its test, both
+// long written, read as "code first" — every module a planner or implementer
+// looked at turned up as a test-first MISS of the run that looked.
+check('a module and its test that were only read are not paired', () => {
+  const { out } = report({ trace: [read(1, 'lib/orders/place.ts'), read(2, 'tests/orders/place.spec.ts'), write(3, 'lib/other.ts')] });
+  return testFirst(out).includes('place.ts') ? `paired two files that were only read.\n--- report ---\n${out}` : '';
+});
+
+// A run the trace could not judge is not a run that did not happen. Reported
+// as one, every red run run-trace failed to read became a "no red run" MISS.
+check('a test run with no readable verdict is unmeasured, not missed', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, '?', 'pipe'), write(3, 'lib/orders/place.ts')] });
+  const section = testFirst(out);
+  if (section.includes('no-red-run')) return `reported an unreadable run as no red run.\n--- report ---\n${out}`;
+  return contains(section, '?    lib/orders/place.ts  (a test run the trace could not judge: pipe)') || contains(out, 'unmeasured, not missed');
+});
+
+check('a `?` from before why= existed is unmeasured too', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, '?'), write(3, 'lib/orders/place.ts')] });
+  return contains(testFirst(out), '(a test run the trace could not judge: not-recorded)');
+});
+
+check('a `?` that was not a failed test run leaves the miss standing', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, '?', 'not-the-runner'), write(3, 'lib/orders/place.ts')] });
+  return contains(testFirst(out), 'MISS lib/orders/place.ts  (no-red-run)');
+});
+
+check('the test-first warning counts source files and the runs they span', () => {
+  const trace = [write(1, 'tests/orders/place.spec.ts'), write(2, 'lib/orders/place.ts')];
+  const { out } = report({ archived: [{ slug: 'one', trace }, { slug: 'two', trace: trace.map((l) => l.replace('10:0', '11:0')) }] });
+  return contains(out, '2 of 2 source file(s) across 2 runs show no red test run before the code');
+});
+
 // ---- report ---------------------------------------------------------------
 if (failures.length > 0) {
   console.error(`stats: ${failures.length} case(s) failed.\n`);
   for (const f of failures) console.error(`  - ${f.name}\n    ${f.problem}\n`);
   process.exit(1);
 }
-console.log('stats: OK — the session-reuse and read-scope sections hold under their cases.');
+console.log('stats: OK — the session-reuse, read-scope and test-first sections hold under their cases.');
