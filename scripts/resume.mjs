@@ -150,20 +150,24 @@ if (!change.fix && !change.proposal) {
   // Source section is the only file that would have carried it.
   next('SPEC', 'spec.md exists without proposal.md, so the spec step never finished; the requirement has to come from the human again.');
 }
-if (!change.plan) {
+// A fix's work order is written by its triage, inside `spec` (ADR-033), so
+// its plan says nothing about whether a case 3 was confirmed: until an
+// implementer starts, it re-enters at the HITL step and the work order.
+if (!change.plan || (change.fix && !started)) {
   // Named here so the human is not asked to approve a spec that phase-guard
   // will refuse to leave `spec` with.
   const unready = specTimeProblems(root, [slug]);
   next(
     change.fix ? 'WORK-ORDER' : 'SIGN-OFF',
     (change.fix
-      ? 'the triage brief is written and no work order exists yet.'
+      ? change.plan && n
+        ? 'the triage wrote the brief and its work order, and no implementer was ever spawned for it; a case 3 is confirmed by the human again, since nothing on disk records it.'
+        : 'the triage brief is written and no work order exists yet, so a new triage writes it.'
       : 'the spec is written and no plan exists: the human sign-off is the step no file records, so it is asked for again.') +
       (unready.length ? ` The spec is not ready to build from, so a new spec-writer revises it first: ${unready.join(' ')}` : ''),
   );
 }
 if (!started) {
-  if (change.fix) next('IMPLEMENT M1', 'the work order exists and no implementer was ever spawned for it.');
   next('REVIEW', 'the plan exists and no milestone was ever started; its review is not on disk, so it runs again.');
 }
 if (passedSince) {

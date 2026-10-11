@@ -127,9 +127,17 @@ check('a fix brief with no work order: WORK-ORDER, not a sign-off', () =>
 
 check('a plan with no milestone ever started: REVIEW', () => expect(resume(repo({ files: planned(), phase: 'review' })), 'REVIEW'));
 
-check('a fix work order with no implementer ever spawned: IMPLEMENT M1', () =>
+// The triage writes the work order inside `spec` (ADR-033), so a work order
+// on disk says nothing about a case 3 having been confirmed: until an
+// implementer starts, the fix re-enters at the HITL step.
+check('a fix work order with no implementer ever spawned: WORK-ORDER, so a case 3 is confirmed again', () => {
+  const r = resume(repo({ files: { 'specflow/fix-empty-filter/spec.md': FIX, 'specflow/fix-empty-filter/plan.md': PLAN, 'specflow/fix-empty-filter/milestones/M1.md': '# M1\n' } }));
+  return expect(r, 'WORK-ORDER') || (/case 3 is confirmed/.test(r.why) ? '' : `WHY does not say the case 3 OK is asked again: ${r.why}`);
+});
+
+check('a fix work order whose implementer started: IMPLEMENT M1', () =>
   expect(
-    resume(repo({ files: { 'specflow/fix-empty-filter/spec.md': FIX, 'specflow/fix-empty-filter/plan.md': PLAN, 'specflow/fix-empty-filter/milestones/M1.md': '# M1\n' } })),
+    resume(repo({ files: { 'specflow/fix-empty-filter/spec.md': FIX, 'specflow/fix-empty-filter/plan.md': PLAN, 'specflow/fix-empty-filter/milestones/M1.md': '# M1\n' }, milestone: 'fix-empty-filter M1' })),
     'IMPLEMENT M1',
   ));
 

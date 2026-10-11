@@ -310,6 +310,16 @@ check("a run's tokens are reported by role, with the orchestrator apart", () => 
   );
 });
 
+// A role's cost is how many messages it sent times the prompt each re-read:
+// the orchestrator's 30 messages at ~115k each were most of a real fix run.
+check('each role reports its messages and its average prompt per message', () => {
+  const tok = (minute, msgs, cacheRead) =>
+    `${stamp(minute)} phase=implement tokens model=model-alpha sidechain=false in=10 out=100 cache_read=${cacheRead} cache_write=${cacheRead / 10} think=0 msgs=${msgs} max_prompt=60000`;
+  const subagent = `${stamp(4)} phase=implement tokens model=model-alpha sidechain=true in=1 out=1 cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=9 agent_id=a1`;
+  const { out } = report({ trace: [`${agent(1, 'spec-flow:reviewer', 's1')} agent_id=a1`, tok(2, 2, 100000), tok(3, 3, 200000), subagent], gate: [pass(5)] });
+  return contains(out, 'largest prompt 60k  5 msg, ~66k prompt/msg');
+});
+
 // The measure the implementer experiment decides on: a PASS with no failure
 // since the previous PASS. A failure before the first PASS counts against it;
 // skip-dirty and running lines are not failures.

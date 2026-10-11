@@ -113,6 +113,19 @@ function specWriterProblems(ret, text, root, agentId, trace) {
   // archives it, so nothing builds from it.
   if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) return { problems, skips };
 
+  // A fix has no planner, and the triage is the one who read the code: it
+  // writes the work order, or the orchestrator would read that code again
+  // and carry it for the rest of the run (ADR-033). That the files exist is
+  // `problemWith`'s `*_PATH` check; that they are named is this one.
+  const unnamed = ret.status === 'TRIAGED' ? ['PLAN_PATH', 'WORK_ORDER_PATH'].filter((k) => !ret.fields[k]) : [];
+  if (unnamed.length > 0) {
+    problems.push({
+      why: 'no-work-order',
+      reason: `A triage of case 1 to 4 writes the work order the implementer builds from — \`specflow/<SLUG>/plan.md\` and \`specflow/<SLUG>/milestones/M1.md\` — and returns ${unnamed.map((k) => `\`${k}:\``).join(' and ')} naming it. Write it, and return the line${unnamed.length > 1 ? 's' : ''}.`,
+    });
+    return { problems, skips };
+  }
+
   const raw = pathIn(ret.fields.SPEC_PATH ?? '');
   const slug = /^specflow\/([^/]+)\/spec\.md$/.exec(relative(root, resolve(root, raw)).split(sep).join('/'))?.[1];
   if (!slug || slug === 'archive') {
