@@ -16,6 +16,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { specTimeProblems } from './spec-time.mjs';
+import { loadConfig } from './spec-flow-config.mjs';
+import { resolveBase, changesAtBase } from './changed-files.mjs';
 
 // A report that throws reads as a verdict. Anything unexpected still ends on
 // a NEXT line and exit 0 — see the header.
@@ -54,8 +56,18 @@ function describe(dir) {
   };
 }
 
+// A change the base branch already has is no run of this branch, and
+// phase-guard refuses to start one over it (ADR-032): it is named, never
+// offered. Read only where the contract loads — without one no run starts.
+let atBase = [];
+try {
+  atBase = changesAtBase(root, resolveBase(root, loadConfig(root)));
+} catch {
+  /* no contract or no base: phase-guard refuses the start and says which */
+}
+
 const live = existsSync(SPECFLOW)
-  ? readdirSync(SPECFLOW).filter((d) => d !== 'archive' && existsSync(join(SPECFLOW, d, 'spec.md'))).sort()
+  ? readdirSync(SPECFLOW).filter((d) => d !== 'archive' && !atBase.includes(d) && existsSync(join(SPECFLOW, d, 'spec.md'))).sort()
   : [];
 
 const phase = read(join(STATE, 'phase'));
@@ -63,6 +75,7 @@ const [atSlug, atMilestone] = read(join(STATE, 'current-milestone')).split(/\s+/
 
 say('spec-flow resume — where an unfinished run stands, read off disk');
 say(`repo: ${root}\n`);
+if (atBase.length > 0) say(`not runs of this branch — the base branch has them: ${atBase.join(', ')}`);
 
 /** Prints the verdict and stops. `step` is what commands/resume.md branches on. */
 function next(step, why) {
@@ -77,6 +90,7 @@ if (phase === 'blocked') {
 
 // ---- which change ----------------------------------------------------------
 let slug = asked;
+if (atBase.includes(slug)) next('NONE', `specflow/${slug}/ is on the base branch, so no run of this branch created it; a run cannot start over it (ADR-032).`);
 if (!slug) {
   if (live.length > 1) {
     say(`live changes: ${live.join(', ')}`);

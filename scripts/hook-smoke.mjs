@@ -1166,6 +1166,72 @@ t(
 // The phase file has siblings — the seal, the unmatched log — and a write to
 // one of them is not a phase write. Judged as one, the seal's session id is
 // "not a phase this engine knows".
+// ---- a change the base branch already has is not this run's (ADR-032) ------
+//
+// A plan committed on the base and never run sat in specflow/, the run on a
+// branch off it was refused `done` at its very end, and the orchestrator moved
+// the human's plan out of the way to get past the refusal. The start is where
+// that run can still be declined for nothing.
+const gitIn = (repo, ...args) => spawnSync('git', args, { cwd: repo, stdio: 'ignore' });
+const changeFolder = (repo, slug) => {
+  mkdirSync(join(repo, 'specflow', slug), { recursive: true });
+  writeFileSync(join(repo, 'specflow', slug, 'spec.md'), `# Spec — ${slug}\n`);
+  gitIn(repo, 'add', '-f', '--', `specflow/${slug}`);
+  gitIn(repo, 'commit', '-q', '-m', `add ${slug}`);
+};
+/** A change folder committed on the base, then a branch off it. */
+const parkedOnBase = (repo, slug = 'parked') => {
+  changeFolder(repo, slug);
+  gitIn(repo, 'checkout', '-q', '-b', 'feature');
+};
+const startRun = (repo) =>
+  runHook('phase-guard.mjs', { session_id: 'session-a', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'spec' } }, repo);
+
+t(
+  'phase-guard refuses to start a run over a change the base branch already has',
+  (repo) => {
+    parkedOnBase(repo);
+    const r = startRun(repo);
+    if (r.status !== 2) return `a run started with specflow/parked/ inherited from the base — exit ${r.status}; its done would be refused after every milestone was spent`;
+    if (!r.stderr.includes('specflow/parked/')) return `the refusal does not name the folder: ${r.stderr}`;
+    if (r.stderr.includes('spec-flow init')) return `the refusal sends the human to init, which fixes nothing here: ${r.stderr}`;
+    return null;
+  },
+  { phase: '' },
+);
+
+// The other half: the folder a run created on its own branch is the one
+// `/spec-flow:resume` starts a run over again, after a stale reset.
+t(
+  'phase-guard lets a run start over a change this branch created — the one a resume picks up',
+  (repo) => {
+    gitIn(repo, 'checkout', '-q', '-b', 'feature');
+    changeFolder(repo, 'mine');
+    const r = startRun(repo);
+    return r.status === 0 ? null : `a resume of this branch's own change was refused — exit ${r.status}: ${r.stderr}`;
+  },
+  { phase: '' },
+);
+
+t(
+  'preflight refuses a spawn while a change the base branch has is live — the start it backstops',
+  (repo) => {
+    parkedOnBase(repo);
+    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
+    if (r.status !== 2) return `a spawn went through with specflow/parked/ from the base live — exit ${r.status}`;
+    return r.stderr.includes('a change the base branch already has') ? null : `the refusal is not headed with what failed: ${r.stderr}`;
+  },
+  { phase: 'plan' },
+);
+
+t("phase-guard's done refusal says a change the base branch has is not this run's to fold", (repo) => {
+  parkedOnBase(repo);
+  seedGateHistory(repo, 'pass');
+  const r = runHook('phase-guard.mjs', { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
+  if (r.status !== 2) return `done was allowed over an unarchived change — exit ${r.status}`;
+  return r.stderr.includes("parked (the base branch has it: not this run's change)") ? null : `the refusal does not say the folder is not this run's, so it routes it to a FOLD: ${r.stderr}`;
+});
+
 t('phase-guard leaves the phase file\'s siblings alone', (repo) => {
   const r = runHook(
     'phase-guard.mjs',

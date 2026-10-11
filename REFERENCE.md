@@ -367,7 +367,7 @@ Without it, run the same scripts by path, from your repo's root:
 | hook | event | fires on | what it does |
 |---|---|---|---|
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
-| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, or whose Node is below the floor |
+| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, that has a live change folder the base already has, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
@@ -412,7 +412,9 @@ armed.
 - **A run that cannot run here does not start**
   ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
   first run phase written while no run is in progress is denied unless the
-  directory is a repository root, the contract loads and the base resolves;
+  directory is a repository root, the contract loads, the base resolves and no
+  live change folder is one the base already has
+  ([ADR-032](decisions/032-a-change-the-base-already-has-is-not-this-runs.md));
   nothing is armed by a refused start.
 - **A phase write leaving `spec` needs a spec its first gate would accept**
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
