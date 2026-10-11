@@ -130,6 +130,11 @@ jobs:
       - name: Plugin paths resolve
         run: npm run paths:check
 
+      # The state inventory above passes when every name it found has a row,
+      # so a name it cannot see passes too. This plants one held in a constant.
+      - name: State inventory reaches names held in a constant
+        run: npm run paths:reach
+
       # A decision record and the code it governs must reach each other. This
       # is what separates decisions/ from a docs tree nobody reads: a citation
       # that resolves to nothing, and a record nothing cites, both fail. See
