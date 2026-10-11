@@ -15,7 +15,7 @@
  *
  *   node scripts/hook-smoke.mjs [engine-root]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync, cpSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync, cpSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2158,6 +2158,114 @@ t("dispatch-guard leaves a subagent's call, and a call outside a run, alone", (r
   const lines = dispatches(repo);
   return lines.length === 0 ? null : `recorded outside the orchestrator's run:\n${lines.join('\n')}`;
 });
+
+// ---- a case 3 waits for a human's answer (ADR-036) -------------------------
+//
+// The command stops for a person before a requirement is corrected to agree
+// with the code. Nothing held it: the brief's `(correction)` marker is the
+// triage's, written before anyone is asked.
+const CORRECTION_BRIEF = '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (correction) — now right\n';
+const turnLog = (repo, minutesAgo, event) =>
+  appendFileSync(join(repo, '.claude/state/human-turn.log'), `${new Date(Date.now() - minutesAgo * 60_000).toISOString()} ${event}\n`);
+/** The session ended its turn, then a person typed. */
+const answeredAt = (repo, minutesAgo) => {
+  turnLog(repo, minutesAgo + 0.5, 'turn-end');
+  turnLog(repo, minutesAgo, 'prompt from=human');
+};
+function correctionBrief(repo, writtenMinutesAgo) {
+  writeChange(repo, CORRECTION_BRIEF, { proposal: false });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan — my-change\n');
+  const when = new Date(Date.now() - writtenMinutesAgo * 60_000);
+  utimesSync(join(repo, 'specflow', 'my-change', 'spec.md'), when, when);
+}
+
+t('phase-guard holds a case 3 in spec until a human has answered since the brief was written', (repo) => {
+  answeredAt(repo, 10); // the /spec-fix that started the run
+  correctionBrief(repo, 5);
+  const r = writePhase(repo, 'implement');
+  if (r.status !== 2) return `implement was written over a correction no human answered (exit ${r.status})`;
+  if (/human-turn|turn-end/.test(r.stderr)) return `the denial names the record instead of asking for the answer: ${r.stderr.slice(0, 300)}`;
+  return /REQ-USER-001/.test(r.stderr) && /end your turn/.test(r.stderr) ? null : `the denial does not name the correction and the stop: ${r.stderr.slice(0, 400)}`;
+}, { phase: 'spec' });
+
+t('arm-gate does not engage the implementer over a case 3 no human has answered, from spec or after a re-triage while implementing', (repo) => {
+  answeredAt(repo, 10);
+  correctionBrief(repo, 5);
+  for (const phase of ['spec', 'implement']) {
+    writeFileSync(join(repo, '.claude/state/phase'), phase);
+    const r = engageImplementer(repo);
+    if (r.status !== 2) return `${phase}: the implementer was engaged over a correction no human answered (exit ${r.status})`;
+    const now = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+    if (now !== phase) return `${phase}: the denied engagement still moved the phase to "${now}"`;
+  }
+  return null;
+}, { phase: 'spec' });
+
+// The triage's own report-back fires the prompt hook after the brief. The
+// session ended its turn when it spawned the triage, before the brief.
+t('a prompt with no turn end after the brief, or a harness notification, is not an answer', (repo) => {
+  turnLog(repo, 8, 'turn-end');
+  correctionBrief(repo, 5);
+  turnLog(repo, 2, 'prompt from=human');
+  const r = writePhase(repo, 'implement');
+  if (r.status !== 2) return `a prompt arriving without the session having stopped after the brief counted as an answer (exit ${r.status})`;
+  turnLog(repo, 1.5, 'turn-end');
+  turnLog(repo, 1, 'prompt from=task-notification');
+  const n = writePhase(repo, 'implement');
+  return n.status === 2 ? null : `a task notification counted as a person's answer (exit ${n.status})`;
+}, { phase: 'spec' });
+
+t('human-turn records turn ends, prompts by source and answered questions, and nothing in a repository that never adopted the engine', (repo) => {
+  const hook = (payload, at = repo) => runHook('human-turn.mjs', { session_id: 's', ...payload }, at);
+  hook({ hook_event_name: 'UserPromptSubmit', prompt: 'yes, the requirement was wrong' });
+  hook({ hook_event_name: 'UserPromptSubmit', prompt: '<task-notification>\n<task-id>a1</task-id>' });
+  hook({ hook_event_name: 'UserPromptSubmit', prompt: '<pasted_content id="p1">\nlog\n</pasted_content> ok' });
+  hook({ hook_event_name: 'Stop' });
+  hook({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: {}, tool_response: {} });
+  const got = readFileSync(join(repo, '.claude/state/human-turn.log'), 'utf8').split('\n').filter(Boolean).map((l) => l.split(' ').slice(1).join(' '));
+  const want = ['prompt from=human', 'prompt from=task-notification', 'prompt from=human', 'turn-end', 'prompt from=question'];
+  if (JSON.stringify(got) !== JSON.stringify(want)) return `recorded ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`;
+  if (readFileSync(join(repo, '.claude/state/human-turn.log'), 'utf8').includes('requirement was wrong')) return 'the record copied what the person said';
+  const bare = mkdtempSync(join(tmpdir(), 'smoke-bare-'));
+  try {
+    hook({ hook_event_name: 'UserPromptSubmit', prompt: 'hi' }, bare);
+    return existsSync(join(bare, '.claude')) ? 'it wrote state into a repository that never adopted the engine' : null;
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+t('orchestrator-scope denies the session writing a log the hooks decide on', (repo) => {
+  attributed(repo);
+  for (const command of ['echo "x prompt from=human" >> .claude/state/human-turn.log', "printf 'x result=pass ' >> .claude/state/gate-history.log"]) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 2) return `\`${command}\` went through (exit ${r.status})`;
+  }
+  const w = sessionWrite(repo, '.claude/state/run-trace.log');
+  return w.status === 2 ? null : `a Write over run-trace.log went through (exit ${w.status})`;
+});
+
+// Guards: an answered case 3 goes on, and a build that never records an
+// answer is not held forever.
+t('a case 3 goes on once a human has answered since the brief, typed after a turn end or through a question', (repo) => {
+  correctionBrief(repo, 5);
+  answeredAt(repo, 1);
+  const r = writePhase(repo, 'implement');
+  if (r.status !== 0) return `implement was denied after the human answered (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
+  const e = engageImplementer(repo);
+  if (e.status !== 0) return `the implementer was denied after the human answered (exit ${e.status}): ${e.stderr.slice(0, 300)}`;
+  correctionBrief(repo, 0.5);
+  turnLog(repo, 0.2, 'prompt from=question');
+  const q = engageImplementer(repo);
+  return q.status === 0 ? null : `an answered question did not count (exit ${q.status}): ${q.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
+t('the case-3 check stands down, and says so, where no answer was ever recorded', (repo) => {
+  correctionBrief(repo, 5);
+  const r = writePhase(repo, 'implement');
+  if (r.status !== 0) return `a build with no recorded answer held the case 3 (exit ${r.status}) — it would hold it forever`;
+  return existsSync(join(repo, '.claude/state/human-turn-unmatched.log')) ? null : 'it stood down without recording why';
+}, { phase: 'spec' });
 
 console.log('');
 let bad = 0;
