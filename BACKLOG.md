@@ -19,20 +19,15 @@ branch, and how the gate learns it was approved.
 In the adopting repo, 18 of 18 measured requirements had no red test run before
 their code — but that trace could not see a red run at all: a test command that
 exits non-zero arrives as `PostToolUseFailure`, which run-trace did not hear
-until this item was restated. Re-measure on the next real runs before sizing
-the fix. A test written after the code mirrors it, which is the gap ADR-020
-leaves to a model's reading. **Candidate:** run each ADDED requirement's test
-against the base commit; one that passes there proves nothing. Report, not
-gate — it runs the suite twice and flaky tests exist.
-
-### B37 — the telemetry has never seen a real run
-
-In the adopting repo `specflow-stats` reports no token accounting and
-"attribution: UNAVAILABLE". `token-trace` was added on 2026-08-31, after the
-last real run (2026-08-26), so about 1,600 lines, fixtures included, have never
-seen a real run end to end. **Done:** one real run's snapshot
-read by `specflow-stats` with tokens and attribution populated — or the
-subsystem cut back to `gate-history.log` and the snapshot.
+until this item was restated. Two real runs since, counted by target: of 6
+sources paired with a test, 1 had its test run red first, 1 had it run piped
+and 4 had no run of it; stats on `620901d` reads 3 OK and 3 `?` (B47). A third milestone
+wrote its test, then a source with another name, with no run, and stats lists
+nothing: it pairs by basename. A test written after the code
+mirrors it, which is the gap ADR-020 leaves to a model's reading.
+**Candidate:** run each ADDED requirement's test against the base commit; one
+that passes there proves nothing. Report, not gate — it runs the suite twice
+and flaky tests exist.
 
 ### B39 — the model-routing surface is ahead of its use
 
@@ -44,9 +39,12 @@ project has set.
 ### B40 — what the orchestrator costs a run
 
 The orchestrator is the human's session (ADR-029), so its model is whatever
-they run, and nothing reports what it spends. **Done:** its tokens per run,
-apart from each role's, over at least three real runs — then decide whether
-the command pins a model. Needs B37.
+they run; stats reports its tokens apart from each role's. **Done:** those
+tokens over at least three real runs on an engine at `80feaea` or later
+(ADR-038 changed what it dispatches) — then decide whether the command pins a
+model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
+`620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
+B43, B57, and B58 for the `620901d` run.
 
 ### B41 — which hooks could be mods
 
@@ -71,6 +69,166 @@ arrive in `usage.iterations` as `advisor_message`, outside the usage
 enabled it. **Done:** `token-trace` records the advisor's iterations as a group
 of their own, by model and by the agent that consulted it, and `stats` reports
 them.
+
+### B45 — a weak test found at the fold is fixed after `done`, with the gate off
+
+Step 5 has the orchestrator offer "a fresh implementer for that milestone" in
+its step 6 summary, after `done`. On `done`, `arm-gate` arms nothing,
+`dispatch-guard` records nothing, and the gate, `lint-on-write` and the command
+deny stand down, so the fix runs unchecked and unrecorded. In one real run the
+fold reported a requirement whose test asserted only half of it, and the
+orchestrator offered exactly that. **Done:** the offer is a `/spec-fix` case 2
+(gated, then folded), still the human's to accept (ADR-020), and an
+`agent-contracts` case fails while step 5 names no `/spec-fix`. It is red on
+`620901d`, where `spec-flow.md` never names it.
+
+### B46 — a requirement that forbids something is proven by a test of what it allows
+
+spec-trace binds an id to a test that ran under its name, so one test named for
+"filters by A and B, never by C" passes while asserting only A and B. Only the
+fold's reading caught it (ADR-020). **Candidates, cheapest first:** the
+spec-writer gives each prohibition ("cannot", "must not", "never", "only") an
+id of its own, so spec-trace stays red until a test named for it runs; the
+planner's `Tests` field and the reviewer's checklist name a test per clause.
+**Done:** the first, checked on the spec and not only in the prompt: a
+spec-time case in which an ADDED delta that pairs a prohibition with another
+claim is refused, red on `620901d`, with `agent-contracts` holding the
+spec-writer's contract to the same words, as it does the question cap (ADR-030).
+
+### B47 — test-first credit ignores which test a run ran
+
+stats credits a source with every test verdict between its test's first write
+and its own, and never reads `target=`. In one real run M1 wrote three tests,
+ran one piped (`why=pipe`), then their sources: all three read `?`, though two
+of those tests had not run yet. In M2 one red run of one test read OK for all
+three. Credit by target needs a clean target, and run-trace keeps every
+path-like token of the command: a real line holds `>/dev/null;` and eslint's
+own script, and `jest a.spec.ts; eslint b.spec.ts` targets `a.spec.ts;` and
+`b.spec.ts`. **Done:** a stats case with one targeted red run over three
+test/source pairs reads one OK and two MISS, and a hook-smoke case where that
+chain targets `a.spec.ts` alone, both red on `620901d`; a red run of the tests'
+directory still credits each test under it.
+
+### B48 — what needs a database or a running app is checked by nobody
+
+The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
+`extra_checks` entry runs at every gate, at `done` and in `spec-flow check`, so
+one that needs a database or a running app fails wherever none is up, and is
+routed to the implementer as lint/trace. `spec-flow init` proposes no entry: it
+reads only the `test`, `lint` and `lint:fix`/`format` scripts and writes
+`extra_checks: []`, so not even a build or a typecheck, which need neither, runs
+during a run. B35 leaves any entry removable mid-run. **Done:** init offers the
+repo's `build` and `typecheck` scripts as `extra_checks` entries,
+with an init-fixture case red on `620901d`. **Needs a decision first** for
+end-to-end checks, migrations and booting the app: where they run, if not at
+every gate.
+
+### B49 — a live-view copy cannot be priced, and does not say what it missed
+
+"Copy exact counts" gives each agent's tokens with no model and no effort, so
+pricing it means joining it to `run-trace.log` by agent id. On one real run
+the copy matched token-trace for each of five agents on input, cache and
+requests, and its output was the higher, exact count (B43). Neither splits
+cache writes by TTL (5-minute writes cost 1.25× input, 1-hour ones 2×); the
+transcript does, and `agent-cache.mjs` already reads it. Both lack that run's
+spec-step spec-writer and first planner, and neither says so (B58). **Done:**
+the copy line carries `model=` and `effort=`, and `token-trace` records cache
+writes by TTL: a live-view test and a token-fixture case, each red on
+`620901d`.
+
+### B50 — the version ban does not reach the live-view mod
+
+`model-pins` walks `hooks/` but reads only `.mjs`, `.md` and `.json`, so a
+pinned model id in the mod's `.tsx` or `.ts` passes (ADR-013). `no-repo-refs`
+took `.tsx` when the mod landed (`7da943e`); this check did not.
+`hooks/live-view.test.tsx` already names four full ids and one numbered tier,
+so scanning `.tsx` alone turns `models:check` red. **Done:** `.ts` and `.tsx`
+scanned, the test's ids assembled at runtime as `model-pins-fixture` does, and
+a model-pins-fixture case with a pinned id in a `.tsx` under `hooks/`, red on
+`620901d`.
+
+### B52 — the spec-writer on the cheapest tier
+
+ADR-030 shows the human what the spec-writer assumed, and ADR-031 holds its
+return to its contract: the two risks each names for a cheaper tier. On one
+real run the spec-writer cost US$0.18 of US$2.07 (US$0.09 for the spec,
+US$0.08 for the fold), so the case is about the questions it asks, not the
+price. Routing is per agent, not per mode: its fold, the one reading of whether
+a test proves its requirement (ADR-020), moves with it. **Done:** the
+spec-writer on `haiku` at `high` over three real runs, compared with `sonnet`
+on question rounds, agent-gate blocks, fold `GAPS` and rejected sign-offs,
+which nothing records yet. Needs B54: a project route keeps the declared
+`medium`.
+
+### B53 — a repository that states no anatomy
+
+ADR-026 has the planner read how a repo builds a module from what the repo
+states; one that states nothing sends it back to the source, and its `NOTES`
+ask the human for the statement. Only the setup skill drafts one, and only
+when someone runs it. **Candidate:** a cheap scout drafts the anatomy during
+the run and the human approves it at sign-off. During a run ADR-034 lets the
+session write only `.claude/state/` and `specflow/`, so `CLAUDE.md` or a skill
+would be written by an agent, or after `done`. **Needs a decision first:**
+whether a run writes the statement at all, and which agent does.
+
+### B54 — a re-route keeps the effort its role declares
+
+`model-route` rewrites a re-routed spawn's `model` and nothing else, so a
+project routing the planner to `sonnet` keeps the frontmatter's `effort: high`.
+ADR-014 and ADR-015 still say a hook's `effort` is stripped (2.1.241);
+`f554b76` measured on 2.1.294 that it applies and that
+`CLAUDE_CODE_EFFORT_LEVEL` beats it, and left routing effort to a decision of
+its own. Neither real run re-routed an agent (B39). **Needs a decision
+first:** an ADR superseding ADR-015's measurement, saying whether a project
+routes effort and from what. **Done, if it does:** a hook-smoke case whose
+re-routed spawn carries the effort, red on `620901d`, and `spec-flow models`
+showing it.
+
+### B55 — the implementer on the cheapest tier
+
+On `sonnet`, the implementers of the one real run on `80feaea` or later cost
+at least US$1.16 for two milestones; `haiku`'s prices are a twentieth of
+`sonnet`'s. Decided by a paired experiment, not by price: the same milestones
+on both tiers at the same session effort, on an engine at `80feaea` or later
+(ADR-038), with the advisor off (B44), plugin auto-update off, and `engine=`
+naming a commit on every gate line. Compared on gate attempts per milestone,
+architect calls, test-first (needs B47) and cost. **Done:** the result
+recorded in `decisions/`, whichever way it goes.
+
+### B56 — `cc=` records no Claude Code version
+
+ADR-004 has the gate record the Claude Code that ran it, read from
+`CLAUDE_CODE_VERSION`. Every gate line of two real runs says `cc=?`, and in a
+cloud session the variable said 2.1.42 while `claude --version` said 2.1.296.
+The transcript's user and assistant lines carry `version`, and a resumed
+session's holds several (one held 2.1.293 to 2.1.296). **Done:** `cc=` is the
+last `version` in the Stop payload's transcript; a gate-fixture case with
+`CLAUDE_CODE_VERSION` set to another value, red on `620901d`.
+
+### B57 — a finished run's last PASS reads as a stall
+
+Writing `done` leaves no line in `run-trace.log` or `gate-history.log`, and
+`token-trace` drops the closing turn: its Stop already reads `done`. So a
+run's closing PASS is followed by nothing until the next run, and stats warns
+"a PASS was followed by 167m with nothing running" between two finished runs
+in one log. **Done:** the turn that writes `done` leaves a line in
+`run-trace.log`, with its tokens: a hook-smoke case red on `620901d`. Any line
+after the PASS already clears the warning on `620901d`, so a stats case only
+guards.
+
+### B58 — an agent spawned outside a run leaves no trace and spends no budget
+
+With the phase at `done`, `idle` or empty, every hook that counts or records a
+spawn stands down: preflight, the Opus budget, dispatch-guard, run-trace,
+token-trace (it drops the slice) and the agent gate. A planner spawned so
+writes nothing to `opus_calls` or `run-trace.log` (run on `620901d`). In one
+real run, the spec step and the first plan left no line in the archived
+telemetry; they ran in an earlier session of the same console, whose live view
+the later session's copy does not hold. That snapshot also held the run before
+it: the step-0 `--mark` had not moved. Both fit a run whose step 0 never wrote
+`spec`. **Done:** dispatch-guard records a spec-flow agent dispatched outside a
+run (ADR-035: recorded before it is denied), stats reports it, and a hook-smoke
+case is red on `620901d`.
 
 ### B15 — model-graded checks
 
