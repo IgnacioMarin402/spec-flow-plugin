@@ -1,6 +1,6 @@
 # ADR-015 — effort is declared where the role is emphatic, and inherited on purpose everywhere else
 
-**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `agents/`, `scripts/model-pins.mjs`, `scripts/model-routing.mjs` · **Extends:** ADR-014
+**Date:** 2026-08-23 · **Status:** accepted; the spec-writer's inheritance refined by [ADR-026](026-anatomy-is-stated-not-learned-from-source.md), the reviewer's `low` by [ADR-039](039-the-reviewer-runs-on-sonnet.md) · **Governs:** `agents/`, `scripts/model-pins.mjs`, `scripts/model-routing.mjs` · **Extends:** ADR-014
 
 **Question.** No agent declared `effort`, so each inherited the human's session
 setting: the reviewer — the cheapest pass by design — ran at `max` whenever the

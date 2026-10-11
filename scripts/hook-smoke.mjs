@@ -1832,6 +1832,12 @@ function withRouting(repo, agents) {
   writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 6, agents }));
 }
 
+// A tier the reviewer does not ship with, read from the frontmatter under
+// test: routing it there is a re-route whatever the reviewer's tier becomes.
+const REVIEWER_ELSEWHERE = ['haiku', 'sonnet', 'opus'].find(
+  (t) => t !== /^model:[ \t]*(\S+)/m.exec(readFileSync(join(ENGINE, 'agents', 'reviewer.md'), 'utf8'))?.[1],
+);
+
 t('model-route leaves the model alone when the project declares no routing', (repo) => {
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0. stderr: ${r.stderr.slice(0, 200)}`;
@@ -1867,12 +1873,12 @@ t('model-route leaves an unattended session in the foreground', (repo) => {
 });
 
 t('model-route rewrites the spawn the project re-routed', (repo) => {
-  withRouting(repo, { reviewer: 'sonnet' });
+  withRouting(repo, { reviewer: REVIEWER_ELSEWHERE });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer', prompt: 'x' } }, repo);
   if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
   const input = routed(r);
   if (!input) return `emitted no updatedInput, so the routing was configured and never applied. stdout: ${r.stdout.slice(0, 200)}`;
-  if (input.model !== 'sonnet') return `rewrote model to "${input.model}", expected "sonnet"`;
+  if (input.model !== REVIEWER_ELSEWHERE) return `rewrote model to "${input.model}", expected "${REVIEWER_ELSEWHERE}"`;
   if (input.prompt !== 'x') return 'the rewrite dropped the rest of the spawn input';
   return null;
 });
@@ -1889,7 +1895,7 @@ t('model-route sends the architect to Fable when the project routes it there', (
 });
 
 t('model-route leaves the model of an agent the project did not re-route alone', (repo) => {
-  withRouting(repo, { reviewer: 'sonnet' });
+  withRouting(repo, { reviewer: REVIEWER_ELSEWHERE });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
   if (r.status !== 0) return `exit ${r.status}`;
   if (routed(r) && 'model' in routed(r)) return `re-routed a spawn nobody re-routed: ${r.stdout.slice(0, 200)}`;
@@ -1926,7 +1932,7 @@ t('model-route denies a full model id, where the tool call would have', (repo) =
 });
 
 t('model-route passes through an agent this plugin does not ship', (repo) => {
-  withRouting(repo, { reviewer: 'sonnet' });
+  withRouting(repo, { reviewer: REVIEWER_ELSEWHERE });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose' } }, repo);
   if (r.status !== 0) return `exit ${r.status}, expected 0 — an unrelated agent must never be touched`;
   if (r.stdout.trim()) return 'rewrote a spawn that is none of this plugin’s business';
@@ -1954,7 +1960,7 @@ t('model-route applies outside a run, unlike the budget', (repo) => {
 });
 
 t('model-route leaves a deduped trace of what it re-routed', (repo) => {
-  withRouting(repo, { reviewer: 'sonnet' });
+  withRouting(repo, { reviewer: REVIEWER_ELSEWHERE });
   runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
   runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
   const log = join(repo, '.claude/state/model-routes.log');
@@ -1963,7 +1969,7 @@ t('model-route leaves a deduped trace of what it re-routed', (repo) => {
   }
   const lines = readFileSync(log, 'utf8').split('\n').filter(Boolean);
   if (lines.length !== 1) return `${lines.length} line(s) for two identical spawns; the log is deduped so a run leaves one line per re-route`;
-  if (!lines[0].includes('reviewer -> sonnet')) return `the trace does not say what changed: ${lines[0]}`;
+  if (!lines[0].includes(`reviewer -> ${REVIEWER_ELSEWHERE}`)) return `the trace does not say what changed: ${lines[0]}`;
   return null;
 });
 

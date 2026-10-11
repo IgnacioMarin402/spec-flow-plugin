@@ -136,8 +136,8 @@ for (const file of agents) {
 
   // The claim ADR-013 makes about the prose, checked rather than asserted: an
   // agent re-routed in the frontmatter alone leaves a description that tells
-  // the orchestrator the wrong cost. Naming ANOTHER agent's tier as well is
-  // ordinary — the reviewer's description names the Opus planner it escalates
+  // the orchestrator the wrong cost. Naming ANOTHER tier as well is ordinary —
+  // the architect's description names Fable as a tier a project may route it
   // to — so what is required is presence, not exclusivity.
   const description = /^description:[ \t]*(.+)$/m.exec(head)?.[1] ?? '';
   if (!new RegExp(`\\b${declared}\\b`, 'i').test(description)) {
@@ -166,7 +166,7 @@ for (const file of agents) {
     problems.push(
       `agents/${file} declares no \`effort:\` and is not listed in INHERITS_EFFORT in this file. An agent with ` +
         `no effort inherits the human's session, so the flow's cost stops being a property of the flow — ` +
-        `the cheapest pass runs at \`max\` whenever someone's session is. Declare one, or record here why this ` +
+        `a cheap pass runs at \`max\` whenever someone's session is. Declare one, or record here why this ` +
         `agent should follow the session, so the asymmetry is a decision rather than the one nobody got to.`,
     );
     continue;
