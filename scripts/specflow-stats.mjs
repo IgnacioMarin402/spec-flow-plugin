@@ -762,7 +762,7 @@ if (tokenLines.length === 0) {
     }
   } else if (subagentOut > 0 && spawns > 0) {
     say(`  subagent output: ${human(subagentOut)} across ${spawns} recorded spawn(s) — ~${human(Math.round(subagentOut / spawns))}/spawn.`);
-    say('  That average is the unit max_opus_calls does not charge; it says nothing about which agent.');
+    say('  That average is the unit the escalation caps do not charge; it says nothing about which agent.');
   } else if (subagentOut === 0 && spawns > 0) {
     say(`  ${spawns} spawn(s) recorded and no subagent tokens with them.`);
     warn.push(

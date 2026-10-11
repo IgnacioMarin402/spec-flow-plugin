@@ -135,7 +135,7 @@ claim about itself, and the planner will trust it over the source.
 ## Model routing is a different file, and not your job here
 
 `.claude/spec-flow.config.json` holds preferences rather than facts: the
-escalation cap `max_opus_calls`, and an optional `agents` block re-routing an
+escalation caps `max_opus_calls` and `max_architect_calls`, and an optional `agents` block re-routing an
 agent to a different model tier. `init` does not write it and a repo needs none
 of it to run, so **do not set one during setup**. You have no evidence about
 what this repo's work should cost, and the rule at the top of this file governs

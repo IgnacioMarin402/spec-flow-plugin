@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
- * PreToolUse hook on subagent spawn AND SendMessage — hard budget for the
- * flow's two ESCALATION agents, `planner` and `architect`. A hook, not an
- * instruction to the orchestrator: a budget that depends on the model
- * remembering to count is not a budget.
+ * PreToolUse hook on subagent spawn AND SendMessage — hard budgets for the
+ * flow's two ESCALATION agents, one each: `planner` (`max_opus_calls`) and
+ * `architect` (`max_architect_calls`). The architect answers the
+ * implementer's technical doubts and the planner re-plans, so one role does
+ * not spend the other's budget (ADR-038). A hook, not an instruction to the
+ * orchestrator: a budget that depends on the model remembering to count is
+ * not a budget.
  *
  * **It counts roles, not models, and that survived model routing on purpose.**
  * Once a project can re-route any agent (ADR-014) the name of this file and
@@ -23,17 +26,17 @@
  * Session ids resolve through `state/agent-registry`, written at spawn time
  * by register-agent.mjs.
  *
- * `max_opus_calls` lives in the consuming repo's `.claude/spec-flow.config.json`,
- * not in `.spec-flow/config.json`: it is a run-scoped number, not an
+ * Both caps live in the consuming repo's `.claude/spec-flow.config.json`,
+ * not in `.spec-flow/config.json`: they are run-scoped numbers, not an
  * architectural fact about the repo. Counted only while a run is in progress,
  * so a one-off question to the architect outside the flow is never charged.
- * The key keeps its name after ADR-014 for one reason: nothing validates that
+ * `max_opus_calls` keeps its name for one reason: nothing validates that
  * file, so a rename would read a repo's configured cap as absent and hand it
  * the default instead — a silent change to the one number a human set
  * deliberately.
  *
  * Two inaccuracies are accepted rather than fixed, because both err small
- * against a default budget of 6 and neither can silently disarm it:
+ * against the default budgets and neither can silently disarm them:
  *
  *   - It counts the INTENT to spawn. PreToolUse never learns whether the call
  *     succeeded, so a failed spawn is still charged. Correcting it needs a
@@ -46,6 +49,12 @@ import { join } from 'node:path';
 import { projectDir, stateDir, readOwnedPhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 import { coldResume } from './lib/agent-cache.mjs';
+
+/** Each escalation role's cap, its default and its counter (ADR-038). */
+const BUDGETS = {
+  planner: { key: 'max_opus_calls', fallback: 6, counter: 'opus_calls' },
+  architect: { key: 'max_architect_calls', fallback: 3, counter: 'architect_calls' },
+};
 
 function readRegistry(path) {
   const reg = {};
@@ -85,7 +94,6 @@ await run(async () => {
   if (phase === '' || phase === 'idle' || phase === 'done') return;
 
   const state = stateDir(root);
-  const countFile = join(state, 'opus_calls');
 
   const input = payload.tool_input ?? {};
   const nameish = nameishFields(input);
@@ -126,25 +134,27 @@ await run(async () => {
   // that replaces it is charged, and charging both bills one consult twice.
   if (String(payload.tool_name ?? '') === 'SendMessage' && coldResume(payload)) return;
 
-  let max = 6;
+  const budget = BUDGETS[agent];
+  const countFile = join(state, budget.counter);
+  let max = budget.fallback;
   try {
     const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    max = Number(config.max_opus_calls ?? 6);
+    max = Number(config[budget.key] ?? budget.fallback);
   } catch {
-    /* missing or malformed config -> the historical default */
+    /* missing or malformed config -> the default */
   }
 
   const used = Number(readFileOrDefault(countFile, '0')) || 0;
 
   if (used >= max) {
     process.stderr.write(
-      `[spec-flow] escalation budget exhausted: ${used}/${max} calls to planner+architect this run.\n\n` +
-        `Stop the loop. Do NOT spawn another planner or architect. Summarize for the ` +
+      `[spec-flow] escalation budget exhausted: ${used}/${max} calls to the ${agent} this run.\n\n` +
+        `Stop the loop. Do NOT spawn or message another ${agent}. Summarize for the ` +
         `human (HITL): which milestone is stuck, what the gate reported, and what you ` +
-        `would ask the planner or the architect if you could. Then wait.\n\n` +
-        `If the run legitimately needs more, the human can raise max_opus_calls in ` +
+        `would ask the ${agent} if you could. Then wait.\n\n` +
+        `If the run legitimately needs more, the human can raise ${budget.key} in ` +
         `.claude/spec-flow.config.json or reset the counter:\n` +
-        `  printf '0' > .claude/state/opus_calls\n`,
+        `  printf '0' > .claude/state/${budget.counter}\n`,
     );
     process.exit(2); // PreToolUse denial protocol
   }

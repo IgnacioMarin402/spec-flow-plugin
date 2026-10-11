@@ -61,7 +61,7 @@ Either way, guessing is expensive in a specific way: layer placement is usually 
 **Anything that writes: look for a write-path skill and load it before you write.** Where a project ships one, it carries the concurrency mechanics that project settled on.
 
 ## Escalate to the architect — do not guess on hard calls
-You are the cheap, fast model. When a decision is **complex, design-sensitive, or ambiguous** — e.g. a non-obvious abstraction, a cross-module contract, concurrency/transaction boundaries, a public interface/DTO shape, a security-relevant choice, or anything where guessing wrong is costly — do NOT improvise. Stop and ask the architect. Return:
+You are the cheap, fast model. When you have a technical doubt about how best to build something, or a decision is **complex, design-sensitive, or ambiguous** — e.g. a non-obvious abstraction, a cross-module contract, concurrency/transaction boundaries, a public interface/DTO shape, a security-relevant choice, or anything where guessing wrong is costly — do NOT improvise. Stop and ask the architect. If your session also offers an advisor tool, a design doubt still goes to the architect: its answer is budgeted and on record, and the advisor's is neither (ADR-038). Return:
 
 ```
 STATUS: NEEDS_ARCHITECT
@@ -94,7 +94,7 @@ CHANGED_FILES:
 SKILL_MISS: <a skill you needed that Mk.md did not name — omit the line entirely when there were none>
 NOTES: <anything the reviewer/gate should know>
 ```
-or, if the plan itself blocks you (not just a design doubt):
+or, rarely, if following the plan cannot meet the spec — a requirement it cannot reach, a step that contradicts the spec. A doubt about how to build something is the architect's, above; this one routes a re-plan:
 ```
 STATUS: BLOCKED
 MILESTONE: <Mk>

@@ -217,14 +217,19 @@ could not be named, `files=0` means it resolved to HEAD.
 `.claude/spec-flow.config.json` — preferences, not facts about the repo:
 
 ```json
-{ "max_opus_calls": 6, "agents": { "architect": "sonnet" } }
+{ "max_opus_calls": 6, "max_architect_calls": 3, "agents": { "architect": "fable" } }
 ```
 
-- **`max_opus_calls`** (default 6) caps planner + architect calls per run, by
-  role, whatever tier they run on. Past it the spawn is denied and the
-  orchestrator summarises for a human. Counter: `.claude/state/opus_calls`.
+- **`max_opus_calls`** (default 6) caps planner calls per run, and
+  **`max_architect_calls`** (default 3) caps architect calls, each by role,
+  whatever tier it runs on. Past a cap the spawn is denied and the orchestrator
+  summarises for a human. Counters: `.claude/state/opus_calls` and
+  `.claude/state/architect_calls`
+  ([ADR-038](decisions/038-the-architect-answers-the-implementer-and-a-re-plan-needs-a-wrong-plan.md)).
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
-  `fable`. A hook applies it to the spawn; an unknown agent or tier denies the
+  `fable`. The architect advisor runs on Opus unless routed;
+  `/spec-flow:models architect fable` moves it to Fable. A hook applies it to
+  the spawn; an unknown agent or tier denies the
   spawn ([ADR-014](decisions/014-a-project-routes-tiers-not-versions.md)).
 - **No `effort`**: the file routes a tier, not an effort. Four agents declare
   their own; the implementer takes the session's `effortLevel`
@@ -382,7 +387,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from, or a case 3 brief has no person's answer since it was written |
 | `orchestrator-scope` | `PreToolUse` | `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` | During a run, denies the session itself — not a subagent — reading a repository file outside `specflow/`, `specs/`, `.spec-flow/`, `.claude/` and the root's `*.md`, or writing, moving or deleting one outside `.claude/state/` and `specflow/`, or a log under `.claude/state/` ([ADR-034](decisions/034-the-orchestrator-routes-and-a-hook-keeps-it-routing.md)) |
-| `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
+| `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner and architect calls, each against its own cap, and denies past it |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it, by type, name or a message to its id; from `spec`, denies the spawn instead while a live spec is not ready to build from; in any run phase, denies it while a case 3 brief has no person's answer since it was written |
 | `dispatch-guard` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Records, and lets through, a dispatch of the session's the commands do not describe: an agent outside its phase, one that is not this flow's, an implementer handed more or less than `plan.md` and its milestone, a message to an agent this session did not spawn ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)) |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
@@ -475,6 +480,10 @@ armed.
   sealed by another session. Both checks fail closed
   ([ADR-017](decisions/017-a-repository-does-not-get-to-arm-this-engine.md)).
 - **To stand a run down yourself**: `printf 'idle' > .claude/state/phase`.
+- **Without a terminal** (`claude -p`, the Agent SDK, CI) a run needs
+  `--permission-mode auto` or `bypassPermissions`. `.claude/` is a protected
+  path: in `default` and `acceptEdits` the phase write asks a human who is not
+  there, no allow rule pre-approves it, and the run never starts.
 
 ---
 
@@ -487,7 +496,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
 | `current-milestone` | `<SLUG> <Mk> <implementer session>`, written at each implementer spawn; where `resume` positions the run |
-| `opus_calls` | Planner + architect calls this run |
+| `opus_calls` / `architect_calls` | Planner calls / architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
 | `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts |

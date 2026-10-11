@@ -63,6 +63,15 @@ counted them (ADR-037). Its header documents `out` as a floor; `stats` and
 read off it comes out low. **Done:** the reports say floor, or the count comes
 from where the final number is.
 
+### B44 — the advisor's tokens are counted nowhere
+
+An advisor consultation is billed at the advisor model's rates, but its tokens
+arrive in `usage.iterations` as `advisor_message`, outside the usage
+`token-trace` sums (ADR-038). The planner may consult one wherever the human
+enabled it. **Done:** `token-trace` records the advisor's iterations as a group
+of their own, by model and by the agent that consulted it, and `stats` reports
+them.
+
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full

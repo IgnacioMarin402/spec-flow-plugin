@@ -146,6 +146,12 @@ const NOT_ROUTED = {
   ANSWERS: 'handed whole to the re-invoked reviewer ("with the answers"), which reads them by meaning',
   CHANGES: 'REPLAN\'s account of what it rewrote; the implementer is sent back to the revised Mk.md, not to this line',
 
+  // The architect's answer, handed whole to the implementer as its
+  // ARCHITECT_GUIDANCE. The implementer reads it by meaning; the orchestrator
+  // branches only on IF_PLAN_WRONG, which is named.
+  'architect.DECISIONS': 'relayed whole to the implementer as ARCHITECT_GUIDANCE; nothing branches on it',
+  'architect.DESIGN_NOTES': 'relayed whole to the implementer with DECISIONS; nothing branches on it',
+
   // The reviewer's remarks on a plan it APPROVED. Nothing branches on them:
   // a doubt comes back as ESCALATE, a fixable problem as CHANGES_REQUESTED.
   'reviewer.NOTES': 'optional remarks on an APPROVED plan; a doubt or a problem comes back under a status that is routed',
@@ -159,14 +165,15 @@ const NOT_ROUTED = {
 };
 
 // The agents whose return blocks carry a finding the orchestrator itself must
-// act on. The implementer's and the architect's are left out on purpose: what
-// they return is handed whole to the next agent (guidance to the implementer,
-// a block to the planner), so the orchestrator relays it rather than
-// branching on its fields. The planner is in: its NOTES are for the human.
+// act on. The implementer's is left out on purpose: what it returns is handed
+// whole to the next agent, so the orchestrator relays it rather than
+// branching on its fields. The planner is in: its NOTES are for the human. So
+// is the architect: the orchestrator branches on its IF_PLAN_WRONG, and its
+// NOTES are for the human (ADR-038).
 //
 // An agent's blocks live in `agents/<name>.md` and in its `modes/<name>-*.md`,
 // which it reads per mode; they are its blocks as much as the main file's are.
-const ROUTED_AGENTS = ['spec-writer', 'planner', 'reviewer'];
+const ROUTED_AGENTS = ['spec-writer', 'planner', 'reviewer', 'architect'];
 const MODES = join(ROOT, 'modes');
 
 const returnedBy = new Map(); // field -> agents declaring it
