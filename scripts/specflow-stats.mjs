@@ -722,17 +722,22 @@ if (tokenLines.length === 0) {
         const back = returned.get(e.agent_id);
         const role = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
         const key = `${role}|${e.model}`;
-        const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, maxPrompt: 0 };
+        const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, maxPrompt: 0, msgs: 0 };
         if (e.agent_id) row.agents.add(e.agent_id);
         if (back?.effort) row.efforts.add(back.effort);
         for (const f of ['in', 'out', 'cache_read', 'cache_write']) row[f] += Number(e[f]) || 0;
+        row.msgs += Number(e.msgs) || 0;
         row.maxPrompt = Math.max(row.maxPrompt, Number(e.max_prompt) || 0);
         byRole.set(key, row);
       }
       say(`  by role${runs.length > 1 ? ` [${run.name}]` : ''}:`);
       for (const r of [...byRole.values()].sort((a, b) => b.out - a.out)) {
         const who = r.role === 'orchestrator' ? 'orchestrator' : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
-        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${human(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}`);
+        // Every message re-reads the whole prompt, so a role's cost is its
+        // message count times its average prompt — the two numbers a change
+        // to how the orchestrator works moves (ADR-033).
+        const perMessage = r.msgs > 0 ? `  ${r.msgs} msg, ~${human(Math.round((r.in + r.cache_read + r.cache_write) / r.msgs))} prompt/msg` : '';
+        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${human(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}${perMessage}`);
       }
     }
   } else if (subagentOut > 0 && spawns > 0) {
