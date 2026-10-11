@@ -54,7 +54,7 @@ import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
 import { resolveBase, changesAtBase } from '../scripts/changed-files.mjs';
-import { specTimeProblems } from '../scripts/spec-time.mjs';
+import { leavingSpecProblems } from '../scripts/spec-time.mjs';
 
 /** Change folders under `specflow/` that were never stamped and archived. */
 function liveChanges(root) {
@@ -258,15 +258,10 @@ await run(async () => {
 
   // ---- leaving `spec` needs a spec its first gate would accept (ADR-030) ---
   // Otherwise a planner and a reviewer are spent before spec-trace rejects
-  // it. From the files alone, so it holds whoever wrote the spec. Only the
-  // changes with no plan yet: one with a plan left `spec` already, and a run
-  // planned before ADR-030 is not held to it. Except a fix brief, whose
-  // triage writes its plan inside `spec` (ADR-033): its plan says nothing
-  // about having left.
+  // it. From the files alone, so it holds whoever wrote the spec; which
+  // changes it judges is `leavingSpecProblems`'s, shared with arm-gate.
   if (phase === 'spec' && LEAVES_SPEC.includes(written)) {
-    const isFixBrief = (slug) => /^## Case\b/m.test(readFileOrDefault(join(root, 'specflow', slug, 'spec.md'), ''));
-    const unplanned = liveChanges(root).filter((slug) => !existsSync(join(root, 'specflow', slug, 'plan.md')) || isFixBrief(slug));
-    const found = specTimeProblems(root, unplanned);
+    const found = leavingSpecProblems(root);
     if (found.length > 0) {
       deny(
         `writing '${written}' while the spec is not ready to build from:\n${found.map((p) => `  - ${p}`).join('\n')}\n\n` +

@@ -28,3 +28,21 @@ export function specTimeProblems(root, slugs) {
   }
   return found;
 }
+
+/**
+ * What leaving `spec` is held to (ADR-030): every live change with no plan
+ * yet — one with a plan left `spec` already — and every fix brief, whose
+ * triage writes its plan inside `spec` (ADR-033). One copy, because
+ * phase-guard judges the phase write that leaves and arm-gate the implementer
+ * spawn that would leave without one, and the two must not disagree.
+ */
+export function leavingSpecProblems(root) {
+  const dir = join(root, 'specflow');
+  if (!existsSync(dir)) return [];
+  const isFixBrief = (slug) => existsSync(join(dir, slug, 'spec.md')) && /^## Case\b/m.test(readFileSync(join(dir, slug, 'spec.md'), 'utf8'));
+  const unplanned = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== 'archive')
+    .map((e) => e.name)
+    .filter((slug) => !existsSync(join(dir, slug, 'plan.md')) || isFixBrief(slug));
+  return specTimeProblems(root, unplanned);
+}

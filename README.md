@@ -96,7 +96,8 @@ The plugin is the whole install. For a terminal without Claude Code, or CI, the
 same engine installs as a pinned devDependency straight from this repository —
 nothing is published to npm, and `spec-flow` on npm is someone else's package
 ([REFERENCE → CLI](REFERENCE.md#cli)). To stay current:
-`/plugin marketplace update` ([REFERENCE](REFERENCE.md#staying-current)).
+`claude plugin update spec-flow@spec-flow-marketplace`, then `/reload-plugins`
+([REFERENCE](REFERENCE.md#staying-current)).
 
 ## Your first run
 

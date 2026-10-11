@@ -1543,6 +1543,34 @@ t('phase-guard does not hold a run already past spec to the assumptions rule', (
   return null;
 }, { phase: 'plan' });
 
+// arm-gate writes `implement` itself when the implementer is engaged without
+// it, and that write never passed phase-guard: from `spec` it carried a brief
+// out that phase-guard refuses to let leave.
+const UNREADY_BRIEF = '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — now right\n';
+const engageImplementer = (repo) =>
+  runHook('arm-gate.mjs', { session_id: 's', tool_name: 'Agent', tool_input: { subagent_type: 'implementer', prompt: 'specflow/my-change/plan.md specflow/my-change/milestones/M1.md' } }, repo);
+
+t('arm-gate does not carry a brief out of spec that phase-guard would hold there', (repo) => {
+  writeChange(repo, UNREADY_BRIEF, { proposal: false });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan — my-change\n');
+  const r = engageImplementer(repo);
+  const phase = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+  if (phase !== 'spec') return `engaging the implementer moved the phase to "${phase}" over a CHANGED with no kind`;
+  if (r.status !== 2) return `the implementer was engaged over a brief that is not ready (exit ${r.status})`;
+  return /CHANGED/.test(r.stderr) && /spec-writer/.test(r.stderr) ? null : `the denial does not name the problem and route it: ${r.stderr.slice(0, 400)}`;
+}, { phase: 'spec' });
+
+// Guard: a ready brief arms as before — the backstop still holds when the
+// orchestrator forgets the phase write.
+t('arm-gate still arms from spec over a brief that is ready', (repo) => {
+  writeChange(repo, UNREADY_BRIEF.replace('REQ-USER-001 —', 'REQ-USER-001 (correction) —'), { proposal: false });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan — my-change\n');
+  const r = engageImplementer(repo);
+  if (r.status !== 0) return `a ready brief was denied (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
+  const phase = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+  return phase === 'implement' ? null : `phase is "${phase}" — the implementer would run with the gate disarmed`;
+}, { phase: 'spec' });
+
 t('phase-guard denies blocked from anything but the gate', (repo) => {
   const r = runHook(
     'phase-guard.mjs',
@@ -2049,6 +2077,86 @@ t('orchestrator-scope stands down until the trace shows this build attributes ca
   const r = sessionWrite(repo, 'lib/a.ts');
   if (r.status !== 0) return `it denied with no evidence that subagent calls carry an agent_id (exit ${r.status}) — an implementer's write would read the same`;
   return existsSync(join(repo, '.claude/state/orchestrator-scope-unmatched.log')) ? null : 'it stood down without recording why';
+});
+
+// ---- what the orchestrator dispatches, recorded before it is denied (ADR-035) ----
+//
+// A message addresses an agent by the id its spawn returned; arm-gate read
+// only name-ish fields, so resuming the implementer by id armed nothing.
+t('arm-gate arms on a message that resumes the implementer by its id', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'blocked');
+  const r = runHook('arm-gate.mjs', subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 }), repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  const phase = readFileSync(join(repo, '.claude/state/phase'), 'utf8');
+  return phase === 'implement' ? null : `phase is "${phase}" — the implementer was put back to work with the gate disarmed`;
+});
+
+const dispatches = (repo) => {
+  const file = join(repo, '.claude/state/run-trace.log');
+  return (existsSync(file) ? readFileSync(file, 'utf8') : '').split('\n').filter((l) => l.includes(' dispatch '));
+};
+const spawn = (repo, type, prompt = '', extra = {}) =>
+  runHook('dispatch-guard.mjs', { session_id: 's', tool_name: 'Agent', tool_input: { subagent_type: type, description: 'x', prompt }, ...extra }, repo);
+const IMPL_ORDER = 'Implement specflow/my-change/milestones/M1.md; the approach is in specflow/my-change/plan.md.';
+
+t('arm-gate records each time it arms the gate for the orchestrator', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'plan');
+  runHook('arm-gate.mjs', { session_id: 's', tool_name: 'Agent', tool_input: { subagent_type: 'implementer', prompt: IMPL_ORDER } }, repo);
+  const line = dispatches(repo)[0] ?? '';
+  return / phase=plan .*dispatch agent=implementer tool=Agent result=armed why=phase/.test(line) ? null : `no record of the backstop arming: "${line}"`;
+});
+
+t('dispatch-guard records an agent put to work in a phase the commands do not dispatch it in, and lets it through', (repo) => {
+  const r = spawn(repo, 'spec-flow:reviewer');
+  if (r.status !== 0) return `a recorded dispatch was denied (exit ${r.status}): ${r.stderr}`;
+  const line = dispatches(repo)[0] ?? '';
+  return / phase=implement .*dispatch agent=reviewer tool=Agent result=record why=phase/.test(line) ? null : `no record of a reviewer mid-implement: "${line}"`;
+});
+
+t('dispatch-guard records an implementer handed more than its work order, or less', (repo) => {
+  spawn(repo, 'spec-flow:implementer', `${IMPL_ORDER} Start from lib/orders/place.ts and read specflow/my-change/spec.md.`);
+  spawn(repo, 'spec-flow:implementer', 'Implement specflow/my-change/plan.md.');
+  const [more, less] = dispatches(repo);
+  if (!/why=other-files files=lib\/orders\/place\.ts,specflow\/my-change\/spec\.md/.test(more ?? '')) return `files beyond the work order were not recorded: "${more}"`;
+  return /why=no-milestone/.test(less ?? '') ? null : `an implementer with no milestone was not recorded: "${less}"`;
+});
+
+t('dispatch-guard records a message to an agent this session never spawned', (repo) => {
+  const payload = subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 });
+  runHook('dispatch-guard.mjs', { ...payload, tool_input: { ...payload.tool_input, to: 'b0123456789abcdef' } }, repo);
+  const line = dispatches(repo)[0] ?? '';
+  return /dispatch agent=- tool=SendMessage result=record why=unknown-target to=b0123456789abcdef/.test(line) ? null : `no record of a message to nobody: "${line}"`;
+});
+
+t('dispatch-guard records an agent that is not this flow put to work mid-run', (repo) => {
+  spawn(repo, 'Explore', 'read lib/ and summarize the orders module');
+  const line = dispatches(repo)[0] ?? '';
+  return /dispatch agent=Explore tool=Agent result=record why=not-this-flow/.test(line) ? null : `no record of a general agent mid-run: "${line}"`;
+});
+
+// Guards: what the commands dispatch, as they write it, leaves no line.
+t("dispatch-guard leaves no line for the commands' own dispatches", (repo) => {
+  const at = (phase) => writeFileSync(join(repo, '.claude/state/phase'), phase);
+  at('spec');
+  spawn(repo, 'spec-flow:spec-writer', 'MODE=TRIAGE the login fails');
+  at('review');
+  spawn(repo, 'spec-flow:planner', 'MODE=CONSULT');
+  at('implement');
+  spawn(repo, 'spec-flow:implementer', IMPL_ORDER);
+  spawn(repo, 'spec-flow:implementer', `${join(repo, 'specflow/my-change/plan.md')} and ${join(repo, 'specflow/my-change/milestones/M2.md')}, with .claude/state/gate-failure.log`);
+  spawn(repo, 'spec-flow:architect', 'Which port owns this?');
+  spawn(repo, 'spec-flow:spec-writer', 'MODE=FOLD specflow/my-change/spec.md');
+  runHook('dispatch-guard.mjs', subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 }), repo);
+  const lines = dispatches(repo);
+  return lines.length === 0 ? null : `the commands' own dispatches were recorded:\n${lines.join('\n')}`;
+});
+
+t("dispatch-guard leaves a subagent's call, and a call outside a run, alone", (repo) => {
+  spawn(repo, 'Explore', '', { agent_id: 'impl1' });
+  writeFileSync(join(repo, '.claude/state/phase'), 'idle');
+  spawn(repo, 'Explore');
+  const lines = dispatches(repo);
+  return lines.length === 0 ? null : `recorded outside the orchestrator's run:\n${lines.join('\n')}`;
 });
 
 console.log('');
