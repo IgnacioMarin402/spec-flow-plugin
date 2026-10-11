@@ -31,7 +31,7 @@ const reference = (...names) =>
  * which would mask every case — registers every top-level hook, installs the
  * real check, and returns what it did.
  */
-function scan(files) {
+function scan(files, manifest = {}) {
   const root = mkdtempSync(join(tmpdir(), 'spec-flow-plugin-paths-'));
   try {
     const tree = {
@@ -40,7 +40,7 @@ function scan(files) {
       ...files,
     };
     const hooks = Object.keys(tree).filter((p) => /^hooks\/[^/]+\.mjs$/.test(p));
-    tree['hooks/hooks.json'] = JSON.stringify({ hooks: hooks.map((h) => ({ command: `node ${h}` })) });
+    tree['hooks/hooks.json'] = JSON.stringify({ hooks: hooks.map((h) => ({ command: `node ${h}` })), ...manifest });
     for (const [rel, contents] of Object.entries(tree)) {
       mkdirSync(dirname(join(root, rel)), { recursive: true });
       writeFileSync(join(root, rel), contents);
@@ -99,10 +99,34 @@ check('a parameter is not guessed at', () =>
   ),
 );
 
+// The mod's module inventory (ADR-037), in both directions, and its types contract.
+const flags = (r, text) => (r.status === 1 && r.out.includes(text) ? null : `expected "${text}", got exit ${r.status}:\n${r.out}`);
+const view = { 'hooks/view.tsx': 'export const register = () => {}\n' };
+const contract = (path) => ({ '.claude-plugin/plugin.json': JSON.stringify({ name: 'p', types: path }) });
+
+check('a module hooks.json names and the package does not ship is reported', () =>
+  flags(scan({}, { modules: ['./view.tsx'] }), 'names the module hooks/view.tsx'),
+);
+
+check('a module that ships and hooks.json never names is reported', () => flags(scan(view), 'hooks/view.tsx exists but'));
+
+check('a types contract the manifest names and the package does not ship is reported', () =>
+  flags(scan({ ...view, ...contract('./hooks/view-state.d.ts') }, { modules: ['./view.tsx'] }), 'names the types contract'),
+);
+
+check('a module and its contract, shipped and named, pass', () =>
+  passes(
+    scan(
+      { ...view, 'hooks/view.test.tsx': '', 'hooks/view-state.d.ts': '', ...contract('./hooks/view-state.d.ts') },
+      { modules: ['./view.tsx'] },
+    ),
+  ),
+);
+
 if (failures.length > 0) {
   console.error(`plugin-paths-fixture: ${failures.length} case(s) failed.\n`);
   for (const f of failures) console.error(`  - ${f}\n`);
   process.exit(1);
 }
 
-console.log('plugin-paths-fixture: OK — the state inventory follows a constant to its literal, and guesses at no parameter.');
+console.log('plugin-paths-fixture: OK — the state inventory follows a constant to its literal and guesses at no parameter; every module and its contract ship and are named.');

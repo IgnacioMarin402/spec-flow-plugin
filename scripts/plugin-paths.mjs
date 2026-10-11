@@ -136,8 +136,11 @@ for (const file of modules) {
   }
 }
 
-// The state contract a module's `$.state` keys are validated against.
-const contract = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).types;
+// The state contract a module's `$.state` keys are validated against. `types`
+// is optional and so is the manifest here: plugin-paths-fixture builds trees
+// with neither, and `claude plugin validate` is what requires the manifest.
+const pluginManifest = join(ROOT, '.claude-plugin', 'plugin.json');
+const contract = existsSync(pluginManifest) ? JSON.parse(readFileSync(pluginManifest, 'utf8')).types : undefined;
 if (contract && !existsSync(join(ROOT, contract))) {
   findings.push(`.claude-plugin/plugin.json names the types contract ${contract}, which this package does not ship`);
 }
