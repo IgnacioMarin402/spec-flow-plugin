@@ -50,8 +50,18 @@ the command pins a model. Needs B37.
 
 ### B41 — which hooks could be mods
 
-A mod may only show (ADR-029). **Done:** a list of the hooks and scripts that
-only observe, each with what a mod would add, before any is moved.
+A mod may only show (ADR-029), from `.claude/state/` and the session's own
+events (ADR-037). **Done:** a list of the hooks and scripts that only observe,
+each with what a mod would add, before any is moved.
+
+### B42 — a live view of a run, as a mod
+
+Each agent's role, time, tool calls and tokens while it works, and what it
+handed back (ADR-037). A prototype passes `claude plugin test`; no real run has
+been watched with it. **Done:** one real run in which its per-agent counts
+equal `token-trace`'s for every agent that finished. Then its module goes in
+`hooks/hooks.json` with an option that turns it off, and CI validates and tests
+it against the newest Claude Code on both operating systems.
 
 ### B15 — model-graded checks
 

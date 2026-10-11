@@ -1,6 +1,6 @@
 # ADR-029 — the session orchestrates, checks run where a terminal and CI can, and a mod only shows
 
-**Date:** 2026-10-08 · **Status:** accepted · **Governs:** `commands/spec-flow.md`, `BACKLOG.md` · **Related:** ADR-010, ADR-016, ADR-019, ADR-023
+**Date:** 2026-10-08 · **Status:** accepted (what a mod may show amended by [ADR-037](037-a-mod-may-show-the-sessions-events-and-still-decides-nothing.md)) · **Governs:** `commands/spec-flow.md`, `BACKLOG.md` · **Related:** ADR-010, ADR-016, ADR-019, ADR-023
 
 **Question.** Two shapes came up once cheaper models made more agents
 affordable: a dedicated orchestrator agent, and enforcement written as a mod
