@@ -25,6 +25,7 @@ import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs'
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { parseReturn } from '../scripts/agent-blocks.mjs';
 import { handedBack } from './lib/handback.mjs';
+import { toolAt } from '../scripts/argv.mjs';
 
 function appendUnique(path, line) {
   try {
@@ -50,7 +51,8 @@ function traceWrite(input, suffixes) {
 /**
  * Whether the runner is the program this command runs, rather than a word in
  * it: `npx vitest run x.test.ts` runs it, `grep vitest package.json` does not.
- * Wrappers and leading `VAR=value` assignments are skipped; a multi-word name
+ * Wrappers and leading `VAR=value` assignments are skipped, and so is `node`
+ * running the runner's own script by path (`toolAt`); a multi-word name
  * (`node --test`) needs its first word in program position and the rest after.
  */
 function runsRunner(cmd, testName) {
@@ -63,7 +65,8 @@ function runsRunner(cmd, testName) {
     if (/^(exec|dlx|run)$/.test(tokens[i] ?? '')) i++;
   }
   const program = (tokens[i] ?? '').replace(/^.*[\\/]/, '');
-  return program === words[0] && words.slice(1).every((w) => tokens.slice(i + 1).includes(w));
+  if (program === words[0] && words.slice(1).every((w) => tokens.slice(i + 1).includes(w))) return true;
+  return words.length === 1 && toolAt(tokens, i).name === testName;
 }
 
 /**
@@ -78,6 +81,10 @@ function runsRunner(cmd, testName) {
  * threshold, say). A red verdict is what credits a requirement with
  * test-first, so an unsure failure is `?`. A PostToolUse run is read from its
  * text, because a pipe can hide a failing exit.
+ *
+ * A `?` carries `why=`: what this hook was not given. `specflow-stats.mjs`
+ * reports it as that, never as "no red run" — a run it could not read is
+ * not a run that did not happen.
  */
 function traceTest(input, res, testName, failure) {
   if (!testName) return ''; // no contract read -> no runner name to look for, trace nothing rather than guess one
@@ -102,22 +109,22 @@ function traceTest(input, res, testName, failure) {
       .join(',') || '-';
 
   // `Tests:` is jest's summary, `Tests  N` vitest's; mocha and node's own
-  // runner say no files were found, or could not find one.
+  // runner say no files were found, or could not find one. `Test Suites:` /
+  // `Test Files` count a suite that failed before any test ran — the first red
+  // of a test written ahead of its module, which reports `Tests: 0 total`.
   let verdict = '?';
-  if (/^\s*Tests:?\s.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
-  else if (/^\s*Tests:?\s.*\bpassed\b/m.test(out)) verdict = failure ? '?' : 'green';
+  let why = '';
+  if (/^\s*(Tests:?|Test Suites:|Test Files)\s.*\bfailed\b/m.test(out) || /✕/.test(out)) verdict = 'red';
+  else if (/^\s*Tests:?\s.*\bpassed\b/m.test(out)) [verdict, why] = failure ? ['?', 'summary-passed'] : ['green', ''];
   else if (/\bNo tests? (files )?found\b/i.test(out) || /^Could not find '/m.test(out)) verdict = 'none';
-  else if (
-    failure &&
-    !failure.interrupted &&
-    target !== '-' &&
-    runsRunner(cmd, testName) &&
-    !/Exit code 12[67]\b|command not found|is not recognized as/.test(out)
-  ) {
-    verdict = 'red';
-  }
+  else if (!failure) why = /(^|[^|])\|([^|]|$)/.test(cmd) ? 'pipe' : 'no-summary'; // a pipe's exit is its last command's
+  else if (failure.interrupted) why = 'interrupted';
+  else if (/Exit code 12[67]\b|command not found|is not recognized as/.test(out)) why = 'not-found';
+  else if (target === '-') why = 'no-path';
+  else if (!runsRunner(cmd, testName)) why = 'not-the-runner';
+  else verdict = 'red';
 
-  return `test verdict=${verdict} target=${target}`;
+  return `test verdict=${verdict} target=${target}${why ? ` why=${why}` : ''}`;
 }
 
 /**

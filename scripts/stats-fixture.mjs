@@ -448,10 +448,110 @@ check('a milestone held in both tiers is reported once', () => {
   return seen === 1 ? '' : `milestone 1 was reported ${seen} time(s); the run exists in both tiers but happened once.\n--- report ---\n${out}`;
 });
 
+// A snapshot is committed and read from other checkouts. Recorded on Windows
+// under another user's directory, every read pointed "outside the repository"
+// from here, and the planner warning fired on reads that were all in scope.
+check('an archived run recorded under another root reads as this repo', () => {
+  const recorded = 'C:\\Users\\someone\\work\\shop';
+  const at = (rel) => `${recorded}\\${rel.replace(/\//g, '\\')}`;
+  const { out } = report({
+    files: { 'specs/orders.md': ORDERS_SPEC, ...changeFiles('specflow/archive/ship-orders') },
+    archived: [
+      {
+        slug: 'ship-orders',
+        trace: [
+          readIn(1, 'plan', at('specflow/ship-orders/spec.md')),
+          readIn(2, 'plan', at('lib/orders/place.ts')),
+          readIn(3, 'plan', at('lib/billing/tax.ts')),
+          readIn(4, 'plan', 'C:\\Users\\someone\\AppData\\engine\\scripts\\gate.mjs'),
+        ],
+      },
+    ],
+  });
+  return contains(out, 'plan: 4 read(s), 2 outside the scope — lib/billing x1, (outside the repository) x1');
+});
+
+// ---- test-first: a test written, run red, then the code ---------------------
+const write = (minute, file) => `${stamp(minute)} phase=implement write file=${file}`;
+const ran = (minute, verdict, why) => `${stamp(minute)} phase=implement test verdict=${verdict} target=tests/orders/place.spec.ts${why ? ` why=${why}` : ''}`;
+/** The Test-first section alone: the warnings below it carry other sections' words. */
+const testFirst = (out) => /^Test-first\n([\s\S]*?)\n\n/m.exec(out)?.[1] ?? '';
+
+check('a test written, run red, then its code is red-first', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, 'red'), write(3, 'lib/orders/place.ts')] });
+  return contains(testFirst(out), 'OK   lib/orders/place.ts  (red-first)');
+});
+
+check('code written before its test is code-first', () => {
+  const { out } = report({ trace: [write(1, 'lib/orders/place.ts'), write(2, 'tests/orders/place.spec.ts')] });
+  return contains(testFirst(out), 'MISS lib/orders/place.ts  (code-first)');
+});
+
+// The fabricated verdict: an agent reading a module and then its test, both
+// long written, read as "code first" — every module a planner or implementer
+// looked at turned up as a test-first MISS of the run that looked.
+check('a module and its test that were only read are not paired', () => {
+  const { out } = report({ trace: [read(1, 'lib/orders/place.ts'), read(2, 'tests/orders/place.spec.ts'), write(3, 'lib/other.ts')] });
+  return testFirst(out).includes('place.ts') ? `paired two files that were only read.\n--- report ---\n${out}` : '';
+});
+
+// A run the trace could not judge is not a run that did not happen. Reported
+// as one, every red run run-trace failed to read became a "no red run" MISS.
+check('a test run with no readable verdict is unmeasured, not missed', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, '?', 'pipe'), write(3, 'lib/orders/place.ts')] });
+  const section = testFirst(out);
+  if (section.includes('no-red-run')) return `reported an unreadable run as no red run.\n--- report ---\n${out}`;
+  return contains(section, '?    lib/orders/place.ts  (a test run the trace could not judge: pipe)') || contains(out, 'unmeasured, not missed');
+});
+
+check('a `?` from before why= existed is unmeasured too', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, '?'), write(3, 'lib/orders/place.ts')] });
+  return contains(testFirst(out), '(a test run the trace could not judge: not-recorded)');
+});
+
+check('a `?` that was not a failed test run leaves the miss standing', () => {
+  const { out } = report({ trace: [write(1, 'tests/orders/place.spec.ts'), ran(2, '?', 'not-the-runner'), write(3, 'lib/orders/place.ts')] });
+  return contains(testFirst(out), 'MISS lib/orders/place.ts  (no-red-run)');
+});
+
+check('the test-first warning counts source files and the runs they span', () => {
+  const trace = [write(1, 'tests/orders/place.spec.ts'), write(2, 'lib/orders/place.ts')];
+  const { out } = report({ archived: [{ slug: 'one', trace }, { slug: 'two', trace: trace.map((l) => l.replace('10:0', '11:0')) }] });
+  return contains(out, '2 of 2 source file(s) across 2 runs show no red test run before the code');
+});
+
+// ---- the gate: a PASS followed by nothing ----------------------------------
+// After a PASS the next milestone's implementer works for as long as it takes,
+// and the next gate line comes only when it ends. Measured to that line, every
+// milestone longer than the stall threshold read as a run that had stopped.
+check('a PASS followed by the next milestone working is not a stall', () => {
+  const trace = [agent(1, 'implementer'), read(2, 'lib/orders/place.ts'), read(9, 'lib/orders/ship.ts')];
+  const { out } = report({ archived: [{ slug: 'shipped', gate: [pass(0), pass(11)], trace }] });
+  return out.includes('had to be nudged') ? `called a working milestone a stall.\n--- report ---\n${out}` : '';
+});
+
+check('a PASS followed by nothing at all is a stall', () => {
+  const { out } = report({ archived: [{ slug: 'shipped', gate: [pass(0), pass(15)], trace: [read(15, 'lib/orders/place.ts')] }] });
+  return contains(out, 'had to be nudged');
+});
+
+const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+const passAgo = (minutes) => `${ago(minutes)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=pass lint=0 test=0 unscoped=ok files=1`;
+
+check('a live PASS with an implementer still working is not stalled right now', () => {
+  const { out } = report({ gate: [passAgo(30)], trace: [`${ago(1)} phase=implement read file=lib/orders/place.ts agent_id=a1`] });
+  return out.includes('stalled RIGHT NOW') ? `called a working milestone stalled.\n--- report ---\n${out}` : '';
+});
+
+check('a live PASS with nothing since is stalled right now', () => {
+  const { out } = report({ gate: [passAgo(30)] });
+  return contains(out, 'the run looks stalled RIGHT NOW');
+});
+
 // ---- report ---------------------------------------------------------------
 if (failures.length > 0) {
   console.error(`stats: ${failures.length} case(s) failed.\n`);
   for (const f of failures) console.error(`  - ${f.name}\n    ${f.problem}\n`);
   process.exit(1);
 }
-console.log('stats: OK — the session-reuse and read-scope sections hold under their cases.');
+console.log('stats: OK — the stall check and the session-reuse, read-scope and test-first sections hold under their cases.');

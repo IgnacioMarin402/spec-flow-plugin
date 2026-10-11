@@ -147,28 +147,37 @@ if (gate.length === 0) {
   }
   if (passes > 0) say(`  passed the first time: ${firstTime} of ${passes} PASS(es) had no failure since the previous one`);
 
+  // What follows a PASS is the next milestone's work, and that shows in the
+  // trace — reads, writes, spawns, token lines — while the next gate line
+  // waits for that milestone to end. A stalled run is a PASS followed by
+  // nothing, so the quiet runs to the first line of EITHER log after it.
+  const activity = (run) => [...run.gate, ...run.trace].map((e) => e.at).filter(Boolean);
   let worst = null;
   for (const run of runs) {
-    for (let i = 0; i < run.gate.length - 1; i++) {
-      if (run.gate[i].result !== 'pass' || !run.gate[i].at || !run.gate[i + 1].at) continue;
-      const gap = minutesBetween(run.gate[i].at, run.gate[i + 1].at);
-      if (!worst || gap > worst.gap) worst = { gap, at: run.gate[i].at, run: run.name };
+    const times = activity(run).sort((a, b) => a - b);
+    for (const g of run.gate) {
+      if (g.result !== 'pass' || !g.at) continue;
+      const next = times.find((at) => at > g.at);
+      if (!next) continue;
+      const gap = minutesBetween(g.at, next);
+      if (!worst || gap > worst.gap) worst = { gap, at: g.at, run: run.name };
     }
   }
   if (worst) {
     const where = runs.length > 1 ? ` in ${worst.run}` : '';
-    say(`  longest gap after a PASS: ${worst.gap}m${where} (${worst.at.toISOString()})`);
+    say(`  longest quiet after a PASS: ${worst.gap}m${where} (${worst.at.toISOString()})`);
     if (worst.gap >= STALL_MINUTES) {
-      warn.push(`a PASS was followed by ${worst.gap}m of gate silence${where} — the run had to be nudged.`);
+      warn.push(`a PASS was followed by ${worst.gap}m with nothing running${where} — the run had to be nudged.`);
     }
   }
 
   const last = current.gate[current.gate.length - 1];
   if (last && last.result === 'pass' && phase === 'implement' && last.at) {
-    const idle = minutesBetween(last.at, new Date());
-    say(`  last line is a PASS, ${idle}m ago, phase still \`implement\``);
+    const latest = activity(current).reduce((a, b) => (b > a ? b : a), last.at);
+    const idle = minutesBetween(latest, new Date());
+    say(`  last gate line is a PASS, phase still \`implement\`, ${idle}m since anything ran`);
     if (idle >= STALL_MINUTES) {
-      warn.push(`the run looks stalled RIGHT NOW: ${idle}m since a PASS with the phase still armed. Nothing re-wakes the orchestrator on a pass.`);
+      warn.push(`the run looks stalled RIGHT NOW: ${idle}m with nothing running since a PASS, phase still armed. Nothing re-wakes the orchestrator on a pass.`);
     }
   }
 }
@@ -223,12 +232,17 @@ try {
   pairingProblem = `the contract could not be read (${err.message.split('\n')[0]})`;
 }
 
+// A `?` run-trace could not judge is a run that may have been red; one whose
+// `why=` says no test failed (not the runner, not found, its own summary says
+// passed) is evidence of nothing. A line from before `why=` existed is the former.
+const NOT_A_FAILED_RUN = new Set(['not-the-runner', 'not-found', 'summary-passed']);
+
 const verdicts = [];
 for (const run of expectedTestName ? runs : []) {
   const firstWrite = new Map();
   const firstWriteByName = new Map();
   for (const [i, e] of run.trace.entries()) {
-    if (!e.file) continue;
+    if (!e.file || !e.raw.includes(' write file=')) continue; // a READ of a file says nothing about when it was written
     if (!firstWrite.has(e.file)) firstWrite.set(e.file, i);
     if (!firstWriteByName.has(baseOf(e.file))) firstWriteByName.set(baseOf(e.file), i);
   }
@@ -239,9 +253,13 @@ for (const run of expectedTestName ? runs : []) {
     const specIdx = firstWriteByName.get(testName);
     if (specIdx === undefined) continue;
 
-    const redBetween = run.trace.some((e, i) => i > specIdx && i < sourceIdx && e.verdict === 'red');
-    const status = specIdx > sourceIdx ? 'code-first' : redBetween ? 'red-first' : 'no-red-run';
-    verdicts.push({ file, status, run: run.name });
+    const between = run.trace.filter((e, i) => i > specIdx && i < sourceIdx && e.verdict);
+    const unjudged = between.filter((e) => e.verdict === '?' && !NOT_A_FAILED_RUN.has(e.why));
+    let status = 'no-red-run';
+    if (specIdx > sourceIdx) status = 'code-first';
+    else if (between.some((e) => e.verdict === 'red')) status = 'red-first';
+    else if (unjudged.length > 0) status = 'no-verdict';
+    verdicts.push({ file, status, why: [...new Set(unjudged.map((e) => e.why ?? 'not-recorded'))].join(','), run: run.name });
   }
 }
 
@@ -254,14 +272,20 @@ if (!expectedTestName) {
 } else if (verdicts.length === 0) {
   say('  no source file was written alongside its own test in this trace.');
 } else {
-  for (const { file, status, run } of verdicts) {
-    const mark = status === 'red-first' ? 'OK  ' : 'MISS';
+  for (const { file, status, why, run } of verdicts) {
+    const mark = { 'red-first': 'OK  ', 'no-verdict': '?   ' }[status] ?? 'MISS';
     const where = runs.length > 1 ? `  [${run}]` : '';
-    say(`  ${mark} ${file}  (${status})${where}`);
+    say(`  ${mark} ${file}  (${status === 'no-verdict' ? `a test run the trace could not judge: ${why}` : status})${where}`);
   }
-  const missed = verdicts.filter((v) => v.status !== 'red-first');
+  const across = new Set(verdicts.map((v) => v.run)).size;
+  const scope = across > 1 ? ` across ${across} runs` : '';
+  const missed = verdicts.filter((v) => v.status === 'code-first' || v.status === 'no-red-run');
   if (missed.length > 0) {
-    warn.push(`${missed.length}/${verdicts.length} requirement(s) show no red test run before the code. A test written after the implementation mirrors it and passes on day one.`);
+    warn.push(`${missed.length} of ${verdicts.length} source file(s)${scope} show no red test run before the code. A test written after the implementation mirrors it and passes on day one.`);
+  }
+  const unjudged = verdicts.filter((v) => v.status === 'no-verdict');
+  if (unjudged.length > 0) {
+    warn.push(`${unjudged.length} of ${verdicts.length} source file(s)${scope} had their test run before the code, with a verdict the trace could not read (why= in run-trace.log) — unmeasured, not missed.`);
   }
 }
 say('');
@@ -358,13 +382,34 @@ const norm = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '').replace(/
 
 const rootNorm = norm(root);
 
-/** A read's path relative to this repo, or null when it points outside it. */
-function insideRepo(file) {
+/**
+ * The root an archived run's absolute paths were recorded under, or null. A
+ * snapshot is committed, so it is read from checkouts other than the one that
+ * wrote it — another machine, OS or directory — where its paths do not start
+ * with `root`. Every run touches its own change folder, so the part in front
+ * of `specflow/[archive/]<slug>/` is that root.
+ */
+function recordedRoot(run) {
+  if (run.name === '(current)') return null;
+  const own = new RegExp(`^(([a-zA-Z]:)?/.*)/specflow/(archive/)?${run.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`);
+  for (const e of run.trace) {
+    const m = e.file ? own.exec(norm(e.file)) : null;
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** A read's path relative to this repo — or to the root `recorded` names — or null when it points outside it. */
+function insideRepo(file, recorded = null) {
   const p = norm(file);
   // Drive letters and the paths under them arrive in whichever case the tool
-  // was handed, so the prefix test is case-blind where the filesystem is.
-  const under = process.platform === 'win32' ? p.toLowerCase().startsWith(`${rootNorm.toLowerCase()}/`) : p.startsWith(`${rootNorm}/`);
-  if (under) return p.slice(rootNorm.length + 1);
+  // was handed, so the prefix test is case-blind where the filesystem is: on
+  // this machine for `root`, and for a root recorded on Windows.
+  for (const [base, caseBlind] of [[rootNorm, process.platform === 'win32'], [recorded, /^[a-zA-Z]:/.test(recorded ?? '')]]) {
+    if (!base) continue;
+    const under = caseBlind ? p.toLowerCase().startsWith(`${base.toLowerCase()}/`) : p.startsWith(`${base}/`);
+    if (under) return p.slice(base.length + 1);
+  }
   return /^([a-zA-Z]:)?\//.test(p) ? null : p;
 }
 
@@ -467,12 +512,13 @@ if (reads.length === 0) {
     say(`  ${label}scope ${scope.dirs.join(', ')} (from ${scope.from.join(', ')})`);
 
     const inScope = (rel) => [...alwaysIn, ...scope.dirs].some((d) => rel === d || rel.startsWith(`${d}/`));
+    const recorded = recordedRoot(run);
     for (const phase of [...new Set(runReads.map((e) => e.phase ?? '?'))]) {
       const inPhase = runReads.filter((e) => (e.phase ?? '?') === phase);
       const outside = new Map();
       let inside = 0;
       for (const e of inPhase) {
-        const rel = insideRepo(e.file);
+        const rel = insideRepo(e.file, recorded);
         if (rel !== null && inScope(rel)) {
           inside += 1;
           continue;

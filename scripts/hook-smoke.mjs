@@ -15,7 +15,7 @@
  *
  *   node scripts/hook-smoke.mjs [engine-root]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync, cpSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, utimesSync, cpSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -902,6 +902,84 @@ t('a failing run whose own summary says every test passed is not red', (repo) =>
     repo,
   );
   return verdictOf(repo) === '?' ? null : `want ?, got ${verdictOf(repo)}`;
+});
+
+// What jest prints for a test written ahead of its module — the first red of
+// test-first in a TypeScript repo. No test ran, so `Tests:` says nothing failed;
+// only the exit status and `Test Suites:` do. Taken from a real run.
+const JEST_SUITE_FAILED = [
+  'FAIL tests/a.spec.ts',
+  '  ● Test suite failed to run',
+  '',
+  "    tests/a.spec.ts:1:20 - error TS2307: Cannot find module './a' or its corresponding type declarations.",
+  '',
+  'Test Suites: 1 failed, 1 total',
+  'Tests:       0 total',
+  'Snapshots:   0 total',
+].join('\n');
+
+t('a runner launched as `node <its script>` that fails on a path is a red run', (repo) => {
+  runHook('run-trace.mjs', bashFailure('node --experimental-vm-modules node_modules/ftest/bin/ftest.js tests/a.spec.ts', 'Exit code 1\nexpected 3, got undefined'), repo);
+  return verdictOf(repo) === 'red' ? null : `want red, got ${verdictOf(repo)}: ${traceText(repo)}`;
+});
+
+t('a suite that failed to run is red even when a pipe hid the exit status', (repo) => {
+  runHook(
+    'run-trace.mjs',
+    { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'npx ftest tests/a.spec.ts 2>&1 | tail -20' }, tool_response: { stdout: JEST_SUITE_FAILED, stderr: '' } },
+    repo,
+  );
+  return verdictOf(repo) === 'red' ? null : `want red, got ${verdictOf(repo)}: ${traceText(repo)}`;
+});
+
+// The coupling the two cases above stand in for: `init` writes the runner as
+// `node <entrypoint>`, the implementer runs what the contract names, and this
+// hook has to recognise it. Checked against what init actually writes.
+t('the test argv init writes, run on a path and failing, is a red run', (repo) => {
+  const entry = join(repo, 'node_modules', 'jest', 'bin', 'jest.js');
+  mkdirSync(dirname(entry), { recursive: true });
+  writeFileSync(entry, 'process.exit(0);\n');
+  mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
+  const shim = join(repo, 'node_modules', '.bin', 'jest');
+  // npm's two bin layouts — see resolveLocalBin.
+  if (process.platform === 'win32') writeFileSync(shim, '#!/bin/sh\nexec node "$basedir/../jest/bin/jest.js" "$@"\n');
+  else symlinkSync(join('..', 'jest', 'bin', 'jest.js'), shim);
+  writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
+  const smokeContract = readFileSync(join(repo, '.spec-flow/config.json'), 'utf8');
+
+  const init = spawnSync('node', [join(ENGINE, 'scripts', 'init.mjs'), '--force'], { cwd: repo, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } });
+  const written = JSON.parse(readFileSync(join(repo, '.spec-flow/config.json'), 'utf8')).verify;
+  if (written.test_name !== 'jest' || written.test[0] !== 'node') {
+    return `init did not write jest as \`node <entrypoint>\` — this case tests nothing: ${JSON.stringify(written)} ${init.stderr}`;
+  }
+  // Only the runner from init's contract: the rest of it is not this case's subject.
+  const contract = JSON.parse(smokeContract);
+  contract.verify.test = written.test;
+  contract.verify.test_name = written.test_name;
+  writeFileSync(join(repo, '.spec-flow/config.json'), JSON.stringify(contract));
+
+  runHook('run-trace.mjs', bashFailure(`${written.test.join(' ')} tests/a.spec.ts`, `Exit code 1\n${JEST_SUITE_FAILED}`), repo);
+  return verdictOf(repo) === 'red' ? null : `want red for \`${written.test.join(' ')} tests/a.spec.ts\`, got ${verdictOf(repo)}: ${traceText(repo)}`;
+});
+
+t('node running a script that is not the runner is not a red run', (repo) => {
+  runHook('run-trace.mjs', bashFailure('node scripts/build.mjs --then ftest tests/a.spec.ts', 'Exit code 1\nbuild failed'), repo);
+  return verdictOf(repo) === 'red' ? `a build script was traced as a failing test run: ${traceText(repo)}` : null;
+});
+
+// A `?` is what this hook was not given, and it says which: stats reports it
+// as that instead of as a run that never happened.
+t('a run the hook cannot judge says why', (repo) => {
+  runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts', 'Interrupted', { is_interrupt: true }), repo);
+  runHook('run-trace.mjs', bashFailure('ftest tests/a.spec.ts', 'Exit code 127\nbash: line 1: ftest: command not found'), repo);
+  runHook(
+    'run-trace.mjs',
+    { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'npx ftest tests/a.spec.ts | tail -5' }, tool_response: { stdout: 'some output', stderr: '' } },
+    repo,
+  );
+  runHook('run-trace.mjs', bashFailure('grep -rn ftest tests/a.spec.ts', 'Exit code 1'), repo);
+  const whys = [...traceText(repo).matchAll(/test verdict=\? \S+ why=(\S+)/g)].map((m) => m[1]);
+  return whys.join(',') === 'interrupted,not-found,pipe,not-the-runner' ? null : `want interrupted,not-found,pipe,not-the-runner, got ${whys.join(',') || '(none)'}: ${traceText(repo)}`;
 });
 
 t('hooks.json registers run-trace for a failing Bash call', () => {
