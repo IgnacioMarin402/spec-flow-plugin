@@ -260,9 +260,12 @@ await run(async () => {
   // Otherwise a planner and a reviewer are spent before spec-trace rejects
   // it. From the files alone, so it holds whoever wrote the spec. Only the
   // changes with no plan yet: one with a plan left `spec` already, and a run
-  // planned before ADR-030 is not held to it.
+  // planned before ADR-030 is not held to it. Except a fix brief, whose
+  // triage writes its plan inside `spec` (ADR-033): its plan says nothing
+  // about having left.
   if (phase === 'spec' && LEAVES_SPEC.includes(written)) {
-    const unplanned = liveChanges(root).filter((slug) => !existsSync(join(root, 'specflow', slug, 'plan.md')));
+    const isFixBrief = (slug) => /^## Case\b/m.test(readFileOrDefault(join(root, 'specflow', slug, 'spec.md'), ''));
+    const unplanned = liveChanges(root).filter((slug) => !existsSync(join(root, 'specflow', slug, 'plan.md')) || isFixBrief(slug));
     const found = specTimeProblems(root, unplanned);
     if (found.length > 0) {
       deny(

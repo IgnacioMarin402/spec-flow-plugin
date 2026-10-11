@@ -530,7 +530,7 @@ flowchart TD
     C1 --> W
     C2 --> W
     C4 --> W
-    W["WORK ORDER — the orchestrator writes it itself <br/> plan.md + milestones/M1.md, phase implement"]
+    W["WORK ORDER — written by the triage <br/> plan.md + milestones/M1.md; phase implement"]
     W --> I["FIX — implementer"]
     I --> CM["commit, push, end the turn"]
     CM --> G{{"the same GATE"}}

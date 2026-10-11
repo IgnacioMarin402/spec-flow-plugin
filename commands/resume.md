@@ -18,7 +18,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/commands/spec-flow.md` for a `/spec-flow` change, or
 
 - `SIGN-OFF` — write `spec`. Show the Requirement deltas and the Assumptions from `spec.md` and the Decision from `proposal.md`, and wait for an explicit OK, exactly as step 1 of `/spec-flow` says, rejection path included. The human may have approved it before the session died; nothing on disk says so, so ask. If `WHY` says a new spec-writer revises it first, invoke one with `specflow/<SLUG>/` and those problems, then sign off what it wrote.
 - `SPEC` — the spec step never finished and the requirement was only in the lost chat. Ask the human for it, then run `/spec-flow`'s step 1 with it, into the same `<SLUG>`.
-- `WORK-ORDER` — write `spec`, then `/spec-fix` steps 2 and 3. If `WHY` says a new spec-writer revises the brief first, invoke one in `MODE=TRIAGE` with `specflow/<SLUG>/` and those problems.
+- `WORK-ORDER` — write `spec`, then `/spec-fix` steps 2 and 3. If `WHY` says no work order exists, or that a new spec-writer revises the brief first, invoke one in `MODE=TRIAGE` with `specflow/<SLUG>/` and those problems: the triage writes the work order (ADR-033).
 - `REVIEW` — `/spec-flow` step 3.
 - `IMPLEMENT Mk` — write `implement`, then `/spec-flow` step 4 (or `/spec-fix` step 4) for `Mk`, with a **new** implementer: the previous one's session died with its orchestrator. Before spawning it:
   - a dirty tree is the dead session's half-written work. Show `git status` to the human and ask whether the new implementer continues from it or it is discarded; do not decide that yourself.

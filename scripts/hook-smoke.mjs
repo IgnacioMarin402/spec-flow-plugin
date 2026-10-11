@@ -692,12 +692,40 @@ t('agent-gate does not judge reads it cannot attribute, and says so', (repo) => 
   return /agent-check agent=spec-flow:spec-writer result=skip why=unattributed/.test(traceText(repo)) ? null : `no skip line: ${traceText(repo)}`;
 }, { phase: 'spec' });
 
+/** A fix brief and the work order its triage writes (ADR-033). */
+function writeFix(repo, { workOrder = true } = {}) {
+  writeChange(repo, '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (correction) — now right\n', { proposal: false });
+  if (!workOrder) return;
+  mkdirSync(join(repo, 'specflow', 'my-change', 'milestones'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan — my-change\n');
+  writeFileSync(join(repo, 'specflow', 'my-change', 'milestones', 'M1.md'), '# M1\n- Skills: none\n');
+}
+const TRIAGED = 'STATUS: TRIAGED\nCASE: 3\nSPEC_PATH: specflow/my-change/spec.md';
+const WORK_ORDER = '\nPLAN_PATH: specflow/my-change/plan.md\nWORK_ORDER_PATH: specflow/my-change/milestones/M1.md';
+
 t('agent-gate lets a ready fix brief through without the reads or the assumptions a change spec owes', (repo) => {
   writerRepo(repo);
-  writeChange(repo, '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 (correction) — now right\n', { proposal: false });
+  writeFix(repo);
   readBy(repo, 'someone-else', 'specs/README.md');
-  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: 'STATUS: TRIAGED\nCASE: 3\nSPEC_PATH: specflow/my-change/spec.md' });
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: TRIAGED + WORK_ORDER });
   return blocked(r) ? `a ready fix brief was sent back: ${r.stdout}` : null;
+}, { phase: 'spec' });
+
+// The orchestrator writing the work order read the code the triage had just
+// read, and carried it for the rest of the run (ADR-033).
+t('agent-gate sends back a triage of case 1 to 4 that names no work order', (repo) => {
+  writerRepo(repo);
+  writeFix(repo);
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: TRIAGED });
+  if (!blocked(r)) return 'a triage with no work order went through: the orchestrator would write it, reading the code again';
+  return /PLAN_PATH/.test(r.stdout) && /WORK_ORDER_PATH/.test(r.stdout) ? null : `the reason does not name both lines: ${r.stdout}`;
+}, { phase: 'spec' });
+
+t('agent-gate sends back a triage naming a work order that is not on disk', (repo) => {
+  writerRepo(repo);
+  writeFix(repo, { workOrder: false });
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: TRIAGED + WORK_ORDER });
+  return blocked(r) ? null : 'a triage naming files it never wrote went through';
 }, { phase: 'spec' });
 
 t('run-trace logs a subagent STATUS', (repo) => {
@@ -1480,6 +1508,15 @@ t('phase-guard denies implement from spec over a fix brief whose CHANGED says no
   const r = writePhase(repo, 'implement');
   if (r.status !== 2) return `implement was allowed over a CHANGED with no kind (exit ${r.status})`;
   return null;
+}, { phase: 'spec' });
+
+// The triage writes a fix's plan inside `spec` (ADR-033). Read as "already
+// left spec", that plan would let the brief out unchecked.
+t('phase-guard holds a fix brief to its spec-time checks even once its triage wrote the plan', (repo) => {
+  writeChange(repo, '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — now right\n', { proposal: false });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan — my-change\n');
+  const r = writePhase(repo, 'implement');
+  return r.status === 2 ? null : `implement was allowed over a fix brief with a CHANGED of no kind, because it had a plan (exit ${r.status})`;
 }, { phase: 'spec' });
 
 // Guards: these passed before the check existed and must keep passing.

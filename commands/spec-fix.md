@@ -15,7 +15,7 @@ You manage phase via `.claude/state/phase`, exactly as `/spec-flow` does, and yo
 
 This is not a style preference. Every enforcement hook decides whether it is armed by matching that file against a **closed set** of values — the gate, the write-time linter and the whole-repo command deny all run only on `implement`, the Opus budget and `preflight` stand down on `idle|done`, session-start resets any stale run phase. Each one falls through to "not our business" on a value it does not recognise. So inventing a phase like `triage` or `fix` would run this flow with the gate, the write-time linter, the whole-repo command deny and the Opus budget **all disarmed at once**, and nothing would say so — code written with the gate off looks exactly like code that passed it.
 
-Triage runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the work order onward runs under `implement`.
+Triage, and the work order it writes, runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the implementer onward runs under `implement`.
 
 `arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and a phase write the run has not earned is denied with a message that says why. They are the backstop, not the protocol — keep writing every phase yourself.
 
@@ -29,7 +29,7 @@ Before your first subagent, a `preflight` hook checks the same again, plus the N
 
 ## 1. TRIAGE (subagent: spec-writer)
 
-Invoke `spec-writer` in `MODE=TRIAGE` with the defect report. It classifies the defect into exactly one of five cases and writes `specflow/<SLUG>/spec.md`.
+Invoke `spec-writer` in `MODE=TRIAGE` with the defect report. It classifies the defect into exactly one of five cases, writes the brief `specflow/<SLUG>/spec.md`, and for cases 1 to 4 the work order the implementer builds from.
 
 The classification is the whole design of this command, so it is worth knowing what it means before you route on it. In a project running this engine, every requirement has a test and every test names a requirement — `spec-trace` enforces both directions — so a defect can only be one of these:
 
@@ -60,18 +60,13 @@ Expect `STATUS: TRIAGED` with a `CASE:` line. If it returns `STATUS: NEEDS_INPUT
 
 Do not chain into `/spec-flow` yourself. "Fix this" is not authorisation to change what the system does, and the archived rejection is this run's deliverable — a defect that gets re-reported in three months should find the reason it was reclassified, not silence.
 
-## 3. WORK ORDER — you write it, no planner runs
+## 3. WORK ORDER — the triage wrote it
 
-Write `implement` to `.claude/state/phase` — `phase-guard` denies it while the brief fails a spec-time check, and its message routes the fix — then write two small files yourself:
+The triage returned `PLAN_PATH` and `WORK_ORDER_PATH`: `specflow/<SLUG>/plan.md` and `specflow/<SLUG>/milestones/M1.md`, the only two files the implementer reads. The agent gate has already sent back a return of case 1 to 4 that named neither, or named a file that is not there.
 
-- `specflow/<SLUG>/plan.md` — a handful of lines: the triage case, the root cause, and "one milestone: M1".
-- `specflow/<SLUG>/milestones/M1.md` — the work order: files to touch, the fix, the test that proves it — **by path** on the contract's proof surface (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`) **and by name**, with the REQ id in the name the runner will report, since `spec-trace` binds through that name and a test whose title omits the id leaves the fix reading as unproven — a **Spec deltas** section (the deltas from the triage, or `none`), and a **Skills** field.
+**Do not read the code, and do not rewrite either file.** The triage read the code to write them; every file you read stays in your context for the rest of the run and is paid again on each message you send (ADR-033). If the work order is wrong — the implementer comes back `BLOCKED`, or the fix needs a second milestone — the triage was wrong: re-run step 1 with the reason.
 
-For `Skills`, look through the skills this project ships — Claude Code lists them by name and description — and name the ones this fix needs, or `none` if nothing applies. You are standing in for the planner here, and this is the field that most repays it: the implementer loads what this names before its first edit, and anything you leave out it can only discover after guessing — by which point the guess is already written.
-
-Those exact two paths, with those exact names, because the implementer reads exactly them and is told not to read `spec.md`. Reusing that contract verbatim is what lets this flow skip the planner without a second implementer agent that would drift from the first one.
-
-**This is the one place where you do work instead of routing it**, and it is a deliberate exception to how `/spec-flow` operates. For a defect the triage has already produced everything a plan would contain — the root cause, the file, the delta — so spawning the planner to reformat it into a milestone map would spend the flow's most expensive call on transcription. Keep both files short. If you find yourself writing a second milestone, the triage was wrong and this is a case 5.
+Write `implement` to `.claude/state/phase` — `phase-guard` denies it while the brief fails a spec-time check, and its message routes the fix to a new triage — and go to step 4.
 
 ## 4. FIX (subagent: implementer) + GATE LOOP
 

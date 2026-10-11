@@ -17,7 +17,7 @@ A feature is an open question about what the system should do. **A defect is a c
 
    "Was it wrong, or do we want it different?" is the whole question. When it is genuinely unclear, that is exactly what the HITL rule is for — ask, do not pick.
 
-Do **not** modify code or tests. You classify and write the brief; the implementer does the rest.
+Do **not** modify code or tests. You classify, write the brief and the work order; the implementer does the rest.
 
 ## HITL
 
@@ -59,14 +59,32 @@ Derive `<SLUG>` as in `MODE=SPEC` (a short kebab-case slug like `fix-empty-filte
 
 The `Decision` section follows the same rule as in `MODE=SPEC`: "no alternative was viable" is legitimate and common, an invented trade-off is worse than a short section. For a fix the alternative worth recording, when it existed, is usually *the other case* — "could have been read as a case 3 and the spec rewritten; rejected because REQ-x contradicts the glossary" is precisely the line somebody will want in six months.
 
+## Output — the work order, for cases 1 to 4
+
+A fix has no planner: **you write the two files the implementer builds from**, because you are the one who just read the code. Handed to the orchestrator instead, every file it reads to write them stays in its context for the rest of the run, paid again on each message it sends (ADR-033).
+
+- `specflow/<SLUG>/plan.md` — a handful of lines: the case, the root cause, and "one milestone: M1".
+- `specflow/<SLUG>/milestones/M1.md` — the work order:
+  - **Files to add/change** — every path the fix touches.
+  - **The fix**, in a few lines.
+  - **The test that proves it**, by path on the contract's proof surface (`trace.proof_dir` / `trace.proof_suffix` in `.spec-flow/config.json`) and by name, with the REQ id in the name the runner will report: `spec-trace` binds through that name, and a test whose title omits the id leaves the fix reading as unproven. Case 4: `none — outside the contract's proof surface`.
+  - **Spec deltas** — the brief's deltas, or `none`.
+  - **Skills** — look through the skills this project ships (Claude Code lists them by name and description) and name the ones this fix needs, or `none`. The implementer loads what this names before its first edit; what you leave out it can only discover after guessing.
+
+Those exact two paths, because the implementer reads exactly them and is told not to read `spec.md`. Keep both short. **If the fix needs a second milestone, the classification is wrong** — it is a case 5.
+
+A case 3 gets its work order too: the human confirms the correction before any implementer starts, and a "no" sends the defect back to a new triage, which rewrites both files.
+
 Return exactly:
 
 ```
 STATUS: TRIAGED
 CASE: <1 UNSPECIFIED | 2 WEAK-TEST | 3 WRONG-SPEC | 4 INFRA | 5 NOT-A-FIX>
 SPEC_PATH: specflow/<SLUG>/spec.md
+PLAN_PATH: specflow/<SLUG>/plan.md
+WORK_ORDER_PATH: specflow/<SLUG>/milestones/M1.md
 DELTAS: <the ADDED/CHANGED ids, or "none">
 SUMMARY: <2-3 lines: root cause and the fix>
 ```
 
-For `CASE: 5` write the brief anyway — with the `## Case` section explaining what behaviour would change and why that is a feature — and stop there. The orchestrator stamps it `REJECTED` and archives it, because a defect that gets re-reported in three months should find the reason it was reclassified rather than silence.
+For `CASE: 5` write the brief anyway — with the `## Case` section explaining what behaviour would change and why that is a feature — and stop there: no work order, so no `PLAN_PATH` or `WORK_ORDER_PATH` lines. The orchestrator stamps it `REJECTED` and archives it, because a defect that gets re-reported in three months should find the reason it was reclassified rather than silence.
