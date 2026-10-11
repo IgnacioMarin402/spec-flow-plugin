@@ -19,7 +19,7 @@
  * `resolveBase` below, which throws rather than guessing.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, realpathSync } from 'node:fs';
+import { existsSync, statSync, realpathSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 function git(root, args, extra = {}) {
@@ -185,6 +185,22 @@ export function resolveBase(root, config = undefined) {
       `Declare the branch this work is judged against as "base_ref" under "verify" in .spec-flow/config.json — e.g. "base_ref": "origin/trunk". ` +
       `This is a refusal to run, not a failed milestone: with no base, the changed-file list is empty for reasons that have nothing to do with the code, and every scoped check would report clean without ever running.`,
   );
+}
+
+/**
+ * The change folders live under `specflow/` that `base` — the commit this
+ * branch is judged against — already holds. A run creates its folder on its
+ * own branch, after that commit, so one already there is no run of this
+ * branch: a plan parked on the base, or a change merged into it unfinished.
+ * Live, it keeps any run here from earning `done` (ADR-032).
+ */
+export function changesAtBase(root, base) {
+  const dir = join(root, 'specflow');
+  if (!existsSync(dir)) return [];
+  const atBase = git(root, ['ls-tree', '-d', '--name-only', `${base}:specflow`]);
+  if (atBase.status !== 0) return []; // no specflow/ at the base
+  const there = new Set(atBase.stdout.split('\n').map((s) => s.trim()));
+  return readdirSync(dir).filter((e) => e !== 'archive' && there.has(e) && statSync(join(dir, e)).isDirectory());
 }
 
 /**

@@ -187,6 +187,48 @@ check('two live changes: CHOOSE, and naming one resumes it', () => {
   return expect(resume(dir, 'other'), 'REVIEW');
 });
 
+// A plan committed on the base and never run is not a run of a branch off it
+// (ADR-032). Offered as one, resume enters a run phase-guard refuses to start.
+const CONTRACT = JSON.stringify({
+  contract_version: 1,
+  verify: {
+    scope_globs: ['*.ts'],
+    lint: ['node', '-e', 'process.exit(0)'],
+    lint_no_fix: ['node', '-e', 'process.exit(0)'],
+    test: ['node', '-e', 'process.exit(0)'],
+    test_name: 'ftest',
+    lint_name: 'flint',
+    lint_config_hint: 'f.config',
+  },
+  trace: { specs_dir: 'specs', proof_dir: 'tests', proof_suffix: '.spec.ts', executed_tests: ['node', '-e', 'process.exit(0)'], not_a_capability: [] },
+  extra_checks: [],
+  unscoped_denied: { scripts: ['test'], tools: ['ftest'], scoped_allowed: ['check'], scoped_alternative: 'npm run check', scoped_examples: ['npm run check'] },
+});
+
+/** A plan parked on `main`, then a branch off it carrying `own`, committed. */
+function parkedRepo(own = {}) {
+  const dir = repo({
+    files: { '.spec-flow/config.json': CONTRACT, 'specflow/parked/spec.md': SPEC, 'specflow/parked/proposal.md': PROPOSAL, 'specflow/parked/plan.md': PLAN },
+    phase: 'idle',
+  });
+  const g = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g('checkout', '-q', '-b', 'feature');
+  for (const [path, text] of Object.entries(own)) {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), text);
+  }
+  g('add', '-A');
+  g('commit', '-q', '--allow-empty', '-m', 'own');
+  return dir;
+}
+
+check('a plan the base branch already has is not offered as the run to resume', () => {
+  const r = resume(parkedRepo());
+  return expect(r, 'NONE') || (r.out.includes('the base branch has them: parked') ? '' : `the parked plan is not named:\n${r.out}`);
+});
+
+check("a plan the base branch has does not stand beside this branch's own change", () => expect(resume(parkedRepo(feature())), 'SIGN-OFF'));
+
 check('a blocked run: BLOCKED — a human decides, not a resume', () => expect(resume(repo({ files: planned(), milestone: 'add-cities M1', phase: 'blocked' })), 'BLOCKED'));
 
 check('state it cannot read still ends on a NEXT line, with exit 0', () => {

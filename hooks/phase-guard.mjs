@@ -25,7 +25,8 @@
  *      already in the loop.
  *   4. A write that STARTS a run — a run phase while no run is in progress —
  *      is refused where this engine cannot run: not a repository root, no
- *      contract that loads, no base that resolves (ADR-028). Nothing is armed
+ *      contract that loads, no base that resolves (ADR-028), a live change
+ *      folder the base already has (ADR-032). Nothing is armed
  *      then, so a refused start leaves nothing for `session-start` to reset
  *      and denies no later spawn in that repository.
  *   5. A write that LEAVES `spec` needs every live spec with no plan yet to
@@ -52,6 +53,7 @@ import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDedu
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
+import { resolveBase, changesAtBase } from '../scripts/changed-files.mjs';
 import { specTimeProblems } from '../scripts/spec-time.mjs';
 
 /** Change folders under `specflow/` that were never stamped and archived. */
@@ -230,7 +232,8 @@ await run(async () => {
     } catch (err) {
       deny(
         `starting a run by writing '${written}' into .claude/state/phase, and this engine cannot run in this repository: ${err.message}\n\n` +
-          `Nothing has started and nothing is armed. Fix that first, then start the run again — \`spec-flow init\`, run from the repository root, writes the contract.`,
+          `Nothing has started and nothing is armed. Fix that first, then start the run again` +
+          (err.kind === 'foreign-change' ? '.' : ` — \`spec-flow init\`, run from the repository root, writes the contract.`),
       );
     }
     claimPhase(root, payload.session_id);
@@ -308,21 +311,25 @@ await run(async () => {
   // Degrades quietly on a bad contract: this guard's job is refusing an
   // unearned `done`, not policing the contract — gate.mjs does that loudly,
   // and preflight refuses to start a run over it in the first place.
+  let atBase = [];
   try {
     const config = loadConfig(root);
     const result = runUnscopedChecks(root, config);
     for (const c of result.checks) {
       if (c.rc !== 0) failures.push(`--- ${c.name} ---\n${c.out}`);
     }
+    atBase = changesAtBase(root, resolveBase(root, config));
   } catch {
     /* contract unreadable: leave the unscoped-check half silent, per the header above */
   }
 
   // A folder under specflow/ other than archive/ is a change that never got
   // folded — shipped code with an unarchived change spec is an unfinished run.
+  // One the base branch already has is not this run's to fold (ADR-032).
   const unarchived = liveChanges(root);
   if (unarchived.length > 0) {
-    failures.push(`--- unarchived changes in specflow/ ---\n${unarchived.join('\n')}`);
+    const mark = (slug) => (atBase.includes(slug) ? `${slug} (the base branch has it: not this run's change)` : slug);
+    failures.push(`--- unarchived changes in specflow/ ---\n${unarchived.map(mark).join('\n')}`);
   }
 
   // The checks above re-read the repo; only the gate ran the suite. A run
@@ -346,7 +353,8 @@ await run(async () => {
     `writing 'done' into .claude/state/phase, and the run is not actually finished. 'done' disarms every ` +
       `hook, so it has to be earned, not declared:\n${failures.join('\n')}\n\n` +
       `Route by what failed: a spec-trace gap belongs to the spec-writer session (FOLD); an unarchived ` +
-      `specflow/<SLUG>/ means step 5 never ran — invoke spec-writer in MODE=FOLD; a commit the gate has not ` +
+      `specflow/<SLUG>/ of this run means step 5 never ran — invoke spec-writer in MODE=FOLD; one the base branch ` +
+      `has is not this run's: tell the human, whose call it is to move or archive it, and do neither yourself; a commit the gate has not ` +
       `passed needs committing and a turn ended so the gate judges it; any other check the project declared goes ` +
       `back to the implementer of the milestone that broke it, with the hint that check carries in ` +
       `.spec-flow/config.json.`,
