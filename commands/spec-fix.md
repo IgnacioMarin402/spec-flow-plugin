@@ -23,7 +23,7 @@ Triage, and the work order it writes, runs under `spec` (it is spec work: decidi
 
 `$ARGUMENTS` **is** the defect report, as free text. There is no tracker to read — this engine's only intake is what you were given in the chat. Empty -> ask in this chat what is broken, and wait.
 
-Write `spec` to `.claude/state/phase`. `phase-guard` **denies that write** when this engine cannot run here — the directory is not a repository root, the contract does not load, the base branch does not resolve, a change folder the base branch already has is live in specflow/ — and then nothing has started: show its message to the human and stop (ADR-028, ADR-032). Reset `.claude/state/gate_attempts` and `.claude/state/opus_calls` to `0`, and run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
+Write `spec` to `.claude/state/phase`. `phase-guard` **denies that write** when this engine cannot run here — the directory is not a repository root, the contract does not load, the base branch does not resolve, a change folder the base branch already has is live in specflow/ — and then nothing has started: show its message to the human and stop (ADR-028, ADR-032). Then, in **one** Bash call, reset the counters and set the telemetry mark: `printf 0 > .claude/state/gate_attempts && printf 0 > .claude/state/opus_calls && node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs --mark`. The mark records how many telemetry lines already existed, so step 6 can archive **this** run's slice: the logs are cumulative per machine and never truncated, so without it the snapshot would carry every earlier run too.
 
 Before your first subagent, a `preflight` hook checks the same again, plus the Node floor, and **denies the spawn** if any fails. If you see `PREFLIGHT FAILED`, stop and show the message to the human — it names what to fix. Do NOT retry the spawn, and do NOT edit the contract yourself to make the check pass: the check is what stands between this run and a milestone nothing could have verified.
 
@@ -73,7 +73,7 @@ Write `implement` to `.claude/state/phase` — `phase-guard` denies it while the
 1. Invoke `implementer` for `M1` with a **new** `Agent` call, passing it `specflow/<SLUG>/plan.md` and `specflow/<SLUG>/milestones/M1.md` — only those two. Remember the id as `IMPL_SESSION`; every later message for this fix goes back to it via `SendMessage` while it is warm (see Rules), not to a fresh `Agent` call.
    - `STATUS: NEEDS_ARCHITECT` -> invoke `architect` (new `Agent`) with the questions, then `SendMessage` the guidance to `IMPL_SESSION`. If the architect's `IF_PLAN_WRONG` is not "none", the triage missed something: re-run step 1 rather than patching the work order.
    - `STATUS: BLOCKED` -> re-run the triage with the reason. There is no planner to fall back on here, and that is the point: a fix that cannot be implemented from its work order is usually a fix that was classified wrong.
-2. **Wait for the implementer's completion notification, then commit AND push, then end your turn** so the gate hook runs. The hook — not you — runs lint and tests. Never run them yourself.
+2. **Wait for the implementer's completion notification, then commit AND push in one Bash call (`git add -A && git commit -m "<message>" && git push`), then end your turn** so the gate hook runs. The hook — not you — runs lint and tests. Never run them yourself.
 3. Gate outcomes, same triage as `/spec-flow`:
    - *stale log*: `.claude/state/gate-failure.log` may describe a tree that moved on while a background implementer kept writing. Re-check the flagged files with `git status` before routing anything.
    - *lint only, attempts 1-2*: `SendMessage` the lint output to `IMPL_SESSION`. Do not touch the phase.
@@ -90,22 +90,23 @@ Invoke `spec-writer` in `MODE=FOLD` with `specflow/<SLUG>/spec.md`. It verifies 
 
 **Read its `GAPS:` line and pass it to the human, whatever else you report.** Nothing downstream raises it: a test whose title carries the requirement's id and whose body proves nothing passes the gate and spec-trace alike, so this is the only pass in the flow that sees it. That matters more here than in `/spec-flow` — a case 2 (WEAK-TEST) fix exists precisely because a test was not proving what it claimed, and a fix whose own new test is weak has closed the defect on paper. It does not block the archive and is not a gate failure ([ADR-020](../decisions/020-a-tagged-test-is-judged-not-measured.md)); what it must not be is dropped.
 
-**Commit and push the fold, then end your turn** so the gate re-runs the spec-trace check against a clean tree. A pass re-invokes you the same way step 4 does — proceed straight to step 6. If it fails on the spec side, `SendMessage` the log back to the spec-writer session. If the gap is in code or tests, go back to step 1.
+**Commit and push the fold in one Bash call — `git add -A specflow/ && git commit -m "<message>" && git push && git status --porcelain` — then end your turn, with that last command printing nothing,** so the gate re-runs the spec-trace check against a clean tree. A pass re-invokes you the same way step 4 does — proceed straight to step 6. If it fails on the spec side, `SendMessage` the log back to the spec-writer session. If the gap is in code or tests, go back to step 1.
 
 ## 6. DONE
 
 Write `done` to `.claude/state/phase`.
 
-**Then archive this run's telemetry and commit it**: run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs <SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log`. Commit that with a `chore(spec-fix): archive the <SLUG> run telemetry` message.
+**Then archive this run's telemetry and commit it**: run `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs <SLUG>`, which writes `specflow/archive/<SLUG>/telemetry/*.log`. Snapshot, commit and the stats below go in **one** Bash call: `node ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry-snapshot.mjs <SLUG> && git add specflow/archive/<SLUG>/telemetry && git commit -m "chore(spec-fix): archive the <SLUG> run telemetry"; node ${CLAUDE_PLUGIN_ROOT}/scripts/specflow-stats.mjs`.
 
 This is not optional bookkeeping, and it is the one step whose absence is invisible. `.claude/state/*.log` is gitignored — necessarily, since both files are appended to on every tool call and a tracked file that churns that fast would leave the tree permanently dirty, which makes the gate's quiescence guard skip the gate on **every** stop. So on a cloud branch the evidence dies with the container. The snapshot is what makes a run's own record outlive it.
 
-Finally, **run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specflow-stats.mjs` and show the report** — it reads the live state plus every archived run, always exits 0 and gates nothing. A single fix run says little on its own; the numbers are cumulative, so read a tally as a trend.
+Finally, **show the report `specflow-stats.mjs` printed** — it reads the live state plus every archived run, always exits 0 and gates nothing. A single fix run says little on its own; the numbers are cumulative, so read a tally as a trend.
 
 Then summarize: the triage case, the root cause, files changed, requirements added or changed, and the test that now proves it. Offer to open a PR.
 
 ### Rules
 
+- **One tool call for the steps that wait on nothing.** Every message you send re-reads your whole context — 60k to 150k tokens on a real run (ADR-033) — so chain the mechanical Bash steps a step names into the one call it gives. A phase write stays its own call: `phase-guard` judges it, and what follows depends on its answer.
 - **Every subagent runs in the background** (ADR-023): in an interactive session the `model-route` hook sets it on every spawn of this plugin's agents. When a spawn or a `SendMessage` comes back as launched rather than with a report, end your turn and let its completion notification wake you. Never poll or sleep while it works.
 - **Resume an agent with `SendMessage` only while its prompt cache is warm** (ADR-025), whatever its role: a subagent's lasts 5 minutes from its last turn, and past it a message re-sends the agent's whole context first. What waited on a human or on a long gate goes to a **new** `Agent` call of that role, with its predecessor's inputs plus the new one. The `stale-resume` hook denies a cold `SendMessage`; spawn the new agent rather than retrying.
 - Model routing holds: a project can re-route any agent, and the `architect` is budgeted either way. This flow spawns **no planner and no reviewer** — if a fix seems to need either, it is a case 5.
