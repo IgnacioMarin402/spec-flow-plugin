@@ -255,9 +255,17 @@ conversations; only `/model` and session-only effort do.
 
 Neither `plugin.json` nor the marketplace entry declares a `version`, so Claude
 Code falls through to the git SHA and every push to `main` is an update
-([ADR-003](decisions/003-no-plugin-version-field.md)). Run
-`/plugin marketplace update`, or turn on background auto-update, which is off by
-default for third-party marketplaces — per install under `/plugin` →
+([ADR-003](decisions/003-no-plugin-version-field.md)). Take it with
+`claude plugin update spec-flow@spec-flow-marketplace`, or `/plugin` →
+**Installed** → **Update now**; a session keeps what it loaded until
+`/reload-plugins` or the next launch. `claude plugin marketplace update` without
+a name refreshes the listing and leaves the installed plugin where it is.
+
+Background auto-update is off by default for third-party marketplaces. Once on,
+it runs once per interactive session, within ten minutes of the first message,
+and the session then says to `/reload-plugins`. `DISABLE_AUTOUPDATER`,
+`DISABLE_UPDATES` or `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` turns it off
+unless `FORCE_AUTOUPDATE_PLUGINS=1`. Turn it on per install under `/plugin` →
 **Marketplaces**, or for a repo in its `.claude/settings.json`:
 
 ```json
@@ -271,9 +279,10 @@ default for third-party marketplaces — per install under `/plugin` →
 }
 ```
 
-That entry needs this folder trusted (not a parent), registers the marketplace
-without installing the plugin, and is replaced whole by a higher-precedence
-file defining the same name. A headless `claude -p` session never uses it.
+That entry wins over the per-install toggle, needs this folder trusted (not a
+parent), registers the marketplace without installing the plugin, and is
+replaced whole by a higher-precedence file defining the same name. A headless
+`claude -p` session never uses it.
 
 The optional devDependency does not follow: it is a git spec and moves when you
 move it. Nothing detects the two halves on different commits

@@ -128,9 +128,9 @@ for (const c of result.checks) {
 
 // WHICH copy of the engine said so. The plugin writes `engine=` into every
 // gate-history line; this alias is the OTHER install (ADR-016), and the two
-// move independently — a git spec follows whatever it was pinned to while
-// `/plugin marketplace update` moves the plugin. Nothing warns about that, and
-// until now nothing even let a CI log and a gate-history line be compared:
+// move independently — a git spec follows whatever it was pinned to while a
+// plugin update moves the plugin. Nothing warns about that, and until now
+// nothing even let a CI log and a gate-history line be compared:
 // this end was silent about its own revision. It is reported, never checked,
 // for the reason ADR-004 gives about `cc=`.
 //
