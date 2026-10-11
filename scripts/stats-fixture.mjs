@@ -497,10 +497,38 @@ check('the test-first warning counts source files and the runs they span', () =>
   return contains(out, '2 of 2 source file(s) across 2 runs show no red test run before the code');
 });
 
+// ---- the gate: a PASS followed by nothing ----------------------------------
+// After a PASS the next milestone's implementer works for as long as it takes,
+// and the next gate line comes only when it ends. Measured to that line, every
+// milestone longer than the stall threshold read as a run that had stopped.
+check('a PASS followed by the next milestone working is not a stall', () => {
+  const trace = [agent(1, 'implementer'), read(2, 'lib/orders/place.ts'), read(9, 'lib/orders/ship.ts')];
+  const { out } = report({ archived: [{ slug: 'shipped', gate: [pass(0), pass(11)], trace }] });
+  return out.includes('had to be nudged') ? `called a working milestone a stall.\n--- report ---\n${out}` : '';
+});
+
+check('a PASS followed by nothing at all is a stall', () => {
+  const { out } = report({ archived: [{ slug: 'shipped', gate: [pass(0), pass(15)], trace: [read(15, 'lib/orders/place.ts')] }] });
+  return contains(out, 'had to be nudged');
+});
+
+const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+const passAgo = (minutes) => `${ago(minutes)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=pass lint=0 test=0 unscoped=ok files=1`;
+
+check('a live PASS with an implementer still working is not stalled right now', () => {
+  const { out } = report({ gate: [passAgo(30)], trace: [`${ago(1)} phase=implement read file=lib/orders/place.ts agent_id=a1`] });
+  return out.includes('stalled RIGHT NOW') ? `called a working milestone stalled.\n--- report ---\n${out}` : '';
+});
+
+check('a live PASS with nothing since is stalled right now', () => {
+  const { out } = report({ gate: [passAgo(30)] });
+  return contains(out, 'the run looks stalled RIGHT NOW');
+});
+
 // ---- report ---------------------------------------------------------------
 if (failures.length > 0) {
   console.error(`stats: ${failures.length} case(s) failed.\n`);
   for (const f of failures) console.error(`  - ${f.name}\n    ${f.problem}\n`);
   process.exit(1);
 }
-console.log('stats: OK — the session-reuse, read-scope and test-first sections hold under their cases.');
+console.log('stats: OK — the stall check and the session-reuse, read-scope and test-first sections hold under their cases.');

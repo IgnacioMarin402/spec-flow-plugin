@@ -147,28 +147,36 @@ if (gate.length === 0) {
   }
   if (passes > 0) say(`  passed the first time: ${firstTime} of ${passes} PASS(es) had no failure since the previous one`);
 
+  // What follows a PASS is the next milestone's work, and that shows in the
+  // trace — reads, writes, spawns, token lines — while the next gate line
+  // waits for that milestone to end. A stalled run is a PASS followed by
+  // nothing, so the quiet runs to the first line of EITHER log after it.
+  const activity = (run) => [...run.gate, ...run.trace].map((e) => e.at).filter(Boolean);
   let worst = null;
   for (const run of runs) {
-    for (let i = 0; i < run.gate.length - 1; i++) {
-      if (run.gate[i].result !== 'pass' || !run.gate[i].at || !run.gate[i + 1].at) continue;
-      const gap = minutesBetween(run.gate[i].at, run.gate[i + 1].at);
-      if (!worst || gap > worst.gap) worst = { gap, at: run.gate[i].at, run: run.name };
+    for (const g of run.gate) {
+      if (g.result !== 'pass' || !g.at) continue;
+      const next = activity(run).filter((at) => at > g.at).sort((a, b) => a - b)[0];
+      if (!next) continue;
+      const gap = minutesBetween(g.at, next);
+      if (!worst || gap > worst.gap) worst = { gap, at: g.at, run: run.name };
     }
   }
   if (worst) {
     const where = runs.length > 1 ? ` in ${worst.run}` : '';
-    say(`  longest gap after a PASS: ${worst.gap}m${where} (${worst.at.toISOString()})`);
+    say(`  longest quiet after a PASS: ${worst.gap}m${where} (${worst.at.toISOString()})`);
     if (worst.gap >= STALL_MINUTES) {
-      warn.push(`a PASS was followed by ${worst.gap}m of gate silence${where} — the run had to be nudged.`);
+      warn.push(`a PASS was followed by ${worst.gap}m with nothing running${where} — the run had to be nudged.`);
     }
   }
 
   const last = current.gate[current.gate.length - 1];
   if (last && last.result === 'pass' && phase === 'implement' && last.at) {
-    const idle = minutesBetween(last.at, new Date());
-    say(`  last line is a PASS, ${idle}m ago, phase still \`implement\``);
+    const latest = activity(current).reduce((a, b) => (b > a ? b : a), last.at);
+    const idle = minutesBetween(latest, new Date());
+    say(`  last gate line is a PASS, phase still \`implement\`, ${idle}m since anything ran`);
     if (idle >= STALL_MINUTES) {
-      warn.push(`the run looks stalled RIGHT NOW: ${idle}m since a PASS with the phase still armed. Nothing re-wakes the orchestrator on a pass.`);
+      warn.push(`the run looks stalled RIGHT NOW: ${idle}m with nothing running since a PASS, phase still armed. Nothing re-wakes the orchestrator on a pass.`);
     }
   }
 }
