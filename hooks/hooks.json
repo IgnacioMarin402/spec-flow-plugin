@@ -111,5 +111,6 @@
         ]
       }
     ]
-  }
+  },
+  "modules": ["./live-view.tsx"]
 }

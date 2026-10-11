@@ -7,5 +7,14 @@
     "name": "Ignacio Marín"
   },
   "license": "MIT",
-  "keywords": ["spec-driven-development", "multi-agent", "workflow"]
+  "keywords": ["spec-driven-development", "multi-agent", "workflow"],
+  "types": "./hooks/live-view-state.d.ts",
+  "userConfig": {
+    "live_view": {
+      "type": "boolean",
+      "title": "Live view",
+      "description": "A pane and a status line showing each spec-flow agent while it works: its time, tool calls and tokens. It only shows, and gates nothing. Needs a Claude Code with function hooks; older versions skip it.",
+      "default": true
+    }
+  }
 }

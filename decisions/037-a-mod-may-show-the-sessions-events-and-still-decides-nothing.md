@@ -1,6 +1,6 @@
 # ADR-037 — a mod may show the session's own events, and still decides nothing
 
-**Date:** 2026-10-11 · **Status:** accepted · **Governs:** `BACKLOG.md` · **Amends:** ADR-029 (what a mod may show) · **Related:** ADR-004, ADR-016, ADR-017, ADR-019, ADR-023, ADR-035, ADR-036
+**Date:** 2026-10-11 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/hooks.json`, `.claude-plugin/plugin.json`, `.github/workflows/ci.yml`, `scripts/plugin-paths.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-029 (what a mod may show) · **Related:** ADR-004, ADR-016, ADR-017, ADR-019, ADR-023, ADR-035, ADR-036
 
 **Question.** A person watching a run wants to see each agent while it works:
 its role, how long it has run, its tool calls, its tokens, and what it handed
@@ -41,9 +41,17 @@ Claude Code is it tested?
 - The transcripts hold the same counts. Read for the 11 agents of one real
   run, they equalled `token-trace`'s lines exactly. ADR-036 refused reading
   them, because the format is internal and written asynchronously.
-- Not measured: a live run in a real session; whether a mod's per-request sums
-  equal `token-trace`'s per-message counts for the same agent; whether the
-  desktop app places a pane; any version between 2.1.246 and 2.1.283.
+- One real run watched with the mod (five agents, Claude Code 2.1.287):
+  - for every agent, its uncached input, cache reads, cache writes and
+    requests equalled `token-trace`'s;
+  - its output was higher for every agent, by 1,096 to 2,355 tokens, 22.7%
+    across the five. `token-trace` documents its output as a floor, while the
+    mod reads each request's final usage;
+  - the orchestrator's 26 requests were one request off at each end of the
+    run. The mod counted from when its poll saw the phase; `token-trace`
+    charges whole turns at `Stop`.
+- Not measured: whether the desktop app places a pane; any version between
+  2.1.246 and 2.1.283.
 
 **Decision.**
 
@@ -77,8 +85,12 @@ Claude Code is it tested?
   - a test nobody runs looks armed and is not;
   - path spelling differs by platform;
   - the tests need no credentials.
-- It enters the repository after one real run shows that its per-agent counts
-  equal `token-trace`'s for every agent that finished.
+- It charges the orchestrator per turn, as `token-trace` does: a turn that ends
+  inside this session's run counts whole, and one that ends outside it counts
+  nothing.
+- It enters the repository after one real run shows, for every agent that
+  finished, input and request counts equal to `token-trace`'s, and output no
+  lower than `token-trace`'s floor.
 
 **Refused.**
 

@@ -238,3 +238,39 @@ jobs:
       # bin. No registry is involved, here or in the route it checks.
       - name: The distribution works
         run: npm run pack:check
+
+  # The live view is a mod: Claude Code loads it with no Node, so nothing in the
+  # job above can run it, and its only runner is Claude Code's own kit. It runs
+  # against the newest release, because a release of the early-access API is
+  # what breaks a mod, and with no credentials, which the kit does not need.
+  # Both OS legs: the kit spells a path the platform's way. See ADR-037.
+  live-view:
+    name: live view · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      DISABLE_AUTOUPDATER: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install the newest Claude Code
+        run: npm install --global @anthropic-ai/claude-code@latest
+
+      # Recorded, not checked (ADR-004): a red run names the release that broke it.
+      - name: Claude Code version
+        run: claude --version
+
+      # Named by its manifest: at the root, validate reads the marketplace
+      # file instead and never reaches hooks.json or the module.
+      - name: The module validates against its contract
+        run: claude plugin validate .claude-plugin/plugin.json
+
+      - name: Live view behaviour
+        run: claude plugin test .

@@ -54,14 +54,14 @@ A mod may only show (ADR-029), from `.claude/state/` and the session's own
 events (ADR-037). **Done:** a list of the hooks and scripts that only observe,
 each with what a mod would add, before any is moved.
 
-### B42 — a live view of a run, as a mod
+### B43 — `token-trace`'s output is a floor, and the reports read it as a count
 
-Each agent's role, time, tool calls and tokens while it works, and what it
-handed back (ADR-037). A prototype passes `claude plugin test`; no real run has
-been watched with it. **Done:** one real run in which its per-agent counts
-equal `token-trace`'s for every agent that finished. Then its module goes in
-`hooks/hooks.json` with an option that turns it off, and CI validates and tests
-it against the newest Claude Code on both operating systems.
+In one real run, `token-trace` recorded 26,968 output tokens for five agents,
+22.7% fewer than the 34,886 the API reported per request, as the live view
+counted them (ADR-037). Its header documents `out` as a floor; `stats` and
+`status` print it as a count. Output is the most expensive token, so a cost
+read off it comes out low. **Done:** the reports say floor, or the count comes
+from where the final number is.
 
 ### B15 — model-graded checks
 

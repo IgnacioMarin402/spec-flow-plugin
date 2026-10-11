@@ -92,7 +92,8 @@ function sources(dir, acc = []) {
   for (const entry of readdirSync(dir).sort()) {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) sources(path, acc);
-    else if (path.endsWith('.mjs')) acc.push(path);
+    // `.tsx` is the live view's mod, engine source like the rest (ADR-037).
+    else if (path.endsWith('.mjs') || path.endsWith('.tsx')) acc.push(path);
   }
   return acc;
 }
