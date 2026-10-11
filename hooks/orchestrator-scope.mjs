@@ -28,7 +28,7 @@ const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 const WRITABLE = ['.claude/state/', 'specflow/'];
 const READABLE = [...WRITABLE, 'specs/', '.spec-flow/', '.claude/'];
 // The hooks' own record, which hooks decide on: a pass in gate-history.log
-// lets `done` through, a human turn in run-trace.log lets a case 3 go on
+// lets `done` through, a human turn in human-turn.log lets a case 3 go on
 // (ADR-036). Hooks append to them; the session writes none.
 const HOOKS_ONLY = /^\.claude\/state\/[^/]+\.log$/;
 

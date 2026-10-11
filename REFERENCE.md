@@ -472,6 +472,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |
+| `human-turn.log` | One line per turn end, prompt (by source) or answered question — never what was said. The case 3 check reads it |
 | `*-unmatched.log` | What each hook could not read — how a hook that fails open reports its blind spots |
 
 ---

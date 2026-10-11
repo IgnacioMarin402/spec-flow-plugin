@@ -124,13 +124,37 @@ for (const file of registered) {
 //
 // Reach: the shapes this repo writes a state path in — `join(state, 'x')`,
 // `join(STATE, 'x')`, `join(stateDir(root), 'x')`, `'.claude', 'state', 'x'`
-// and `.claude/state/x` in a literal. A helper called with a bare file name
-// (`read('x')`) is not seen.
+// and `.claude/state/x` in a literal. In the first two shapes the file name
+// may be a NAME bound to a literal by a top-level `const` in the same file, or
+// imported under its own name from the file that exports it. Any other name —
+// a parameter, a local, a computed string — is not followed: what it holds
+// would be a guess. So a helper called with a bare file name (`read('x')`) is
+// not seen.
 const STATE_SHAPES = [
-  /join\(\s*(?:state|STATE|stateDir\([^)]*\))\s*,\s*'([^']+)'\s*\)/g,
-  /'\.claude',\s*'state',\s*'([^']+)'/g,
+  /join\(\s*(?:state|STATE|stateDir\([^)]*\))\s*,\s*(?:'([^']+)'|([A-Za-z_$][\w$]*))\s*\)/g,
+  /'\.claude',\s*'state',\s*(?:'([^']+)'|([A-Za-z_$][\w$]*))/g,
   /\.claude\/state\/([A-Za-z0-9_-][A-Za-z0-9_.-]*[A-Za-z0-9_-])/g,
 ];
+// Column 0 only, so a local in some function is never taken for a module's.
+const TOP_CONST = /^(export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*'([^'\n]+)'\s*;/gm;
+const IMPORT = /^import\s*\{([^}]*)\}\s*from\s*'(\.\.?\/[^']+)'/gm;
+
+/** Name -> literal, for the names `file` declares or imports as a string constant. */
+function bindingsOf(file, text) {
+  const bound = new Map([...text.matchAll(TOP_CONST)].map(([, , name, value]) => [name, value]));
+  for (const [, names, from] of text.matchAll(IMPORT)) {
+    const source = join(dirname(file), from);
+    if (!existsSync(source)) continue;
+    const exported = new Map(
+      [...readFileSync(source, 'utf8').matchAll(TOP_CONST)].filter(([, exp]) => exp).map(([, , name, value]) => [name, value]),
+    );
+    for (const name of names.split(',').map((n) => n.trim())) {
+      if (exported.has(name)) bound.set(name, exported.get(name));
+    }
+  }
+  return bound;
+}
+
 const engineSources = [
   ...walkMjs(join(ROOT, 'hooks')),
   ...readdirSync(join(ROOT, 'scripts')).map((f) => join(ROOT, 'scripts', f)),
@@ -139,9 +163,11 @@ const engineSources = [
 const stateNames = new Map(); // name -> first file naming it
 for (const file of engineSources) {
   const text = readFileSync(file, 'utf8');
+  const bound = bindingsOf(file, text);
   for (const shape of STATE_SHAPES) {
-    for (const [, name] of text.matchAll(shape)) {
-      if (!stateNames.has(name)) stateNames.set(name, relative(ROOT, file).replace(/\\/g, '/'));
+    for (const [, literal, ref] of text.matchAll(shape)) {
+      const name = literal ?? bound.get(ref);
+      if (name && !stateNames.has(name)) stateNames.set(name, relative(ROOT, file).replace(/\\/g, '/'));
     }
   }
 }
