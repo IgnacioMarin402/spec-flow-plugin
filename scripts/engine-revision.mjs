@@ -21,7 +21,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename, resolve } from 'node:path';
+import { samePath } from './changed-files.mjs';
 
 /**
  * The `v` prefix is load-bearing: it is what stops this being read as a short
@@ -36,9 +37,21 @@ const UNRESOLVED_PREFIX = 'v';
  *   version prefixed so it reads as what it is.
  */
 export function engineRevision(root) {
-  const res = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: root, encoding: 'utf8' });
-  const sha = res.status === 0 ? res.stdout.trim() : '';
-  if (/^[0-9a-f]{7,40}$/.test(sha)) return sha;
+  // Only a checkout whose root IS this copy: git looks upward, and a copy with
+  // no `.git` of its own inside some other repository — a home directory kept
+  // in git — would report that repository's HEAD as the engine's.
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
+  if (top.status === 0 && samePath(root, top.stdout.trim())) {
+    const res = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: root, encoding: 'utf8' });
+    const sha = res.status === 0 ? res.stdout.trim() : '';
+    if (/^[0-9a-f]{7,40}$/.test(sha)) return sha;
+  }
+
+  // A marketplace install has no `.git` either: Claude Code copies the commit
+  // to `plugins/cache/<marketplace>/<plugin>/<version>/`, and with no
+  // `version` declared (ADR-003) that directory is named for the commit.
+  const dir = basename(resolve(root));
+  if (/^[0-9a-f]{7,40}$/.test(dir)) return dir;
 
   // The other install has no revision to report, and that is a measured fact
   // rather than a guess: `npm install <git-spec>` packs the clone and installs

@@ -33,7 +33,7 @@ function git(root, args, extra = {}) {
  * resolved, `\` read as `/`, case folded on the platforms whose default
  * filesystem folds it.
  */
-function samePath(a, b) {
+export function samePath(a, b) {
   try {
     const sa = statSync(a, { bigint: true });
     const sb = statSync(b, { bigint: true });
