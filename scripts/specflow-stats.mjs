@@ -335,6 +335,26 @@ if (checks.length > 0) {
       `${skipped ? `, ${skipped} not fully judged (${tally('skip')})` : ''}.`,
   );
 }
+// What the orchestrator dispatched that the commands do not describe. The
+// guard records and lets the call through until these lines show which rules
+// hold (ADR-035); arm-gate's lines are the implementer engaged in a phase it
+// had to move.
+const dispatched = trace.filter((e) => e.raw?.includes(' dispatch '));
+if (dispatched.length > 0) {
+  const count = (result) => dispatched.filter((e) => e.result === result);
+  const tally = (list) =>
+    Object.entries(list.flatMap((e) => String(e.why).split(',').map((why) => `${e.agent}:${why}`)).reduce((acc, k) => ({ ...acc, [k]: (acc[k] ?? 0) + 1 }), {}))
+      .map(([k, n]) => `${k} x${n}`)
+      .join(', ');
+  const [recorded, armed, denied] = [count('record'), count('armed'), count('deny')];
+  say(
+    `  dispatch: ${recorded.length} off the commands' contract${recorded.length ? ` (${tally(recorded)})` : ''}, recorded, not denied; ` +
+      `the gate armed by arm-gate ${armed.length} time(s)${denied.length ? `, ${denied.length} implementer spawn(s) denied out of spec` : ''}.`,
+  );
+  if (recorded.length > 0) {
+    warn.push(`${recorded.length} dispatch(es) the commands do not describe (${tally(recorded)}). Each went through; read the \`dispatch\` lines with --raw before a rule becomes a denial (ADR-035).`);
+  }
+}
 say('');
 
 // ---- 3b. does the plan's skill routing actually land? ----------------------
@@ -758,6 +778,7 @@ for (const [file, what] of [
   ['opus-budget-unmatched.log', 'SendMessage payloads the budget could not attribute'],
   ['register-agent-unmatched.log', 'Opus spawns whose session id was not found'],
   ['token-trace-unmatched.log', 'stops whose token usage could not be read — a cost of zero here is not a cheap run'],
+  ['orchestrator-scope-unmatched.log', "session calls orchestrator-scope let through because the trace showed no agent_id — it was not armed"],
 ]) {
   const n = lines(file).length;
   if (n > 0) say(`note: ${n} ${what} — see .claude/state/${file}`);

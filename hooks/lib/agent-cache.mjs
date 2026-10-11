@@ -14,24 +14,19 @@
  * would deny work over a guess.
  */
 import { readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { shippedAgents } from './routing.mjs';
-import { matchAgent } from './agent-name.mjs';
+import { matchAgent, recipientRecord, recipientType } from './agent-name.mjs';
 
 export function coldResume(payload) {
-  const to = String(payload?.tool_input?.to ?? '');
-  const transcript = [payload?.transcript_path, payload?.transcriptPath].find((v) => typeof v === 'string' && v);
-  if (!/^[\w-]+$/.test(to) || !transcript) return null;
-
-  // Beside the session's transcript, as token-trace.mjs reads it.
-  const file = join(transcript.replace(/\.jsonl$/, ''), 'subagents', `agent-${to}.jsonl`);
+  const rec = recipientRecord(payload);
+  if (!rec) return null;
+  const { to, file } = rec;
+  const type = recipientType(payload);
   let text;
   let mtimeMs;
-  let type = '';
   try {
     mtimeMs = statSync(file).mtimeMs;
     text = readFileSync(file, 'utf8');
-    type = JSON.parse(readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8')).agentType ?? '';
   } catch {
     return null;
   }

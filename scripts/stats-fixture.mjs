@@ -343,6 +343,27 @@ check('returns the agent gate sent back are counted by why, and so are the ones 
   );
 });
 
+// What the orchestrator dispatched off the commands' contract (ADR-035): the
+// guard's records by agent and reason, and how often arm-gate moved the phase.
+check("dispatches off the commands' contract are counted by agent and reason, and so are the gate's armings", () => {
+  const line = (minute, phase, who, result, why) => `${stamp(minute)} phase=${phase} session=s dispatch agent=${who} tool=Agent result=${result} why=${why}`;
+  const { out } = report({
+    trace: [line(1, 'implement', 'reviewer', 'record', 'phase'), line(2, 'implement', 'implementer', 'record', 'no-milestone,other-files'), line(3, 'plan', 'implementer', 'armed', 'phase')],
+    gate: [pass(4)],
+  });
+  return (
+    contains(out, "dispatch: 2 off the commands' contract (reviewer:phase x1, implementer:no-milestone x1, implementer:other-files x1), recorded, not denied; the gate armed by arm-gate 1 time(s).") ||
+    contains(out, 'read the `dispatch` lines with --raw')
+  );
+});
+
+// orchestrator-scope stands down until the trace shows agent ids (ADR-034);
+// a run where it never armed must not read as one where nothing was denied.
+check('a run where orchestrator-scope stood down says so', () => {
+  const { out } = report({ gate: [pass(1)], files: { '.claude/state/orchestrator-scope-unmatched.log': 'x phase=spec tool=Read unattributed\n' } });
+  return contains(out, 'note: 1 session calls orchestrator-scope let through');
+});
+
 check('no telemetry at all says so, and still exits 0', () => {
   const { code, out } = report({});
   if (code !== 0) return `exited ${code} on an empty repo; this script must always exit 0.`;

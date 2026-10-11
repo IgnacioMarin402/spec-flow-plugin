@@ -1,6 +1,6 @@
 # ADR-030 — a spec states what it assumed, and a round asks at most three
 
-**Date:** 2026-10-09 · **Status:** accepted · **Governs:** `agents/spec-writer.md`, `scripts/spec-shape.mjs`, `scripts/spec-time.mjs`, `hooks/phase-guard.mjs`, `hooks/agent-gate.mjs`, `scripts/resume.mjs`, `scripts/agent-blocks.mjs`, `scripts/agent-contracts.mjs`, `commands/` · **Related:** ADR-015, ADR-026
+**Date:** 2026-10-09 · **Status:** accepted (the `arm-gate` exemption superseded by [ADR-035](035-a-dispatch-is-recorded-before-it-is-denied.md)) · **Governs:** `agents/spec-writer.md`, `scripts/spec-shape.mjs`, `scripts/spec-time.mjs`, `hooks/phase-guard.mjs`, `hooks/agent-gate.mjs`, `scripts/resume.mjs`, `scripts/agent-blocks.mjs`, `scripts/agent-contracts.mjs`, `commands/` · **Related:** ADR-015, ADR-026
 
 **Question.** The spec-writer is told to stop and ask when anything material
 is ambiguous. It decides what counts as material, and whatever it decides

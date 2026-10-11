@@ -381,7 +381,8 @@ Without it, run the same scripts by path, from your repo's root:
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from |
 | `orchestrator-scope` | `PreToolUse` | `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` | During a run, denies the session itself — not a subagent — reading a repository file outside `specflow/`, `specs/`, `.spec-flow/`, `.claude/` and the root's `*.md`, or writing, moving or deleting one outside `.claude/state/` and `specflow/` ([ADR-034](decisions/034-the-orchestrator-routes-and-a-hook-keeps-it-routing.md)) |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner/architect calls, denies past the cap |
-| `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it |
+| `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it, by type, name or a message to its id; from `spec`, denies the spawn instead while a live spec is not ready to build from |
+| `dispatch-guard` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Records, and lets through, a dispatch of the session's the commands do not describe: an agent outside its phase, one that is not this flow's, an implementer handed more or less than `plan.md` and its milestone, a message to an agent this session did not spawn ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)) |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
 | `stale-resume` | `PreToolUse` | `SendMessage` | Denies resuming one of this plugin's agents whose prompt cache has expired ([ADR-025](decisions/025-an-agent-is-resumed-only-while-its-cache-is-warm.md)) |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
@@ -392,7 +393,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
-`preflight`, `opus-budget`, `arm-gate`, `stale-resume`, `phase-guard`, `orchestrator-scope` and `agent-gate` stand down
+`preflight`, `opus-budget`, `arm-gate`, `dispatch-guard`, `stale-resume`, `phase-guard`, `orchestrator-scope` and `agent-gate` stand down
 outside a run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
 fails open on its own crash.
 
@@ -411,9 +412,9 @@ armed.
 
 | phase | written by | arms |
 |---|---|---|
-| `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
 | `implement` | orchestrator, or `arm-gate` if it forgot | **the gate**, **lint-on-write**, **the command deny**, plus the above |
-| `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate` |
+| `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
 | `done` | orchestrator, if `phase-guard` allows | nothing |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
 
@@ -430,9 +431,9 @@ armed.
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
   `plan`, `review` or `implement` written from `spec` is denied while a live
   spec with no plan yet has no `## Assumptions` (a `/spec-fix` brief needs
-  none) or fails a check spec-trace makes of live changes. `arm-gate`'s own
-  write of `implement` is not checked; the first gate repeats every check but
-  the assumptions.
+  none) or fails a check spec-trace makes of live changes. `arm-gate` holds
+  the implementer spawn that would leave `spec` to the same check
+  ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)).
 - **A run does not end itself without a verdict**
   ([ADR-022](decisions/022-a-run-does-not-end-itself-without-a-verdict.md)).
   `done` needs every unscoped check green, no unarchived `specflow/<SLUG>/`,

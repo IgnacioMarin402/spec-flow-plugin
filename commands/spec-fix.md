@@ -17,7 +17,7 @@ This is not a style preference. Every enforcement hook decides whether it is arm
 
 Triage, and the work order it writes, runs under `spec` (it is spec work: deciding what happens to `specs/`). Everything from the implementer onward runs under `implement`.
 
-`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase, and a phase write the run has not earned is denied with a message that says why. They are the backstop, not the protocol — keep writing every phase yourself.
+`arm-gate` and `phase-guard` back you up here the same way they back up `/spec-flow`: engaging the implementer arms the gate whether or not you wrote the phase — out of `spec`, only over a brief `phase-guard` would let out — and a phase write the run has not earned is denied with a message that says why. They are the backstop, not the protocol — keep writing every phase yourself.
 
 ## 0. Init — intake
 
