@@ -448,6 +448,29 @@ check('a milestone held in both tiers is reported once', () => {
   return seen === 1 ? '' : `milestone 1 was reported ${seen} time(s); the run exists in both tiers but happened once.\n--- report ---\n${out}`;
 });
 
+// A snapshot is committed and read from other checkouts. Recorded on Windows
+// under another user's directory, every read pointed "outside the repository"
+// from here, and the planner warning fired on reads that were all in scope.
+check('an archived run recorded under another root reads as this repo', () => {
+  const recorded = 'C:\\Users\\someone\\work\\shop';
+  const at = (rel) => `${recorded}\\${rel.replace(/\//g, '\\')}`;
+  const { out } = report({
+    files: { 'specs/orders.md': ORDERS_SPEC, ...changeFiles('specflow/archive/ship-orders') },
+    archived: [
+      {
+        slug: 'ship-orders',
+        trace: [
+          readIn(1, 'plan', at('specflow/ship-orders/spec.md')),
+          readIn(2, 'plan', at('lib/orders/place.ts')),
+          readIn(3, 'plan', at('lib/billing/tax.ts')),
+          readIn(4, 'plan', 'C:\\Users\\someone\\AppData\\engine\\scripts\\gate.mjs'),
+        ],
+      },
+    ],
+  });
+  return contains(out, 'plan: 4 read(s), 2 outside the scope — lib/billing x1, (outside the repository) x1');
+});
+
 // ---- test-first: a test written, run red, then the code ---------------------
 const write = (minute, file) => `${stamp(minute)} phase=implement write file=${file}`;
 const ran = (minute, verdict, why) => `${stamp(minute)} phase=implement test verdict=${verdict} target=tests/orders/place.spec.ts${why ? ` why=${why}` : ''}`;

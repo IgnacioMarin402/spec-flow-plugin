@@ -382,13 +382,34 @@ const norm = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '').replace(/
 
 const rootNorm = norm(root);
 
-/** A read's path relative to this repo, or null when it points outside it. */
-function insideRepo(file) {
+/**
+ * The root an archived run's absolute paths were recorded under, or null. A
+ * snapshot is committed, so it is read from checkouts other than the one that
+ * wrote it — another machine, OS or directory — where its paths do not start
+ * with `root`. Every run touches its own change folder, so the part in front
+ * of `specflow/[archive/]<slug>/` is that root.
+ */
+function recordedRoot(run) {
+  if (run.name === '(current)') return null;
+  const own = new RegExp(`^(([a-zA-Z]:)?/.*)/specflow/(archive/)?${run.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`);
+  for (const e of run.trace) {
+    const m = e.file ? own.exec(norm(e.file)) : null;
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** A read's path relative to this repo — or to the root `recorded` names — or null when it points outside it. */
+function insideRepo(file, recorded = null) {
   const p = norm(file);
   // Drive letters and the paths under them arrive in whichever case the tool
-  // was handed, so the prefix test is case-blind where the filesystem is.
-  const under = process.platform === 'win32' ? p.toLowerCase().startsWith(`${rootNorm.toLowerCase()}/`) : p.startsWith(`${rootNorm}/`);
-  if (under) return p.slice(rootNorm.length + 1);
+  // was handed, so the prefix test is case-blind where the filesystem is: on
+  // this machine for `root`, and for a root recorded on Windows.
+  for (const [base, caseBlind] of [[rootNorm, process.platform === 'win32'], [recorded, /^[a-zA-Z]:/.test(recorded ?? '')]]) {
+    if (!base) continue;
+    const under = caseBlind ? p.toLowerCase().startsWith(`${base.toLowerCase()}/`) : p.startsWith(`${base}/`);
+    if (under) return p.slice(base.length + 1);
+  }
   return /^([a-zA-Z]:)?\//.test(p) ? null : p;
 }
 
@@ -491,12 +512,13 @@ if (reads.length === 0) {
     say(`  ${label}scope ${scope.dirs.join(', ')} (from ${scope.from.join(', ')})`);
 
     const inScope = (rel) => [...alwaysIn, ...scope.dirs].some((d) => rel === d || rel.startsWith(`${d}/`));
+    const recorded = recordedRoot(run);
     for (const phase of [...new Set(runReads.map((e) => e.phase ?? '?'))]) {
       const inPhase = runReads.filter((e) => (e.phase ?? '?') === phase);
       const outside = new Map();
       let inside = 0;
       for (const e of inPhase) {
-        const rel = insideRepo(e.file);
+        const rel = insideRepo(e.file, recorded);
         if (rel !== null && inScope(rel)) {
           inside += 1;
           continue;
