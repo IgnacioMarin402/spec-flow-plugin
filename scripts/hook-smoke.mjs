@@ -360,6 +360,35 @@ t('opus-budget does not count a non-escalation spawn', (repo) => {
   return null;
 });
 
+// Guards: the architect has a budget of its own (ADR-038).
+const counter = (repo, name) => {
+  const f = join(repo, '.claude/state', name);
+  return existsSync(f) ? readFileSync(f, 'utf8').trim() || '0' : '0';
+};
+
+t("opus-budget charges the architect to its own counter, not the planner's", (repo) => {
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'spec-flow:architect' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (counter(repo, 'architect_calls') !== '1') return `architect_calls is "${counter(repo, 'architect_calls')}", expected 1`;
+  return counter(repo, 'opus_calls') === '0' ? null : `the architect was charged to opus_calls ("${counter(repo, 'opus_calls')}")`;
+});
+
+t('opus-budget stops the architect at 3 by default while the planner still has budget', (repo) => {
+  writeFileSync(join(repo, '.claude/state/architect_calls'), '3');
+  const a = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'architect' } }, repo);
+  if (a.status !== 2) return `a fourth architect call went through (exit ${a.status})`;
+  if (!a.stderr.includes('max_architect_calls')) return `the denial does not name max_architect_calls: ${a.stderr.slice(0, 200)}`;
+  const p = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'planner' } }, repo);
+  return p.status === 0 ? null : `the planner was denied by the architect's budget (exit ${p.status})`;
+});
+
+t('opus-budget reads max_architect_calls from the config', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: 1 }));
+  writeFileSync(join(repo, '.claude/state/architect_calls'), '1');
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'architect' } }, repo);
+  return r.status === 2 ? null : `max_architect_calls 1 let a second call through (exit ${r.status})`;
+});
+
 t('register-agent records an Opus session id', (repo) => {
   const r = runHook(
     'register-agent.mjs',
@@ -1848,6 +1877,17 @@ t('model-route rewrites the spawn the project re-routed', (repo) => {
   return null;
 });
 
+// Guards: the architect advisor runs on Opus unless the project routes it,
+// the same way as any other agent; Fable is one of the tiers (ADR-038).
+t('model-route sends the architect to Fable when the project routes it there', (repo) => {
+  withRouting(repo, { architect: 'fable' });
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:architect', prompt: 'Which port owns this?' } }, repo);
+  if (r.status !== 0) return `exit ${r.status}. stderr: ${r.stderr.slice(0, 200)}`;
+  const input = routed(r);
+  if (input?.model !== 'fable') return `rewrote model to "${input?.model}", expected "fable"`;
+  return input.prompt === 'Which port owns this?' ? null : 'the rewrite dropped the rest of the spawn input';
+});
+
 t('model-route leaves the model of an agent the project did not re-route alone', (repo) => {
   withRouting(repo, { reviewer: 'sonnet' });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'planner' } }, repo);
@@ -2055,7 +2095,7 @@ t('orchestrator-scope denies a redirect or a sed -i into code', (repo) => {
 t("orchestrator-scope lets the session's own Bash steps through", (repo) => {
   attributed(repo);
   for (const command of [
-    'printf 0 > .claude/state/gate_attempts && printf 0 > .claude/state/opus_calls && node /x/telemetry-snapshot.mjs --mark',
+    'printf 0 > .claude/state/gate_attempts && printf 0 > .claude/state/opus_calls && printf 0 > .claude/state/architect_calls && node /x/telemetry-snapshot.mjs --mark',
     'git add -A && git commit -m "move lib/a.ts into lib/b" && git push',
     'git mv specflow/my-change specflow/archive/my-change',
     'node /x/specflow-stats.mjs 2>&1 > /dev/null',

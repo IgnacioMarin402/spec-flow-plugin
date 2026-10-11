@@ -26,7 +26,7 @@ consuming repo:
 
 - `<agent> <tier>` — set `agents.<agent>` to that tier. Create the file, or the
   `agents` object, if either is missing; leave every other key alone,
-  `max_opus_calls` included.
+  `max_opus_calls` and `max_architect_calls` included.
 - `<agent> default` — delete that agent's entry, falling back to what the
   plugin ships. Delete the `agents` object too if it ends up empty, rather than
   leaving `{}` behind.
