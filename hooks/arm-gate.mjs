@@ -20,8 +20,12 @@
  * phase-guard judges (ADR-030): over a spec that fails, the spawn is denied
  * instead, and nothing is armed because nothing starts (ADR-035).
  *
- * Each time it acts, it records that in run-trace.log: every one is an
- * implementer dispatched in a phase the commands do not dispatch it in.
+ * It is also the one hook that DENIES engaging the implementer — over a case 3
+ * no human has answered (ADR-036), in any run phase — because it moves the
+ * phase, and hooks on one call run in parallel: a denial from another would
+ * leave the phase armed for an implementer that never started.
+ *
+ * Each time it acts, it records that in run-trace.log.
  *
  * FAILS OPEN on an unrecognized recipient, and only acts while a run is in
  * progress: outside one, spawning an implementer-shaped agent is a deliberate
@@ -31,6 +35,7 @@ import { projectDir, phasePath, readPhase, claimPhase, writeFile, readPayload, r
 import { nameishFields, matchAgent, recipientType } from './lib/agent-name.mjs';
 import { recordDispatch } from './lib/dispatch.mjs';
 import { leavingSpecProblems } from '../scripts/spec-time.mjs';
+import { unconfirmedCorrections, correctionDenial } from './lib/human-turn.mjs';
 
 await run(async () => {
   const root = projectDir();
@@ -39,13 +44,23 @@ await run(async () => {
   // `readPhase`: a phase the REPOSITORY committed is not a run this hook may
   // advance, and writing over it would dirty a tracked file (ADR-017).
   const phase = readPhase(root) || 'idle';
-  if (phase === 'implement') return; // already armed
-  if (!['spec', 'plan', 'review', 'blocked'].includes(phase)) return; // idle/done/unknown -> not our business
+  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown -> not our business
 
   const payload = await readPayload();
   const input = payload.tool_input ?? {};
   const agent = matchAgent([...nameishFields(input), recipientType(payload)], ['implementer']);
   if (agent !== 'implementer') return;
+
+  // In every run phase: a re-triage inside `implement` can turn the defect
+  // into a case 3, and no phase write follows it (ADR-036).
+  const unconfirmed = unconfirmedCorrections(root);
+  if (unconfirmed.length > 0) {
+    recordDispatch(root, payload, phase, { agent, result: 'deny', why: 'case-3-unanswered' });
+    process.stderr.write(`[spec-flow] Denied: ${correctionDenial(unconfirmed, 'engaging the implementer')}\n`);
+    process.exit(2); // PreToolUse denial protocol
+  }
+
+  if (phase === 'implement') return; // already armed
 
   if (phase === 'spec') {
     const found = leavingSpecProblems(root);

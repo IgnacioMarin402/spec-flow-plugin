@@ -31,7 +31,8 @@
  *      and denies no later spawn in that repository.
  *   5. A write that LEAVES `spec` needs every live spec with no plan yet to
  *      pass what spec-trace will check of it at the first gate, and to state
- *      its assumptions (ADR-030).
+ *      its assumptions (ADR-030); and a fix brief that corrects a requirement
+ *      to have been answered by a human since it was written (ADR-036).
  *
  * **Recognising the value is deliberately narrow, because this hook DENIES.**
  * A `Write`/`Edit` carries the value as its body and a Bash `printf`/`echo`
@@ -55,6 +56,7 @@ import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
 import { resolveBase, changesAtBase } from '../scripts/changed-files.mjs';
 import { leavingSpecProblems } from '../scripts/spec-time.mjs';
+import { unconfirmedCorrections, correctionDenial } from './lib/human-turn.mjs';
 
 /** Change folders under `specflow/` that were never stamped and archived. */
 function liveChanges(root) {
@@ -269,6 +271,9 @@ await run(async () => {
           `change, show the human the sign-off again before writing '${written}': what they approved is not what is on disk.`,
       );
     }
+    // A case 3 leaves `spec` only after a person answered (ADR-036).
+    const unconfirmed = unconfirmedCorrections(root);
+    if (unconfirmed.length > 0) deny(correctionDenial(unconfirmed, `writing '${written}'`));
   }
 
   // ---- a write that ends the run is decided from evidence (ADR-022) -------

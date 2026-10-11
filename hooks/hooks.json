@@ -1,6 +1,14 @@
 {
   "description": "spec-flow — the external gate and state machine for the spec-driven multi-agent pipeline. See commands/spec-flow.md and commands/spec-fix.md.",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/human-turn.mjs"] }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "",
@@ -64,6 +72,12 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/human-turn.mjs"] }
+        ]
+      },
+      {
         "matcher": "Write|Edit|Read|Bash",
         "hooks": [
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/run-trace.mjs"] }
@@ -92,6 +106,7 @@
         "matcher": "",
         "hooks": [
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/token-trace.mjs"] },
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/human-turn.mjs"] },
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs"], "timeout": 1800 }
         ]
       }

@@ -11,7 +11,8 @@
  *
  * In the repository, during a run, the session may read `specflow/`,
  * `specs/`, `.spec-flow/`, `.claude/` and the root's `*.md`, and write only
- * `.claude/state/` and `specflow/`. Paths outside the repository are not this
+ * `.claude/state/` and `specflow/` — the logs there excepted, which are the
+ * hooks' own record. Paths outside the repository are not this
  * hook's business. A subagent's call carries its `agent_id`; the session's
  * carries none — that is the whole test, so the hook arms only once the trace
  * shows this build attributes tool calls, and until then stands down and says
@@ -26,6 +27,10 @@ import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs'
 const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 const WRITABLE = ['.claude/state/', 'specflow/'];
 const READABLE = [...WRITABLE, 'specs/', '.spec-flow/', '.claude/'];
+// The hooks' own record, which hooks decide on: a pass in gate-history.log
+// lets `done` through, a human turn in run-trace.log lets a case 3 go on
+// (ADR-036). Hooks append to them; the session writes none.
+const HOOKS_ONLY = /^\.claude\/state\/[^/]+\.log$/;
 
 /** A path relative to the repository, with `/`, or null when it lies outside it. */
 function inRepo(root, path) {
@@ -95,7 +100,10 @@ await run(async () => {
 
   const written =
     tool === 'Bash' ? bashWrites(String(input.command ?? '')) : [String(input.file_path ?? input.notebook_path ?? input.filePath ?? '')].filter(Boolean);
-  const outside = written.map((p) => inRepo(root, p)).filter((rel) => rel !== null && !under(rel, WRITABLE));
+  const outside = written.map((p) => inRepo(root, p)).filter((rel) => rel !== null && (!under(rel, WRITABLE) || HOOKS_ONLY.test(rel)));
   if (outside.length === 0) return;
+  if (outside.every((rel) => HOOKS_ONLY.test(rel))) {
+    deny(`the orchestrator writing ${[...new Set(outside)].join(', ')}. The logs under .claude/state/ are what the hooks append and decide on; a line this session wrote would be evidence nothing produced (ADR-036).`);
+  }
   deny(`the orchestrator writing, moving or deleting ${[...new Set(outside)].join(', ')} during a run. This session routes: during a run it writes only .claude/state/ and specflow/. ${route}`);
 });
