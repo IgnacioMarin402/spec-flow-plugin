@@ -22,7 +22,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { binaryOf, looksLikeTarget, stripTargets, resolveLocalBin, RUNTIMES } from '../scripts/argv.mjs';
+import { binaryOf, toolAt, looksLikeTarget, stripTargets, resolveLocalBin, RUNTIMES } from '../scripts/argv.mjs';
 
 /** A throwaway directory, removed however the test ends. */
 function withDir(fn) {
@@ -71,6 +71,27 @@ describe('binaryOf', () => {
     for (const runtime of RUNTIMES) {
       assert.equal(binaryOf([runtime, 'script.js']), 'script.js', `${runtime} did not defer`);
     }
+  });
+});
+
+describe('toolAt', () => {
+  // The contract's own form: `init` writes `node <entrypoint>`, and a runner
+  // may need node's flags ahead of it.
+  test('node running a script by path runs that script, past node flags', () => {
+    assert.deepEqual(toolAt(['node', '--experimental-vm-modules', 'node_modules/jest/bin/jest.js', 'tests/a.spec.ts']), { index: 2, name: 'jest' });
+  });
+
+  test('a bare tool, or one named by path, is its basename', () => {
+    assert.deepEqual(toolAt(['jest', 'tests/a.spec.ts']), { index: 0, name: 'jest' });
+    assert.deepEqual(toolAt(['node_modules/.bin/vitest', 'run']), { index: 0, name: 'vitest' });
+  });
+
+  test('it reads from the index it is given', () => {
+    assert.deepEqual(toolAt(['pnpm', 'exec', 'node', 'node_modules/mocha/bin/mocha.cjs'], 2), { index: 3, name: 'mocha' });
+  });
+
+  test('node with nothing after its flags names nothing', () => {
+    assert.deepEqual(toolAt(['node', '--test']), { index: 2, name: '' });
   });
 });
 

@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
-import { RUNTIMES } from '../scripts/argv.mjs';
+import { RUNTIMES, toolAt } from '../scripts/argv.mjs';
 
 /**
  * This plugin copy's own root — never the repo being checked. Same rule and
@@ -70,10 +70,10 @@ function classify(cmd, denied) {
       // `node node_modules/<tool>/bin/<tool>.js` is the invocation style the
       // gate itself uses (see .spec-flow/README.md in a consuming repo for
       // why), so it must be scoped exactly like a bare tool name.
-      i++;
-      while (t[i] && t[i].startsWith('-')) i++; // skip node's own flags, which a runner may need before its own name
+      const tool = toolAt(t, i);
+      i = tool.index;
       if (!t[i]) continue;
-      if (!denied.tools.has(toolName(t[i]).replace(/\.[cm]?js$/, ''))) continue;
+      if (!denied.tools.has(tool.name)) continue;
     } else if (!denied.tools.has(toolName(t[i]))) {
       continue; // not our business
     }

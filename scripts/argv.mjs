@@ -41,6 +41,23 @@ export function binaryOf(argv) {
 }
 
 /**
+ * The tool a shell command runs from `tokens[i]`: that token's basename, or
+ * for `node [node's flags] <script>` the script's, minus `.js`/`.mjs`/`.cjs`.
+ * `node --experimental-vm-modules node_modules/jest/bin/jest.js` runs jest —
+ * the form `init` writes into the contract — so `no-gate-cmds` (is this an
+ * unscoped run of a tool?) and `run-trace` (is this the runner failing?) read
+ * it here, from one copy.
+ *
+ * @returns {{ index: number, name: string }} where the tool's token sits, and its name
+ */
+export function toolAt(tokens, i = 0) {
+  if (tokens[i] !== 'node') return { index: i, name: (tokens[i] ?? '').replace(/^.*[\\/]/, '') };
+  let j = i + 1;
+  while (tokens[j]?.startsWith('-')) j++; // node's own flags, which a runner may need ahead of its script
+  return { index: j, name: (tokens[j] ?? '').replace(/^.*[\\/]/, '').replace(/\.[cm]?js$/, '') };
+}
+
+/**
  * Does this token name a place in the repo rather than a flag or a value?
  *
  * Deliberately narrow. `.`, `./`, anything containing a separator or a glob

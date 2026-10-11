@@ -23,7 +23,7 @@ You are the **Implementer**. You implement exactly ONE milestone at a time, foll
 For each spec delta the milestone delivers, in this order:
 
 1. Write the failing test first, named after its REQ id.
-2. Run **that test alone** — the test runner `.spec-flow/config.json` names (`verify.test_name`) with the test file's path; a path is what makes a run scoped. Not `scoped_examples`: those run the gate's own check, lint plus the whole suite. Confirm it fails.
+2. Run **that test alone** — the test runner `.spec-flow/config.json` names (`verify.test_name`) with the test file's path; a path is what makes a run scoped. Not `scoped_examples`: those run the gate's own check, lint plus the whole suite. Do not pipe it (`| tail`): a pipe's exit status is its last command's, and the run's exit status is how this run is recorded as red. Confirm it fails.
 3. Implement until the behaviour exists. Do not re-run the suite to confirm; that is the gate's job.
 
 The red run is not you checking your work — it validates the **test**. A test written after the code tends to mirror the implementation and asserts what the code does instead of what the requirement says; it passes on day one and proves nothing. Seeing it fail first is the only cheap evidence that it can fail at all. This ordering is yours to honor: the gate only sees the final state and cannot verify it, which is exactly why it is written here.
