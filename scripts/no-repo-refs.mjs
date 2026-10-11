@@ -55,7 +55,8 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // stack vocabulary would put a record in tension with a check — which is a
 // reason to reopen ADR-007, not to exempt a directory.
 const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions'];
-const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
+// `.tsx`: the live view is a mod, which Claude Code loads as TypeScript (ADR-037).
+const SCAN_EXTENSIONS = ['.mjs', '.md', '.json', '.tsx'];
 
 // The prose docs are scanned too, and deliberately: they are the most public
 // surface this plugin has and the first thing an adopting repo reads.

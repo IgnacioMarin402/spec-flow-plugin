@@ -114,6 +114,34 @@ for (const file of registered) {
   }
 }
 
+// ---- the mod's modules, both directions ------------------------------------
+//
+// The same two failures for what `modules` names (ADR-037), which Claude Code
+// loads with no Node and no other check would notice missing: a view the
+// manifest promises and nothing loads, or a module that ships and never runs.
+// A `*.test.tsx` is `claude plugin test`'s, not a module.
+const modules = (JSON.parse(manifest).modules ?? []).map((m) => m.replace(/^\.\//, ''));
+const moduleFiles = readdirSync(join(ROOT, 'hooks'))
+  .filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'))
+  .sort();
+
+for (const file of moduleFiles) {
+  if (!modules.includes(file)) {
+    findings.push(`hooks/${file} exists but hooks.json never names it in modules — it ships and never loads`);
+  }
+}
+for (const file of modules) {
+  if (!existsSync(join(ROOT, 'hooks', file))) {
+    findings.push(`hooks.json names the module hooks/${file}, which this package does not ship`);
+  }
+}
+
+// The state contract a module's `$.state` keys are validated against.
+const contract = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).types;
+if (contract && !existsSync(join(ROOT, contract))) {
+  findings.push(`.claude-plugin/plugin.json names the types contract ${contract}, which this package does not ship`);
+}
+
 // ---- every state file the code names has a row ----------------------------
 //
 // REFERENCE's `.claude/state/` table is what a human deletes from to reset a
@@ -261,6 +289,7 @@ if (findings.length > 0) {
 console.log(
   `plugin-paths: OK — ${checked} plugin-root path(s) referenced, all present; ` +
     `${hookFiles.length} hook(s), each registered in hooks.json; ` +
+    `${modules.length} module(s), each shipped and named; ` +
     `${stateNames.size} state file(s) named in the code, each listed in REFERENCE; ` +
     `${anchorsChecked} cross-doc anchor(s), every one resolving.`,
 );

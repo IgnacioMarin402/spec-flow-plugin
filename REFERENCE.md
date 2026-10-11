@@ -13,6 +13,7 @@ Look-up material. For what spec-flow is and how to install it, see the
 - [Commands and agents](#commands-and-agents)
 - [CLI](#cli)
 - [Hooks](#hooks)
+- [The live view](#the-live-view)
 - [Phases](#phases)
 - [`.claude/state/`](#claudestate)
 - [What an install costs](#what-an-install-costs)
@@ -403,6 +404,27 @@ What the agent gate can see is a return's shape, the files on disk, the ids in
 ambiguity the spec-writer resolved without asking and did not list, a delta no
 test could prove, or a contradiction with `specs/` nobody declared. Those stay
 with the human at sign-off and with the reviewer.
+
+---
+
+## The live view
+
+A mod in the same `hooks.json`
+([ADR-037](decisions/037-a-mod-may-show-the-sessions-events-and-still-decides-nothing.md)).
+It shows a pane with one box per spec-flow agent while the agent works: model,
+effort, time, tool calls, requests, tokens and the last tool. When the agent
+finishes, its box shows the `STATUS:` it handed back. The orchestrator, the
+phase and the last gate sit above the boxes, and the status line names the
+phase and who is running.
+
+- `/spec-flow-live` opens the pane, even mid-turn. The pane also opens by
+  itself at the first spawn, if there is room beside the transcript.
+- It shows this session's run only: a phase another session owns, or one git
+  tracks, shows as none.
+- It gates nothing. The numbers `status`, `stats` and the snapshot report are
+  `token-trace`'s.
+- The plugin's `live_view` setting turns it off. A Claude Code without
+  function hooks skips it, and the engine runs as before.
 
 ---
 

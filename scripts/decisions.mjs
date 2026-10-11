@@ -44,7 +44,8 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // and is a place someone will look for one.
 const CITE_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills'];
 const CITE_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
-const CITE_EXTENSIONS = ['.mjs', '.md', '.json'];
+// `.tsx`: the live view is a mod, which Claude Code loads as TypeScript (ADR-037).
+const CITE_EXTENSIONS = ['.mjs', '.md', '.json', '.tsx'];
 
 /** `ADR-004`, wherever it appears. Three digits, so a year or an id cannot match. */
 const CITATION = /\bADR-(\d{3})\b/g;
