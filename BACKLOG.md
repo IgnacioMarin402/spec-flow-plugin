@@ -195,16 +195,6 @@ naming a commit on every gate line. Compared on gate attempts per milestone,
 architect calls, test-first (needs B47) and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.
 
-### B56 — `cc=` records no Claude Code version
-
-ADR-004 has the gate record the Claude Code that ran it, read from
-`CLAUDE_CODE_VERSION`. Every gate line of two real runs says `cc=?`, and in a
-cloud session the variable said 2.1.42 while `claude --version` said 2.1.296.
-The transcript's user and assistant lines carry `version`, and a resumed
-session's holds several (one held 2.1.293 to 2.1.296). **Done:** `cc=` is the
-last `version` in the Stop payload's transcript; a gate-fixture case with
-`CLAUDE_CODE_VERSION` set to another value, red on `620901d`.
-
 ### B57 — a finished run's last PASS reads as a stall
 
 Writing `done` leaves no line in `run-trace.log` or `gate-history.log`, and

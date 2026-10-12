@@ -348,8 +348,8 @@ async function fixture({
  * nor the repo, to make sure nothing about the hook depends on being invoked
  * from either.
  */
-async function runGate({ engineDir, repoDir }, sessionId = undefined, extra = {}) {
-  const env = { ...process.env, CLAUDE_PROJECT_DIR: repoDir };
+async function runGate({ engineDir, repoDir }, sessionId = undefined, extra = {}, envExtra = {}) {
+  const env = { ...process.env, ...envExtra, CLAUDE_PROJECT_DIR: repoDir };
   // `{}` unless a case is about ownership: a payload with no `session_id` is
   // the shape every hook has to keep arming on, so it stays the default here
   // too — a fixture that always supplied one could not tell the fail-closed
@@ -408,10 +408,22 @@ const judgedHistory = (sha) =>
 async function withFixture(opts, assert) {
   const { engineDir, repoDir, gitDir } = await fixture(opts);
   try {
-    return assert(await runGate({ engineDir, repoDir }, opts.sessionId, opts.payload), repoDir);
+    return assert(await runGate({ engineDir, repoDir }, opts.sessionId, opts.payload, opts.env), repoDir);
   } finally {
     rmSync(engineDir, { recursive: true, force: true });
     rmSync(gitDir, { recursive: true, force: true });
+  }
+}
+
+/** A session transcript holding `lines`, removed once `use` settles. */
+async function withTranscript(lines, use) {
+  const dir = mkdtempSync(join(tmpdir(), 'spec-flow-transcript-'));
+  const file = join(dir, 'session.jsonl');
+  writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  try {
+    return await use(file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -1393,6 +1405,37 @@ await Promise.all([
       rmSync(built.repoDir, { recursive: true, force: true });
     }
   }),
+
+  // ---- cc=, the Claude Code that ran the session (ADR-041) ----------------
+  //
+  // Each transcript line carries the build that wrote it; the variable the
+  // gate read was unset on two real runs and named another build in a third.
+  check('cc= is the last version the transcript carries, never CLAUDE_CODE_VERSION', () =>
+    withTranscript(
+      [{ type: 'user', version: '2.1.293' }, { type: 'assistant', version: '2.1.296', toolUseResult: { version: '0.1.0' } }, { type: 'ai-title' }],
+      (file) =>
+        withFixture({ specTrace: 'green', payload: { transcript_path: file }, env: { CLAUDE_CODE_VERSION: '2.1.42' } }, (r) =>
+          / cc=2\.1\.296 /.test(r.history) ? null : `expected cc=2.1.296, the transcript's last version: ${r.history}`,
+        ),
+    ),
+  ),
+
+  check('cc= is ? when the Stop names no transcript it can read, whatever the environment says', () =>
+    withFixture({ specTrace: 'green', payload: { transcript_path: join(tmpdir(), 'spec-flow-no-such-transcript.jsonl') }, env: { CLAUDE_CODE_VERSION: '2.1.42' } }, (r) =>
+      / cc=\? /.test(r.history) ? null : `expected cc=? — an absent value reads as "not known here", never as a version: ${r.history}`,
+    ),
+  ),
+
+  // A tool result can make the last line longer than the tail first read.
+  check('cc= is read from a last line longer than the tail the gate reads first', () =>
+    withTranscript(
+      [{ type: 'user', version: '2.1.293' }, { type: 'user', version: '2.1.296', message: { content: 'x'.repeat(600_000) } }],
+      (file) =>
+        withFixture({ specTrace: 'green', payload: { transcript_path: file } }, (r) =>
+          / cc=2\.1\.296 /.test(r.history) ? null : `expected cc=2.1.296 from the long last line: ${r.history}`,
+        ),
+    ),
+  ),
 
   // ---- the new routing: a red test on attempt 1 goes to the implementer, not to REPLAN ----
   check('a red test on attempt 1 routes to the implementer directly — no REPLAN yet', () =>
