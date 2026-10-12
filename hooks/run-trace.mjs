@@ -21,7 +21,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, run, stateIsTracked, PHASE_FILE_RE } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, stateIsTracked, PHASE_FILE_RE, resolveCd } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { parseReturn } from '../scripts/agent-blocks.mjs';
 import { handedBack } from './lib/handback.mjs';
@@ -213,7 +213,7 @@ function traceReturn(payload, traceFile, missLog) {
 function wrotePhase(tool, input) {
   if (/^(Write|Edit|MultiEdit)$/.test(tool)) return PHASE_FILE_RE.test(String(input.file_path ?? input.filePath ?? ''));
   const into = new RegExp(`(?:>>?\\|?|\\btee(?:\\s+-a)?)\\s*(?:"[^"]*?|'[^']*?|[^'"\\s|;&]*?)${PHASE_FILE_RE.source}`);
-  return tool === 'Bash' && into.test(String(input.command ?? ''));
+  return tool === 'Bash' && into.test(resolveCd(String(input.command ?? '')));
 }
 
 await run(async () => {

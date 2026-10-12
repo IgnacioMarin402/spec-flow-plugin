@@ -50,7 +50,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, resolveCd } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
@@ -189,7 +189,7 @@ await run(async () => {
 
   let written = null;
   if (String(payload.tool_name ?? '') === 'Bash') {
-    const cmd = String(input.command ?? '');
+    const cmd = resolveCd(String(input.command ?? ''));
     written = bashWrittenValue(cmd);
     // In or out of a run: a command writing into `.claude/state/phase` creates
     // that directory itself, so recording it there leaves nothing behind that

@@ -42,6 +42,28 @@ export function stateDir(root = projectDir()) {
 export const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase(?![\w.-])/;
 
 /**
+ * `cmd` with each relative redirect or `tee` target after a `cd` written under
+ * that directory, so `cd .claude/state && printf done > phase` names the phase
+ * file as the hooks read it. Linear: a `cd` inside a subshell is taken as
+ * lasting, which can only name more paths, never fewer.
+ */
+export function resolveCd(cmd) {
+  let dir = '';
+  return cmd
+    .split(/(;|&&|\|\||\n)/)
+    .map((part) => {
+      const cd = /^\s*\(?\s*cd\s+(['"]?)([^'"\s;&|)]+)\1/.exec(part);
+      if (cd) {
+        dir = /^([\\/~]|[A-Za-z]:)/.test(cd[2]) || !dir ? cd[2] : `${dir}/${cd[2]}`;
+        return part;
+      }
+      if (!dir) return part;
+      return part.replace(/(>>?\|?|\btee(?:\s+-a)?)(\s*)(['"]?)([^'"\s;&|<>]+)/g, (_, op, space, quote, target) => `${op}${space}${quote}${dir}/${target.replace(/^\.\//, '')}`);
+    })
+    .join('');
+}
+
+/**
  * The phase file's path, WITHOUT creating anything.
  *
  * Almost every hook here reads the phase first and then decides it has
