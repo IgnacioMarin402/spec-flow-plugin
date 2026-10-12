@@ -15,8 +15,8 @@ read from `CLAUDE_CODE_VERSION`. Does that variable name the build that ran?
   updates, it held `2.1.293` to `2.1.296`, in order.
 
 **Decision.** `cc=` is the `version` of the last line of the Stop payload's
-transcript that carries one; `?` when there is no transcript, or none of it
-can be read.
+transcript that carries one; `?` when there is no transcript, it cannot be
+read, or no line of it carries a version.
 
 **Refused.**
 

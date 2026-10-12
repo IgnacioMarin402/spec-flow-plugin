@@ -427,6 +427,10 @@ async function withTranscript(lines, use) {
   }
 }
 
+/** `cc=?`, and a variable naming another build, for the ways of not knowing. */
+const unknownCc = (r) => (/ cc=\? /.test(r.history) ? null : `expected cc=? — an absent value reads as "not known here", never as a version: ${r.history}`);
+const lying = { CLAUDE_CODE_VERSION: '2.1.42' };
+
 if (!have('git')) {
   console.log('gate-fixture: skipped — git is required to exercise the hook.');
   process.exit(0);
@@ -1420,9 +1424,27 @@ await Promise.all([
     ),
   ),
 
-  check('cc= is ? when the Stop names no transcript it can read, whatever the environment says', () =>
-    withFixture({ specTrace: 'green', payload: { transcript_path: join(tmpdir(), 'spec-flow-no-such-transcript.jsonl') }, env: { CLAUDE_CODE_VERSION: '2.1.42' } }, (r) =>
-      / cc=\? /.test(r.history) ? null : `expected cc=? — an absent value reads as "not known here", never as a version: ${r.history}`,
+  // Each way of not knowing, since the variable could come back on any one.
+  check('cc= is ? when the Stop names no transcript, whatever the environment says', () =>
+    withFixture({ specTrace: 'green', payload: {}, env: lying }, unknownCc),
+  ),
+  check('cc= is ? when the transcript cannot be read, whatever the environment says', () =>
+    withFixture({ specTrace: 'green', payload: { transcript_path: join(tmpdir(), 'spec-flow-no-such-transcript.jsonl') }, env: lying }, unknownCc),
+  ),
+  check('cc= is ? when no line of the transcript carries a version, whatever the environment says', () =>
+    withTranscript([{ type: 'ai-title' }, { type: 'mode' }], (file) =>
+      withFixture({ specTrace: 'green', payload: { transcript_path: file }, env: lying }, unknownCc),
+    ),
+  ),
+
+  // A session resumed across an update: the tail, not the head, names it.
+  check('cc= is the build a resumed session runs on now, past its older lines', () =>
+    withTranscript(
+      [...Array.from({ length: 400 }, () => ({ type: 'user', version: '2.1.293', message: { content: 'y'.repeat(1000) } })), { type: 'user', version: '2.1.296' }, { type: 'ai-title' }],
+      (file) =>
+        withFixture({ specTrace: 'green', payload: { transcript_path: file } }, (r) =>
+          / cc=2\.1\.296 /.test(r.history) ? null : `expected cc=2.1.296, the build the session resumed on: ${r.history}`,
+        ),
     ),
   ),
 
