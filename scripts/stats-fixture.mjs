@@ -630,9 +630,54 @@ check('a target holding only a redirection names no path', () => {
   return contains(section, '?    lib/orders/ship.ts  (a test run the trace could not judge: no-path)');
 });
 
-check('a target names a test from a path segment, not from inside a name', () => {
+// jest and vitest match an argument anywhere in a path: `place.spec.ts` runs
+// `replace.spec.ts` too, so that run may have been this test's.
+check('a name found inside a test\'s name, not at a path segment, is unjudged', () => {
   const trace = [write(1, 'tests/orders/replace.spec.ts'), ranOn(2, 'red', 'place.spec.ts'), write(3, 'lib/orders/replace.ts')];
-  return contains(testFirst(report({ trace }).out), 'MISS lib/orders/replace.ts  (no-red-run)');
+  return contains(testFirst(report({ trace }).out), '?    lib/orders/replace.ts  (a test run the trace could not judge: pattern)');
+});
+
+// A MISS says no red run happened: a run that loaded a config or a module, or
+// matched a glob, ran a suite the trace cannot see into.
+check('a run naming only a config, a module, or a glob is unjudged, never a miss', () => {
+  const section = testFirst(
+    report({ trace: threePairs(ranOn(10, 'red', 'config/unit.json'), ranOn(11, 'red', 'ts-node/register'), ranOn(12, 'red', 'tests/orders/*.spec.ts')) }).out,
+  );
+  return contains(section, '?    lib/orders/ship.ts  (a test run the trace could not judge: no-test-path,glob)');
+});
+
+check('a run of another directory of tests is not a run of these', () => {
+  return contains(testFirst(report({ trace: threePairs(ranOn(10, 'red', 'tests/billing')) }).out), 'MISS lib/orders/ship.ts  (no-red-run)');
+});
+
+check('a target is matched past ./, ../, a subshell paren, and from Git Bash', () => {
+  const at = (p) => `C:\\Users\\i\\repo\\${p.replace(/\//g, '\\')}`;
+  const trace = [
+    write(1, at('tests/orders/place.spec.ts')),
+    write(2, at('tests/orders/cancel.spec.ts')),
+    write(3, at('tests/orders/ship.spec.ts')),
+    write(4, at('tests/orders/pack.spec.ts')),
+    ranOn(5, 'red', './tests/orders/place.spec.ts'),
+    ranOn(6, 'red', '../tests/orders/cancel.spec.ts)'),
+    ranOn(7, 'red', '/c/Users/i/repo/tests/orders/ship.spec.ts'),
+    ranOn(8, 'red', 'tests\\\\orders\\\\pack.spec.ts'),
+    ...['place', 'cancel', 'ship', 'pack'].map((m, i) => write(10 + i, at(`lib/orders/${m}.ts`))),
+  ];
+  const section = testFirst(report({ trace }).out);
+  return ['place', 'cancel', 'ship', 'pack'].map((m) => contains(section, `${m}.ts  (red-first)`)).find(Boolean) ?? '';
+});
+
+// Two changes in one log can each write a `utils.spec.ts`.
+check('a source is credited by a red run of any test under its test\'s name', () => {
+  const trace = [
+    write(1, 'tests/item/utils.spec.ts'),
+    write(2, 'lib/item/utils.ts'),
+    write(3, 'tests/city/utils.spec.ts'),
+    ranOn(4, 'red', 'tests/city/utils.spec.ts'),
+    write(5, 'lib/city/utils.ts'),
+  ];
+  const section = testFirst(report({ trace }).out);
+  return contains(section, 'OK   lib/city/utils.ts  (red-first)') || contains(section, 'MISS lib/item/utils.ts  (no-red-run)');
 });
 
 // The shape a real run left: Windows paths written, a relative target run, and
