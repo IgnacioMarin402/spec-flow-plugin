@@ -125,17 +125,6 @@ the copy line carries `model=` and `effort=`, and `token-trace` records cache
 writes by TTL: a live-view test and a token-fixture case, each red on
 `620901d`.
 
-### B50 — the version ban does not reach the live-view mod
-
-`model-pins` walks `hooks/` but reads only `.mjs`, `.md` and `.json`, so a
-pinned model id in the mod's `.tsx` or `.ts` passes (ADR-013). `no-repo-refs`
-took `.tsx` when the mod landed (`7da943e`); this check did not.
-`hooks/live-view.test.tsx` already names four full ids and one numbered tier,
-so scanning `.tsx` alone turns `models:check` red. **Done:** `.ts` and `.tsx`
-scanned, the test's ids assembled at runtime as `model-pins-fixture` does, and
-a model-pins-fixture case with a pinned id in a `.tsx` under `hooks/`, red on
-`620901d`.
-
 ### B52 — the spec-writer on the cheapest tier
 
 ADR-030 shows the human what the spec-writer assumed, and ADR-031 holds its

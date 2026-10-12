@@ -61,7 +61,8 @@ const SCAN_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', 
 // `ci.yml` is here because this check's own steps are described in it, and a
 // step comment is prose like any other.
 const SCAN_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
-const SCAN_EXTENSIONS = ['.mjs', '.md', '.json'];
+// `.ts` and `.tsx`: the live view is a mod, and its test spawns agents on a model.
+const SCAN_EXTENSIONS = ['.mjs', '.md', '.json', '.ts', '.tsx'];
 
 const VERSIONED = [
   // A full model id. Anchored on the vendor prefix so the bare alias, which is

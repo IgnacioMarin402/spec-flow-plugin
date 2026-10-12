@@ -38,6 +38,8 @@ const NUMBERED_TIER = ['Opus', '5'].join(' ');
 
 // The surfaces the check claims. Written out, not imported.
 const SCANNED_DIRS = ['agents', 'modes', 'commands', 'hooks', 'scripts', 'skills', '.claude/skills'];
+// The live view is a mod written in TypeScript, under `hooks/`.
+const SCANNED_EXTENSIONS = ['.mjs', '.md', '.json', '.ts', '.tsx'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'BACKLOG.md', '.github/workflows/ci.yml'];
 
 /**
@@ -125,6 +127,14 @@ for (const file of SCANNED_FILES) {
     const { code, out } = scan({ [file]: `The planner runs on ${NUMBERED_TIER}.\n` });
     if (code === 0) return `${file} is not scanned.\n--- output ---\n${out}`;
     return out.includes(file) ? '' : `reported a problem but not the file that carries it.\n--- output ---\n${out}`;
+  });
+}
+
+for (const ext of SCANNED_EXTENSIONS) {
+  check(`a pinned id in a ${ext} file under hooks/ is reported`, () => {
+    const { code, out } = scan({ [`hooks/planted${ext}`]: `const model = '${PINNED_ID}';\n` });
+    if (code === 0) return `${ext} files are not scanned.\n--- output ---\n${out}`;
+    return out.includes(`hooks/planted${ext}`) ? '' : `reported a problem but not the file that carries it.\n--- output ---\n${out}`;
   });
 }
 

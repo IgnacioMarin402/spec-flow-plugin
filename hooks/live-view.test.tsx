@@ -3,6 +3,11 @@ import type { Args, HookStream, On, TurnStepChunk, TurnStepInput, TurnStepResult
 
 const ROOT = '/repo'
 const ME = 'session-me'
+// Assembled, never spelled: model-pins scans `hooks/`, and here a model is only
+// data the view labels (ADR-013).
+const PARENT_MODEL = ['claude', 'sonnet', '5', '5'].join('-')
+const MODEL = ['claude', 'opus', '5', '5'].join('-')
+const MODEL_LABEL = ['opus', '5\\.5'].join(' ')
 
 const spawn = (subagentType: string, prompt = 'p'): Args<'agent.spawn'> => ({
   tool_use_id: `tu-${subagentType}`,
@@ -10,13 +15,13 @@ const spawn = (subagentType: string, prompt = 'p'): Args<'agent.spawn'> => ({
   description: 'd',
   subagentType,
   provider: { plugin: 'spec-flow', tier: 'user' },
-  parentModel: 'claude-sonnet-5-5',
+  parentModel: PARENT_MODEL,
   background: true,
   fork: false,
 })
 
 const usage = (out: number) => ({
-  model: 'claude-opus-5-5',
+  model: MODEL,
   input_tokens: 2_000,
   cache_read_input_tokens: 400_000,
   cache_creation_input_tokens: 10_000,
@@ -48,7 +53,7 @@ function world(on: On, files: Record<string, string>, { tracked = false } = {}) 
   on('process.run', () => ({ value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '' } as never }))
   on('session.id', () => ({ value: ME }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('agent.spawn', (_, e) => ({ model: 'claude-opus-5-5', agentId: `a-${e.subagentType.replace(/^spec-flow:/, '')}` }))
+  on('agent.spawn', (_, e) => ({ model: MODEL, agentId: `a-${e.subagentType.replace(/^spec-flow:/, '')}` }))
   on('turn.step', async function* (_, e) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: usage(3_100) }
   })
@@ -71,7 +76,7 @@ function clipboard(on: On) {
 type Stepper = { turn: { step: (input: TurnStepInput) => HookStream<TurnStepChunk, TurnStepResult> } }
 
 async function step($: Stepper, agentId?: string) {
-  const s = $.turn.step({ turnId: `t-${agentId ?? 'main'}`, index: 0, model: 'claude-opus-5-5', messageCount: 3, effort: 'high', ...(agentId ? { agentId } : {}) })
+  const s = $.turn.step({ turnId: `t-${agentId ?? 'main'}`, index: 0, model: MODEL, messageCount: 3, effort: 'high', ...(agentId ? { agentId } : {}) })
   for await (const _ of s) {
     /* drain */
   }
@@ -122,7 +127,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: '✓ PLAN_READY' }), 'its own status').toBeDefined()
     expect(await ui.find({ text: /running$/ }), 'nothing runs').toBeUndefined()
     expect(await ui.find({ text: /^1m12s · / }), 'its time is its turn').toBeDefined()
-    expect(await ui.find({ text: /^total 415k · opus 5\.5$/ }), 'a finished box keeps its numbers, shorter').toBeDefined()
+    expect(await ui.find({ text: new RegExp(`^total 415k · ${MODEL_LABEL}$`) }), 'a finished box keeps its numbers, shorter').toBeDefined()
     expect(await ui.find({ text: /^▸ / }), 'a finished box has no live line').toBeUndefined()
 
     // The orchestrator's own call, in this session's run, is its own.
