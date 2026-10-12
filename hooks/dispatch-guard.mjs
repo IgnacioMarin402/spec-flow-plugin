@@ -17,7 +17,8 @@
  * Outside a run it records one thing: this flow's agent put to work with no
  * run phase. Nothing else counts or traces such a dispatch — preflight, the
  * Opus budget, run-trace, token-trace and the agent gate all stand down there
- * (ADR-040).
+ * (ADR-040). The implementer on `done` or `idle` is arm-gate's, which denies it
+ * (ADR-044).
  */
 import { projectDir, readPhase, readPayload, run, stateIsTracked } from './lib/io.mjs';
 import { matchAgent, recipientRecord, recipientType } from './lib/agent-name.mjs';
@@ -96,6 +97,9 @@ await run(async () => {
     // `spec-flow:<role>`, and outside a run is where people use their own — a
     // `reviewer` or `code-reviewer` of theirs is not this flow's.
     const own = /^spec-flow:([a-z][a-z-]*)$/i.exec(String(exactType ?? ''))?.[1]?.toLowerCase();
+    // The implementer on `done` or `idle` is arm-gate's, which denies it and
+    // records that (ADR-044).
+    if (own === 'implementer' && ['done', 'idle'].includes(phase)) return;
     if (roles.includes(own) && !stateIsTracked(root)) recordDispatch(root, payload, phase || '-', { agent: own, result: 'record', why: 'no-run' });
     return;
   }

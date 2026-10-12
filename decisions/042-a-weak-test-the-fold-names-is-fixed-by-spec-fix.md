@@ -1,6 +1,6 @@
 # ADR-042 — a weak test the fold names is fixed by `/spec-fix`
 
-**Date:** 2026-10-12 · **Status:** accepted · **Governs:** `commands/spec-flow.md`, `commands/spec-fix.md`, `scripts/agent-contracts.mjs` · **Extends:** ADR-020
+**Date:** 2026-10-12 · **Status:** accepted; its refusal to deny the spawn revisited by [ADR-044](044-the-implementer-works-only-inside-a-run.md) · **Governs:** `commands/spec-flow.md`, `commands/spec-fix.md`, `scripts/agent-contracts.mjs` · **Extends:** ADR-020
 
 **Question.** The fold reports a test that proves less than its requirement
 through `GAPS:`, at the end of a run (ADR-020). Who fixes it, and under which
