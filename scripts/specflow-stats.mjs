@@ -437,7 +437,7 @@ if (dispatched.length > 0) {
   }
   // Step 0 writes the phase before either is spawned, so one with none is a run
   // that skipped it or had it reset under it. Anyone else there is a question
-  // between runs, or the fresh implementer step 6 offers after `done`.
+  // between runs, or an agent a person puts to work after `done`.
   const unarmed = outside.filter((e) => ['spec-writer', 'planner'].includes(e.agent));
   if (unarmed.length > 0) {
     warn.push(`${unarmed.length} spec-writer or planner spawn(s) with no run phase (${tally(unarmed)}): no budget, trace or agent gate applied to them. A run that skipped writing \`spec\`, or whose phase was reset under it, looks like this (ADR-040).`);

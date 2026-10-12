@@ -10,6 +10,7 @@ A feature is an open question about what the system should do. **A defect is a c
 2. **Find the requirement that covers it.** Read `specs/<capability>.md` for the module in scope (`<!-- spec-scope: ... -->` says which module a spec owns). If **no** requirement covers the behaviour, that is **case 1**: nothing was lying, there was simply no claim. The fix adds one.
 3. **Read the requirement literally, and ask whether it describes the behaviour you would want.**
    - It does, and the code disagrees with it -> **case 2**. The requirement is fine; its test did not prove all of it, which is why the bug got in. Find the test that names the id and say what case it is missing.
+   - It does, and the report is a test that proves less of it than it claims — a fold's `GAPS:` names one — -> **case 2** too, whether or not the code disagrees today: what is broken is the proof, and there is no symptom to reproduce.
    - It does not — the requirement itself describes the buggy behaviour -> **case 3**. The code was obedient and the spec was wrong.
 4. **Before settling on case 3, apply the line that separates it from a feature.** Both rewrite a requirement, and they are not the same thing:
    - **Case 3** — the requirement was *wrong when it was written*. It contradicts another requirement, the glossary, or an invariant the system already relies on. Restoring it takes nothing away from anyone.
