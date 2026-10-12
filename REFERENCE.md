@@ -444,11 +444,15 @@ armed.
 | `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
 | `implement` | orchestrator, or `arm-gate` if it forgot | **the gate**, **lint-on-write**, **the command deny**, plus the above |
 | `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
-| `done` | orchestrator, if `phase-guard` allows | `dispatch-guard`, for this flow's agents only; `run-trace` and `token-trace`, for the turn that wrote it |
+| `done` | orchestrator, if `phase-guard` allows | `dispatch-guard`, for this flow's agents only |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | `dispatch-guard`, for this flow's agents only |
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
   once, so `phase-guard` denies it.
+- **The turn that writes `done` is the run's last**
+  ([ADR-043](decisions/043-the-turn-that-writes-done-is-the-runs-last.md)):
+  `run-trace` records the call that wrote it, and `token-trace` charges that
+  turn.
 - **A run that cannot run here does not start**
   ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
   first run phase written while no run is in progress is denied unless the

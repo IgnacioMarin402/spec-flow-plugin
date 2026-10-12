@@ -61,8 +61,10 @@ export function phaseOwnerPath(root = projectDir()) {
 
 /**
  * The phases that ARM something. Everything else — `idle`, `done`, an empty
- * file, a value no hook recognises — stands every hook down on its own, so
- * `readPhase` answers those without spawning anything.
+ * file, a value no hook recognises — arms no hook, so `readPhase` answers
+ * those without spawning anything. Two still record there: `dispatch-guard`
+ * this flow's agents (ADR-040), and the traces the turn that wrote `done`
+ * (ADR-043).
  */
 const ARMING = new Set(['spec', 'plan', 'review', 'implement', 'blocked']);
 

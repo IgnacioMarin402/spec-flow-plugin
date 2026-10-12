@@ -725,6 +725,19 @@ check('the closing turn\'s tokens, left in (current), are no run of their own', 
   return out.includes('across 2 run(s)') ? `the closing turn was counted as a run:\n${out}` : contains(out, '1 invocation(s): 1 pass');
 });
 
+check('a closed run shows no open milestone, and its closing turn is charged to it', () => {
+  const closed = `${stamp(6)} phase=done session=s1 closed tool=Write`;
+  const closing = `${stamp(7)} phase=done session=s1 tokens model=model-alpha sidechain=false in=10 out=7 cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=900`;
+  const planner = [
+    `${stamp(3)} phase=plan session=s1 tokens model=model-alpha sidechain=true in=1 out=1 cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=9 agent_id=a1`,
+    `${stamp(3)} phase=plan session=s1 agent type=spec-flow:planner status=PLAN_READY agent_id=a1`,
+  ];
+  const { out } = report({ trace: [closing], archived: [{ slug: 'refunds', gate: [pass(5)], trace: [...planner, read(4, 'lib/orders/place.ts'), closed] }] });
+  if (out.includes('never reached a PASS')) return `a closed run shows an open milestone:\n${out}`;
+  if (out.includes('[(current)]')) return `the closing turn stayed in (current):\n${out}`;
+  return /by role \[refunds\]:[\s\S]*?orchestrator\s+model-alpha\s+in 10\s+out 7 /.test(out) ? '' : `the closing turn was not charged to its run:\n${out}`;
+});
+
 const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 const passAgo = (minutes) => `${ago(minutes)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=pass lint=0 test=0 unscoped=ok files=1`;
 

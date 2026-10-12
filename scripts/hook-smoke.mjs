@@ -1111,6 +1111,52 @@ t('a run closed from Bash leaves its line, and a read of the phase none', (repo)
   return / phase=done session=s closed tool=Bash$/m.test(traceText(repo)) ? null : `no line for a run closed from Bash:\n${traceText(repo)}`;
 });
 
+t('a run is closed by each way the phase file is written, and by nothing else', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'done');
+  const post = (tool_name, tool_input) => runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name, tool_input }, repo);
+  post('Write', { file_path: join(repo, 'README.md'), content: 'x' });
+  post('Read', { file_path: join(repo, '.claude/state/phase') });
+  post('Bash', { command: 'git status --short > /tmp/st.txt; cat .claude/state/phase' });
+  if (traceText(repo)) return `a call that did not write the phase closed the run:\n${traceText(repo)}`;
+  post('Bash', { command: "printf 'done' | tee .claude/state/phase" });
+  post('Bash', { command: 'echo done >| .claude/state/phase' });
+  post('Bash', { command: 'printf done > "/Users/First Last/My Projects/app/.claude/state/phase"' });
+  post('Edit', { file_path: join(repo, '.claude/state/phase'), old_string: 'implement', new_string: 'done' });
+  post('Write', { file_path: 'C:\\Users\\someone\\app\\.claude\\state\\phase', content: 'done' });
+  post('Write', { filePath: join(repo, '.claude/state/phase'), content: 'done' });
+  const closed = [...traceText(repo).matchAll(/ closed tool=(\S+)$/gm)].map((m) => m[1]);
+  return closed.join(',') === 'Bash,Bash,Bash,Edit,Write,Write' ? null : `want Bash,Bash,Bash,Edit,Write,Write, got ${closed.join(',') || '(none)'}:\n${traceText(repo)}`;
+});
+
+t("another session's turn after the run closed is not charged, and the closer's still is", (repo) => {
+  const a = join(repo, 'a.jsonl');
+  const b = join(repo, 'b.jsonl');
+  const stop = (session, transcript) => runHook('token-trace.mjs', { session_id: session, hook_event_name: 'Stop', transcript_path: transcript }, repo);
+  writeFileSync(a, usageEntry(100));
+  stop('sa', a);
+  writeFileSync(join(repo, '.claude/state/phase'), 'done');
+  runHook('run-trace.mjs', { session_id: 'sa', hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
+  writeFileSync(b, usageEntry(50));
+  stop('sb', b);
+  appendFileSync(a, usageEntry(7));
+  stop('sa', a);
+  const lines = traceText(repo).split('\n').filter(Boolean);
+  if (lines.some((l) => / session=sb .*tokens/.test(l))) return `another session's turn was charged to the run:\n${lines.join('\n')}`;
+  return lines.some((l) => / phase=done session=sa .*tokens .* out=7 /.test(l)) ? null : `the closing turn was not charged:\n${lines.join('\n')}`;
+});
+
+// A committed `.claude/state/` is content: its log may link out of the repo.
+t('a run closed in a repository that committed .claude/state leaves no line in it', (repo) => {
+  const shipped = '2026-01-01T00:00:00.000Z phase=done session=s closed tool=Write\n';
+  writeFileSync(join(repo, '.claude/state/run-trace.log'), shipped);
+  for (const args of [['add', '-f', '--', '.claude/state/run-trace.log'], ['commit', '-q', '-m', 'a log this repository committed']]) spawnSync('git', args, { cwd: repo, stdio: 'ignore' });
+  const session = join(repo, 'sess.jsonl');
+  writeFileSync(session, usageEntry(5));
+  runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
+  runHook('token-trace.mjs', { session_id: 's', hook_event_name: 'Stop', transcript_path: session }, repo);
+  return traceText(repo) === shipped ? null : `wrote into a .claude/state the repository committed:\n${traceText(repo)}`;
+}, { phase: 'done', commitPhase: true });
+
 t('session-start resets a stale phase', (repo) => {
   const pf = join(repo, '.claude/state/phase');
   writeFileSync(pf, 'implement');

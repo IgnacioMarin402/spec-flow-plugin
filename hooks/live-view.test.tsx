@@ -176,14 +176,18 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await step($)
     await $.turn.complete(mainTurnEnds)
 
-    // The turn that ends the run writes `done` and is not charged.
+    // The turn that ends the run writes `done` and is charged (ADR-043).
     await step($)
     files.phase = 'done'
     await $.turn.complete(mainTurnEnds)
 
+    // A turn after the run is not.
+    await step($)
+    await $.turn.complete(mainTurnEnds)
+
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'copy' })
-    expect(copied.at(-1)?.split('\n').at(-1)).toBe('agent_id=- role=orchestrator in=4000 cache_read=800000 cache_write=20000 out=6200 msgs=2')
+    expect(copied.at(-1)?.split('\n').at(-1)).toBe('agent_id=- role=orchestrator in=6000 cache_read=1200000 cache_write=30000 out=9300 msgs=3')
   })
 
   test(`${surface}: the milestone and the gate shown are this run's`, async ($, on) => {

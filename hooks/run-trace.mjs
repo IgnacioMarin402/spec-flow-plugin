@@ -21,7 +21,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, run, PHASE_FILE_RE } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, stateIsTracked, PHASE_FILE_RE } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { parseReturn } from '../scripts/agent-blocks.mjs';
 import { handedBack } from './lib/handback.mjs';
@@ -205,10 +205,14 @@ function traceReturn(payload, traceFile, missLog) {
   return '';
 }
 
-/** Whether this call wrote the phase file: a Write or Edit of it, or a redirect or `tee` into it. */
+/**
+ * Whether this call wrote the phase file: a Write or Edit of it, or a redirect
+ * or `tee` into it, the path quoted or not. A command that only reads it, or
+ * writes somewhere else first, did not.
+ */
 function wrotePhase(tool, input) {
-  if (/^(Write|Edit|MultiEdit)$/.test(tool)) return PHASE_FILE_RE.test(String(input.file_path ?? ''));
-  const into = new RegExp(`(?:>>?|\\btee(?:\\s+-a)?)\\s*['"]?[^'"\\s|;&]*${PHASE_FILE_RE.source}`);
+  if (/^(Write|Edit|MultiEdit)$/.test(tool)) return PHASE_FILE_RE.test(String(input.file_path ?? input.filePath ?? ''));
+  const into = new RegExp(`(?:>>?\\|?|\\btee(?:\\s+-a)?)\\s*(?:"[^"]*?|'[^']*?|[^'"\\s|;&]*?)${PHASE_FILE_RE.source}`);
   return tool === 'Bash' && into.test(String(input.command ?? ''));
 }
 
@@ -228,8 +232,9 @@ await run(async () => {
 
   // `done` stands down too, but for the call that wrote it: the closing turn
   // is the run's last, its line is what follows the fold's PASS, and
-  // token-trace charges that turn by it.
-  if (phase === 'done' && !wrotePhase(tool, input)) return;
+  // token-trace charges that turn by it (ADR-043). Not into a `.claude/state/`
+  // the repository committed: its log may link out of it (ADR-040).
+  if (phase === 'done' && (!wrotePhase(tool, input) || stateIsTracked(root))) return;
 
   const state = stateDir(root);
   const traceFile = join(state, 'run-trace.log');
