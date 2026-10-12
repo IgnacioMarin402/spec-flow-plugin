@@ -207,12 +207,15 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
 /**
  * The orchestrator is charged per turn, as `token-trace` charges it at Stop: a
  * turn that ends inside this session's run counts whole, the turn that starts
- * the run included, and one that ends outside it counts nothing.
+ * the run included, and so does the one that writes `done` (ADR-043). One that
+ * ends outside a run counts nothing.
  */
 async function closeTurn($: EngineInterface) {
+  const before = (await read($, run)).phase
   await poll($)
   const open = await read($, turn)
-  if (open.steps > 0 && (await armed($))) {
+  const closing = (await read($, run)).phase === 'done' && ARMED.includes(before)
+  if (open.steps > 0 && ((await armed($)) || closing)) {
     await update($, orchestrator, m => ({ ...m, steps: m.steps + open.steps, tokens: sum(m.tokens, open.tokens) }))
   }
   await update($, turn, () => TURN0)

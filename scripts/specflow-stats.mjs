@@ -90,6 +90,22 @@ function collectRuns() {
     trace: lines('run-trace.log').filter((l) => !seen.has(l)),
   };
 
+  // The closing turn's tokens land at its Stop, after step 6's snapshot
+  // (ADR-043). Each goes back to the archived run whose `closed` line names its
+  // session, the latest before it; one with no such line stays in `(current)`.
+  const at = (l) => Date.parse(l.split(' ')[0]);
+  const sessionOf = (l) => / session=(\S+)/.exec(l)?.[1];
+  const closes = archived.flatMap((r) => r.trace.filter((l) => / closed tool=/.test(l)).map((l) => ({ run: r, at: at(l), session: sessionOf(l) })));
+  live.trace = live.trace.filter((l) => {
+    if (!/ phase=done /.test(l) || !/ tokens model=/.test(l)) return true;
+    const owner = closes
+      .filter((c) => c.session && c.session === sessionOf(l) && c.at <= at(l))
+      .reduce((best, c) => (best && best.at >= c.at ? best : c), null);
+    if (!owner) return true;
+    owner.run.trace.push(l);
+    return false;
+  });
+
   return [live, ...archived]
     .map((r) => ({ name: r.name, gate: r.gate.map(parse), trace: r.trace.map(parseTrace) }))
     .filter((r) => r.name === '(current)' || r.gate.length > 0 || r.trace.length > 0);
@@ -106,6 +122,10 @@ function parseTrace(line) {
 // between runs lands before the next `--mark`, so no snapshot ever takes it:
 // on its own it is no run.
 const outsideRun = (e) => e.raw?.includes(' dispatch ') && e.why === 'no-run';
+// The tokens of the turn that wrote `done` land at its Stop, after step 6's
+// snapshot (ADR-043): one no `closed` line claims stays in `(current)`, and on
+// its own is no run either.
+const afterClose = (e) => outsideRun(e) || e.phase === 'done';
 
 const minutesBetween = (a, b) => Math.round((b - a) / 60000);
 const say = (...args) => console.log(...args);
@@ -130,7 +150,7 @@ if (gate.length === 0) {
     return acc;
   }, {});
   const summary = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ');
-  const withData = runs.filter((r) => r.gate.length > 0 || r.trace.some((e) => !outsideRun(e))).length;
+  const withData = runs.filter((r) => r.gate.length > 0 || r.trace.some((e) => !afterClose(e))).length;
   const scope = withData > 1 ? ` across ${withData} run(s)` : '';
   say(`  ${gate.length} invocation(s)${scope}: ${summary}`);
 
@@ -660,7 +680,7 @@ const readerOf = (e) => (e.agent_id ? `agent:${e.agent_id}` : e.session);
 /** Trace events split into milestones, each ending at a gate PASS. */
 function milestones(run) {
   const passes = run.gate.filter((g) => g.result === 'pass' && g.at).map((g) => g.at);
-  const events = run.trace.filter((e) => e.at).sort((a, b) => a.at - b.at);
+  const events = run.trace.filter((e) => e.at && !afterClose(e)).sort((a, b) => a.at - b.at);
   const segments = [];
   let start = null;
   for (const end of [...passes, null]) {

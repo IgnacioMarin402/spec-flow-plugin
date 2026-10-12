@@ -45,8 +45,10 @@ tokens over at least three real runs on an engine at `80feaea` or later
 (ADR-038 changed what it dispatches) — then decide whether the command pins a
 model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
 `620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
-B43, B57, and a spec step the telemetry never saw (ADR-040) for the `620901d`
-run.
+B43, a closing turn nothing counted (ADR-043), and for the `620901d` run a
+spec step the telemetry never saw (ADR-040). An archive never holds its run's
+closing turn: stats charges it to the run from the live log, which a cloud
+branch loses with its container.
 
 ### B41 — which hooks could be mods
 
@@ -173,16 +175,16 @@ naming a commit on every gate line. Compared on gate attempts per milestone,
 architect calls, test-first and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.
 
-### B57 — a finished run's last PASS reads as a stall
+### B59 — a phase write through `cd` passes phase-guard unread
 
-Writing `done` leaves no line in `run-trace.log` or `gate-history.log`, and
-`token-trace` drops the closing turn: its Stop already reads `done`. So a
-run's closing PASS is followed by nothing until the next run, and stats warns
-"a PASS was followed by 167m with nothing running" between two finished runs
-in one log. **Done:** the turn that writes `done` leaves a line in
-`run-trace.log`, with its tokens: a hook-smoke case red on `620901d`. Any line
-after the PASS already clears the warning on `620901d`, so a stats case only
-guards.
+`phase-guard` reads a Bash phase write by a redirect into a path naming
+`.claude/state/phase`. `cd .claude/state && printf done > phase` names only
+`phase`, so on a commit no gate passed it lets an unearned `done` through
+(exit 0) and logs nothing to `phase-guard-unmatched.log`, while the same
+`printf done > .claude/state/phase` is denied; `run-trace` does not read it as
+the run's close either (ADR-043). `cp x .claude/state/phase` goes through as
+well, as the hook's header says it does. **Done:** the `cd` form is denied on
+such a commit, or at least logged: a hook-smoke case red on `0b24ff3`.
 
 ### B15 — model-graded checks
 

@@ -23,7 +23,8 @@
  * nothing here and is the reason the read is cumulative rather than "the last
  * turn": whatever has not landed is counted at the next stop, under a later
  * timestamp. A reader built around the current turn would undercount every
- * turn instead, silently.
+ * turn instead, silently. The run's closing turn is the exception: the stop
+ * after it is outside the run, so what of it lands late is not counted.
  *
  * **A subagent's messages are not in the session transcript.** Each subagent
  * gets its own file, `<session>/subagents/agent-<id>.jsonl`, beside the
@@ -48,7 +49,7 @@
 import { openSync, readSync, fstatSync, closeSync, appendFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
-import { projectDir, stateDir, readOwnedPhase, readPayload, writeFile, run } from './lib/io.mjs';
+import { projectDir, stateDir, readOwnedPhase, readPayload, writeFile, run, stateIsTracked } from './lib/io.mjs';
 
 /**
  * Every counter this hook reports, and where each lives in a usage record.
@@ -242,6 +243,35 @@ function tally(text, groups, carry, agentId = '') {
   return last;
 }
 
+/**
+ * Whether this Stop ends the turn that closed the run: this session's
+ * `closed` line, which run-trace writes with `done`, is its latest, with no
+ * token line of its own after it. Read from the log's tail, where both are.
+ */
+function closedThisTurn(traceFile, sessionId) {
+  let tail = '';
+  try {
+    const fd = openSync(traceFile, 'r');
+    try {
+      const size = fstatSync(fd).size;
+      const buf = Buffer.alloc(Math.min(size, 64 * 1024));
+      readSync(fd, buf, 0, buf.length, size - buf.length);
+      tail = buf.toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+  const mine = (l) => !sessionId || l.includes(` session=${sessionId} `);
+  for (const line of tail.split('\n').reverse()) {
+    if (!mine(line)) continue;
+    if (/ closed tool=/.test(line)) return true;
+    if (/ tokens model=/.test(line)) return false;
+  }
+  return false;
+}
+
 await run(async () => {
   const root = projectDir();
   const payload = await readPayload();
@@ -255,11 +285,15 @@ await run(async () => {
   const sessionId = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && v) ?? '';
   const phase = readOwnedPhase(root, sessionId);
   if (phase === '') return;
-  const idle = ['idle', 'done'].includes(phase);
 
   const path = [payload.transcript_path, payload.transcriptPath].find((v) => typeof v === 'string' && v);
 
   const state = stateDir(root);
+  // The turn that wrote `done` is still the run's: run-trace marked it
+  // (ADR-043). A committed `.claude/state/` is content, and so is a `closed`
+  // line in it (ADR-040).
+  const closing = phase === 'done' && closedThisTurn(join(state, 'run-trace.log'), sessionId) && !stateIsTracked(root);
+  const idle = phase === 'idle' || (phase === 'done' && !closing);
   const offsetFile = join(state, 'token-offset');
 
   // No transcript on this build's payload: nothing is known, so nothing is

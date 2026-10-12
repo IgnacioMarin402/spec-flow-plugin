@@ -449,6 +449,10 @@ armed.
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
   once, so `phase-guard` denies it.
+- **The turn that writes `done` is the run's last**
+  ([ADR-043](decisions/043-the-turn-that-writes-done-is-the-runs-last.md)):
+  `run-trace` records the call that wrote it, and `token-trace` charges that
+  turn.
 - **A run that cannot run here does not start**
   ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
   first run phase written while no run is in progress is denied unless the
@@ -500,7 +504,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `opus_calls` / `architect_calls` | Planner calls / architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts, the write that closed the run |
 | `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |
