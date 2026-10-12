@@ -924,6 +924,14 @@ t('run-trace logs a failing scoped test run as red', (repo) => {
   return /test verdict=red target=tests\/a\.spec\.ts/.test(log) ? null : `a failing test run was not recorded as red: ${log || '(nothing traced)'}`;
 });
 
+// The target is what the runner was handed, not every path in the command:
+// a real line held a redirection and eslint's own script.
+t('run-trace targets only what the runner ran in a chain of commands', (repo) => {
+  runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts >/dev/null; eslint tests/b.spec.ts && node node_modules/eslint/bin/eslint.js lib/b.ts', 'Exit code 1\nexpected 3, got undefined'), repo);
+  const target = / target=(\S+)/.exec(traceText(repo))?.[1];
+  return target === 'tests/a.spec.ts' ? null : `want target=tests/a.spec.ts, got ${target ?? '(nothing traced)'}: ${traceText(repo)}`;
+});
+
 t('run-trace does not call an interrupted test run red', (repo) => {
   runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts', 'Interrupted', { is_interrupt: true }), repo);
   const log = traceText(repo);

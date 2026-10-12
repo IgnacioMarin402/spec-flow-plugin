@@ -242,6 +242,27 @@ try {
 // passed) is evidence of nothing. A line from before `why=` existed is the former.
 const NOT_A_FAILED_RUN = new Set(['not-the-runner', 'not-found', 'summary-passed']);
 
+/**
+ * Whether a run's `target=` ran `test`: `true` when it names the test or a
+ * directory above it, `false` when it names only other paths, `null` when it
+ * names none a path can be matched to (no path, a glob). A target is matched at
+ * a path-segment start, as a runner matches its arguments against a path;
+ * `test` is as written, often absolute, and a Windows one matches across
+ * separators. A target from before run-trace kept only the runner's own
+ * command may carry another command's words: a redirection is dropped, and a
+ * trailing `;` or `&` cut.
+ */
+function runCovers(target, test) {
+  const norm = (p) => p.replace(/\\/g, '/');
+  const tokens = String(target ?? '-')
+    .split(',')
+    .map((t) => norm(t).replace(/[;&|]+$/, '').replace(/^\.\//, '').replace(/\/$/, ''))
+    .filter((t) => t && t !== '-' && !/^[<>]|^\d+>/.test(t));
+  if (tokens.length === 0 || tokens.some((t) => /[*?[\]{}]/.test(t))) return null;
+  const path = `/${norm(test)}`;
+  return tokens.some((t) => path.includes(`/${t.replace(/^\//, '')}`));
+}
+
 const verdicts = [];
 for (const run of expectedTestName ? runs : []) {
   const firstWrite = new Map();
@@ -258,13 +279,20 @@ for (const run of expectedTestName ? runs : []) {
     const specIdx = firstWriteByName.get(testName);
     if (specIdx === undefined) continue;
 
-    const between = run.trace.filter((e, i) => i > specIdx && i < sourceIdx && e.verdict);
-    const unjudged = between.filter((e) => e.verdict === '?' && !NOT_A_FAILED_RUN.has(e.why));
+    // Only a run of this test speaks for it. One whose target cannot be
+    // matched may have been, so a red there is unjudged, not credited.
+    const testFile = run.trace[specIdx].file;
+    const between = run.trace
+      .filter((e, i) => i > specIdx && i < sourceIdx && e.verdict)
+      .map((e) => ({ ...e, covers: runCovers(e.target, testFile) }))
+      .filter((e) => e.covers !== false);
+    const unjudged = between.filter((e) => (e.verdict === '?' && !NOT_A_FAILED_RUN.has(e.why)) || (e.verdict === 'red' && e.covers === null));
     let status = 'no-red-run';
     if (specIdx > sourceIdx) status = 'code-first';
-    else if (between.some((e) => e.verdict === 'red')) status = 'red-first';
+    else if (between.some((e) => e.verdict === 'red' && e.covers)) status = 'red-first';
     else if (unjudged.length > 0) status = 'no-verdict';
-    verdicts.push({ file, status, why: [...new Set(unjudged.map((e) => e.why ?? 'not-recorded'))].join(','), run: run.name });
+    const whyOf = (e) => (e.verdict !== 'red' ? (e.why ?? 'not-recorded') : /[*?[\]{}]/.test(e.target) ? 'glob' : 'no-path');
+    verdicts.push({ file, status, why: [...new Set(unjudged.map(whyOf))].join(','), run: run.name });
   }
 }
 

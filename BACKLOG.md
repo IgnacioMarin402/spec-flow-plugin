@@ -21,7 +21,8 @@ their code — but that trace could not see a red run at all: a test command tha
 exits non-zero arrives as `PostToolUseFailure`, which run-trace did not hear
 until this item was restated. Two real runs since, counted by target: of 6
 sources paired with a test, 1 had its test run red first, 1 had it run piped
-and 4 had no run of it; stats on `620901d` reads 3 OK and 3 `?` (B47). A third milestone
+and 4 had no run of it, which is what stats reads now that it credits a run
+only to the tests its target names. A third milestone
 wrote its test, then a source with another name, with no run, and stats lists
 nothing: it pairs by basename. A test written after the code
 mirrors it, which is the gap ADR-020 leaves to a model's reading.
@@ -95,20 +96,6 @@ planner's `Tests` field and the reviewer's checklist name a test per clause.
 spec-time case in which an ADDED delta that pairs a prohibition with another
 claim is refused, red on `620901d`, with `agent-contracts` holding the
 spec-writer's contract to the same words, as it does the question cap (ADR-030).
-
-### B47 — test-first credit ignores which test a run ran
-
-stats credits a source with every test verdict between its test's first write
-and its own, and never reads `target=`. In one real run M1 wrote three tests,
-ran one piped (`why=pipe`), then their sources: all three read `?`, though two
-of those tests had not run yet. In M2 one red run of one test read OK for all
-three. Credit by target needs a clean target, and run-trace keeps every
-path-like token of the command: a real line holds `>/dev/null;` and eslint's
-own script, and `jest a.spec.ts; eslint b.spec.ts` targets `a.spec.ts;` and
-`b.spec.ts`. **Done:** a stats case with one targeted red run over three
-test/source pairs reads one OK and two MISS, and a hook-smoke case where that
-chain targets `a.spec.ts` alone, both red on `620901d`; a red run of the tests'
-directory still credits each test under it.
 
 ### B48 — what needs a database or a running app is checked by nobody
 
@@ -194,7 +181,7 @@ at least US$1.16 for two milestones; `haiku`'s prices are a twentieth of
 on both tiers at the same session effort, on an engine at `80feaea` or later
 (ADR-038), with the advisor off (B44), plugin auto-update off, and `engine=`
 naming a commit on every gate line. Compared on gate attempts per milestone,
-architect calls, test-first (needs B47) and cost. **Done:** the result
+architect calls, test-first and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.
 
 ### B56 — `cc=` records no Claude Code version
