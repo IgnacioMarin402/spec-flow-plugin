@@ -106,6 +106,9 @@ function parseTrace(line) {
 // between runs lands before the next `--mark`, so no snapshot ever takes it:
 // on its own it is no run.
 const outsideRun = (e) => e.raw?.includes(' dispatch ') && e.why === 'no-run';
+// The tokens of the turn that wrote `done` land at its Stop, after step 6's
+// snapshot: the run's, in `(current)`, and on their own no run either.
+const afterClose = (e) => outsideRun(e) || e.phase === 'done';
 
 const minutesBetween = (a, b) => Math.round((b - a) / 60000);
 const say = (...args) => console.log(...args);
@@ -130,7 +133,7 @@ if (gate.length === 0) {
     return acc;
   }, {});
   const summary = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ');
-  const withData = runs.filter((r) => r.gate.length > 0 || r.trace.some((e) => !outsideRun(e))).length;
+  const withData = runs.filter((r) => r.gate.length > 0 || r.trace.some((e) => !afterClose(e))).length;
   const scope = withData > 1 ? ` across ${withData} run(s)` : '';
   say(`  ${gate.length} invocation(s)${scope}: ${summary}`);
 

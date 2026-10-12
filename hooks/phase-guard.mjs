@@ -50,7 +50,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
@@ -99,10 +99,6 @@ const STARTS_A_RUN = ['spec', 'plan', 'review', 'implement'];
 
 /** What a run moves to once its spec is signed off or triaged. */
 const LEAVES_SPEC = ['plan', 'review', 'implement'];
-
-// Anchored past the name: `phase.session` and `phase-guard-unmatched.log` sit
-// beside the phase file, and a write to either is not a phase write.
-const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase(?![\w.-])/;
 
 /**
  * The value a Bash command writes into the phase file, or null when this

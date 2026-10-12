@@ -36,6 +36,11 @@ export function stateDir(root = projectDir()) {
   return dir;
 }
 
+// The phase file in a path or a command, anchored past the name:
+// `phase.session` and `phase-guard-unmatched.log` sit beside it, and a write to
+// either is not a phase write.
+export const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase(?![\w.-])/;
+
 /**
  * The phase file's path, WITHOUT creating anything.
  *

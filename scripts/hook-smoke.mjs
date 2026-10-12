@@ -1078,6 +1078,39 @@ t('run-trace is silent outside a run', (repo) => {
   return null;
 });
 
+// ---- the turn that closes a run ---------------------------------------------
+//
+// Writing `done` stood down every hook that writes the trace, the turn that
+// wrote it included, so a run's closing PASS was followed by nothing until the
+// next run, and stats read the hours between two finished runs as a stall.
+const usageEntry = (out) =>
+  `${JSON.stringify({ type: 'assistant', message: { id: `m${out}`, role: 'assistant', model: 'model-alpha', usage: { input_tokens: 1, output_tokens: out, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } })}\n`;
+
+t('the turn that writes done leaves a line, with its tokens, and the turns after it none', (repo) => {
+  const session = join(repo, 'sess.jsonl');
+  const stop = () => runHook('token-trace.mjs', { session_id: 's', hook_event_name: 'Stop', transcript_path: session }, repo);
+  writeFileSync(session, usageEntry(100));
+  stop(); // the run's last turn under `implement`
+  writeFileSync(join(repo, '.claude/state/phase'), 'done');
+  runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
+  appendFileSync(session, usageEntry(7));
+  stop(); // the turn that wrote `done`
+  appendFileSync(session, usageEntry(3));
+  stop(); // a turn after the run
+  const lines = traceText(repo).split('\n').filter(Boolean);
+  if (!lines.some((l) => / phase=done session=s closed tool=Write$/.test(l))) return `no line for the write that closed the run:\n${lines.join('\n')}`;
+  if (!lines.some((l) => / phase=done .* tokens .* out=7 /.test(l))) return `the closing turn's tokens were dropped:\n${lines.join('\n')}`;
+  return lines.some((l) => / out=3 /.test(l)) ? `a turn after the run was charged to it:\n${lines.join('\n')}` : null;
+});
+
+t('a run closed from Bash leaves its line, and a read of the phase none', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'done');
+  runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'cat .claude/state/phase' } }, repo);
+  if (traceText(repo)) return `a read of the phase file closed the run:\n${traceText(repo)}`;
+  runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'printf done > .claude/state/phase' } }, repo);
+  return / phase=done session=s closed tool=Bash$/m.test(traceText(repo)) ? null : `no line for a run closed from Bash:\n${traceText(repo)}`;
+});
+
 t('session-start resets a stale phase', (repo) => {
   const pf = join(repo, '.claude/state/phase');
   writeFileSync(pf, 'implement');

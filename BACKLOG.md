@@ -45,8 +45,8 @@ tokens over at least three real runs on an engine at `80feaea` or later
 (ADR-038 changed what it dispatches) — then decide whether the command pins a
 model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
 `620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
-B43, B57, and a spec step the telemetry never saw (ADR-040) for the `620901d`
-run.
+B43, and for the `620901d` run a closing turn nothing counted and a spec step
+the telemetry never saw (ADR-040).
 
 ### B41 — which hooks could be mods
 
@@ -183,17 +183,6 @@ on both tiers at the same session effort, on an engine at `80feaea` or later
 naming a commit on every gate line. Compared on gate attempts per milestone,
 architect calls, test-first and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.
-
-### B57 — a finished run's last PASS reads as a stall
-
-Writing `done` leaves no line in `run-trace.log` or `gate-history.log`, and
-`token-trace` drops the closing turn: its Stop already reads `done`. So a
-run's closing PASS is followed by nothing until the next run, and stats warns
-"a PASS was followed by 167m with nothing running" between two finished runs
-in one log. **Done:** the turn that writes `done` leaves a line in
-`run-trace.log`, with its tokens: a hook-smoke case red on `620901d`. Any line
-after the PASS already clears the warning on `620901d`, so a stats case only
-guards.
 
 ### B15 — model-graded checks
 

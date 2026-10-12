@@ -444,7 +444,7 @@ armed.
 | `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
 | `implement` | orchestrator, or `arm-gate` if it forgot | **the gate**, **lint-on-write**, **the command deny**, plus the above |
 | `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
-| `done` | orchestrator, if `phase-guard` allows | `dispatch-guard`, for this flow's agents only |
+| `done` | orchestrator, if `phase-guard` allows | `dispatch-guard`, for this flow's agents only; `run-trace` and `token-trace`, for the turn that wrote it |
 | `idle` | orchestrator on rejection; `session-start` on an abandoned run | `dispatch-guard`, for this flow's agents only |
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
@@ -500,7 +500,7 @@ Gitignored working files; delete one to reset that piece of state.
 | `opus_calls` / `architect_calls` | Planner calls / architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
-| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts |
+| `run-trace.log` | Reads, writes, test verdicts, subagent outcomes, agent-gate checks, token counts, the write that closed the run |
 | `run-offset` / `token-offset` | Where this run's telemetry starts / how far the token accounting has read |
 | `agent-registry` | Session id → agent type |
 | `model-routes.log` | One line per re-routed agent |

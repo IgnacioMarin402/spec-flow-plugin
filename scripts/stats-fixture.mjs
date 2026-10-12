@@ -709,6 +709,22 @@ check('a PASS followed by nothing at all is a stall', () => {
   return contains(out, 'had to be nudged');
 });
 
+// A closed run's last PASS is followed by the line that closed it, however
+// long the next run waits. Any line after it cleared the warning before
+// run-trace wrote one, so this case guards.
+check('a PASS followed by the run closing is no stall, whenever the next run starts', () => {
+  const closed = `${stamp(1)} phase=done session=s closed tool=Write`;
+  const { out } = report({ archived: [{ slug: 'two-runs', gate: [pass(0), pass(200)], trace: [closed, read(200, 'lib/orders/place.ts')] }] });
+  return out.includes('had to be nudged') ? `called a finished run a stall.\n--- report ---\n${out}` : '';
+});
+
+// What the closing turn costs lands in `(current)` after the snapshot.
+check('the closing turn\'s tokens, left in (current), are no run of their own', () => {
+  const closing = `${stamp(30)} phase=done session=s tokens model=model-alpha sidechain=false in=10 out=7 cache_read=0 cache_write=0 think=0 msgs=1 max_prompt=900`;
+  const { out } = report({ trace: [closing], archived: [{ slug: 'refunds', gate: [pass(5)], trace: [read(4, 'lib/orders/place.ts')] }] });
+  return out.includes('across 2 run(s)') ? `the closing turn was counted as a run:\n${out}` : contains(out, '1 invocation(s): 1 pass');
+});
+
 const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 const passAgo = (minutes) => `${ago(minutes)} abc1234 cc=1.0 engine=0.1.0 phase=implement attempt=1 result=pass lint=0 test=0 unscoped=ok files=1`;
 

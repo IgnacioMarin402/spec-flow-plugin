@@ -242,6 +242,35 @@ function tally(text, groups, carry, agentId = '') {
   return last;
 }
 
+/**
+ * Whether this Stop ends the turn that closed the run: this session's
+ * `closed` line, which run-trace writes with `done`, is its latest, with no
+ * token line of its own after it. Read from the log's tail, where both are.
+ */
+function closedThisTurn(traceFile, sessionId) {
+  let tail = '';
+  try {
+    const fd = openSync(traceFile, 'r');
+    try {
+      const size = fstatSync(fd).size;
+      const buf = Buffer.alloc(Math.min(size, 64 * 1024));
+      readSync(fd, buf, 0, buf.length, size - buf.length);
+      tail = buf.toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+  const mine = (l) => !sessionId || l.includes(` session=${sessionId} `);
+  for (const line of tail.split('\n').reverse()) {
+    if (!mine(line)) continue;
+    if (/ closed tool=/.test(line)) return true;
+    if (/ tokens model=/.test(line)) return false;
+  }
+  return false;
+}
+
 await run(async () => {
   const root = projectDir();
   const payload = await readPayload();
@@ -255,11 +284,12 @@ await run(async () => {
   const sessionId = [payload.session_id, payload.sessionId].find((v) => typeof v === 'string' && v) ?? '';
   const phase = readOwnedPhase(root, sessionId);
   if (phase === '') return;
-  const idle = ['idle', 'done'].includes(phase);
 
   const path = [payload.transcript_path, payload.transcriptPath].find((v) => typeof v === 'string' && v);
 
   const state = stateDir(root);
+  // The turn that wrote `done` is still the run's: run-trace marked it.
+  const idle = phase === 'idle' || (phase === 'done' && !closedThisTurn(join(state, 'run-trace.log'), sessionId));
   const offsetFile = join(state, 'token-offset');
 
   // No transcript on this build's payload: nothing is known, so nothing is
