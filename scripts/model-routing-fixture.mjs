@@ -24,6 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { shippedAgents } from '../hooks/lib/routing.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPORT = join(HERE, 'model-routing.mjs');
@@ -33,6 +34,12 @@ const failures = [];
 const VENDOR = ['claude', ''].join('-');
 const PINNED_SONNET = [VENDOR + 'sonnet', '4', '9'].join('-');
 const PINNED_OPUS = [VENDOR + 'opus', '4', '8'].join('-');
+
+// The reviewer as this repo ships it, read rather than restated: these cases
+// are about the report, and an agent's tier or effort moving is not a reason
+// for them to change.
+const REVIEWER = shippedAgents().reviewer ?? {};
+const REVIEWER_ELSEWHERE = ['haiku', 'sonnet', 'opus'].find((t) => t !== REVIEWER.model);
 
 /**
  * Runs the real report against a throwaway repo holding exactly `files`.
@@ -100,12 +107,12 @@ check('with nothing pinned, no agent row names a model', () => {
 });
 
 check('a re-route is attributed to the project, and says what it replaced', () => {
-  const { code, out } = report({ '.claude/spec-flow.config.json': { agents: { reviewer: 'opus' } } });
+  const { code, out } = report({ '.claude/spec-flow.config.json': { agents: { reviewer: REVIEWER_ELSEWHERE } } });
   if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
   const r = row(out, 'reviewer');
-  if (!r.includes('opus')) return `the reviewer's tier was not the re-routed one: ${r}`;
+  if (!r.includes(REVIEWER_ELSEWHERE)) return `the reviewer's tier was not the re-routed one: ${r}`;
   if (!r.includes('project')) return `a re-route was reported as though the plugin chose it: ${r}`;
-  if (!r.includes('haiku')) {
+  if (!r.includes(`was ${REVIEWER.model}`)) {
     return `the report does not say what the re-route replaced, which is the one thing a reader cannot get from the config file: ${r}`;
   }
   return out.includes('1 agent(s) re-routed') ? '' : `the summary line did not count the re-route.\n--- output ---\n${out}`;
@@ -164,9 +171,9 @@ check('a real environment variable wins over both files', () => {
 check('an agent that declares its own effort is reported as the one deciding it', () => {
   const { code, out } = report({});
   if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
-  // `reviewer` declares `effort: low` in the frontmatter this repo ships.
+  if (!REVIEWER.effort) return 'the reviewer declares no effort, and the effort cases below need an agent that does: point them at one';
   const r = row(out, 'reviewer');
-  if (!/low \(agent\)/.test(r)) {
+  if (!r.includes(`${REVIEWER.effort} (agent)`)) {
     return `the reviewer's declared effort was not reported as the agent's own: ${r}`;
   }
   const inheriting = row(out, 'implementer');
@@ -179,7 +186,7 @@ check("a session effortLevel is reported for the agents that inherit, and not fo
   const inheriting = row(out, 'implementer');
   if (!/xhigh \(session\)/.test(inheriting)) return `the session's level was not reported: ${inheriting}`;
   const declared = row(out, 'reviewer');
-  return /low \(agent\)/.test(declared)
+  return declared.includes(`${REVIEWER.effort} (agent)`)
     ? ''
     : `a session-wide level overwrote an agent that declares its own, which is not what the frontmatter does: ${declared}`;
 });
@@ -210,7 +217,7 @@ check('a CLAUDE_CODE_EFFORT_LEVEL that is not a level is not reported as decidin
   const { code, out } = report({}, { CLAUDE_CODE_EFFORT_LEVEL: 'bogus' });
   if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
   const r = row(out, 'reviewer');
-  if (!/low \(agent\)/.test(r)) return `an invalid value displaced the agent's own effort: ${r}`;
+  if (!r.includes(`${REVIEWER.effort} (agent)`)) return `an invalid value displaced the agent's own effort: ${r}`;
   return /is not an effort level/.test(out) ? '' : `the invalid value was not called out:\n${out}`;
 });
 

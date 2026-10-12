@@ -1,6 +1,6 @@
 # ADR-026 — how a repo builds a module is read from what it states, not learned from its source
 
-**Date:** 2026-09-28 · **Status:** accepted · **Governs:** `agents/planner.md`, `agents/spec-writer.md`, `scripts/specflow-stats.mjs`, `skills/spec-flow-setup/SKILL.md`, `REFERENCE.md` · **Refines:** ADR-015 · **Related:** ADR-002, ADR-006
+**Date:** 2026-09-28 · **Status:** accepted; its refusal to re-route the reviewer revisited by [ADR-039](039-the-reviewer-runs-on-sonnet.md) · **Governs:** `agents/planner.md`, `agents/spec-writer.md`, `scripts/specflow-stats.mjs`, `skills/spec-flow-setup/SKILL.md`, `REFERENCE.md` · **Refines:** ADR-015 · **Related:** ADR-002, ADR-006
 
 **Question.** A planner on a two-module change read 46 files: 18 of the module
 the repo's `CLAUDE.md` names as its reference, 7 of a sibling module, two whole
