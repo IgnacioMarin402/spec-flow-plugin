@@ -44,7 +44,8 @@ tokens over at least three real runs on an engine at `80feaea` or later
 (ADR-038 changed what it dispatches) — then decide whether the command pins a
 model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
 `620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
-B43, B57, and B58 for the `620901d` run.
+B43, B57, and a spec step the telemetry never saw (ADR-040) for the `620901d`
+run.
 
 ### B41 — which hooks could be mods
 
@@ -74,8 +75,8 @@ them.
 
 Step 5 has the orchestrator offer "a fresh implementer for that milestone" in
 its step 6 summary, after `done`. On `done`, `arm-gate` arms nothing,
-`dispatch-guard` records nothing, and the gate, `lint-on-write` and the command
-deny stand down, so the fix runs unchecked and unrecorded. In one real run the
+`dispatch-guard` leaves only a `why=no-run` line (ADR-040), and the gate,
+`lint-on-write` and the command deny stand down, so the fix runs unchecked. In one real run the
 fold reported a requirement whose test asserted only half of it, and the
 orchestrator offered exactly that. **Done:** the offer is a `/spec-fix` case 2
 (gated, then folded), still the human's to accept (ADR-020), and an
@@ -131,7 +132,8 @@ the copy matched token-trace for each of five agents on input, cache and
 requests, and its output was the higher, exact count (B43). Neither splits
 cache writes by TTL (5-minute writes cost 1.25× input, 1-hour ones 2×); the
 transcript does, and `agent-cache.mjs` already reads it. Both lack that run's
-spec-step spec-writer and first planner, and neither says so (B58). **Done:**
+spec-step spec-writer and first planner, and neither says so; `dispatch-guard`
+records such a spawn from ADR-040 on. **Done:**
 the copy line carries `model=` and `effort=`, and `token-trace` records cache
 writes by TTL: a live-view test and a token-fixture case, each red on
 `620901d`.
@@ -215,20 +217,6 @@ in one log. **Done:** the turn that writes `done` leaves a line in
 `run-trace.log`, with its tokens: a hook-smoke case red on `620901d`. Any line
 after the PASS already clears the warning on `620901d`, so a stats case only
 guards.
-
-### B58 — an agent spawned outside a run leaves no trace and spends no budget
-
-With the phase at `done`, `idle` or empty, every hook that counts or records a
-spawn stands down: preflight, the Opus budget, dispatch-guard, run-trace,
-token-trace (it drops the slice) and the agent gate. A planner spawned so
-writes nothing to `opus_calls` or `run-trace.log` (run on `620901d`). In one
-real run, the spec step and the first plan left no line in the archived
-telemetry; they ran in an earlier session of the same console, whose live view
-the later session's copy does not hold. That snapshot also held the run before
-it: the step-0 `--mark` had not moved. Both fit a run whose step 0 never wrote
-`spec`. **Done:** dispatch-guard records a spec-flow agent dispatched outside a
-run (ADR-035: recorded before it is denied), stats reports it, and a hook-smoke
-case is red on `620901d`.
 
 ### B15 — model-graded checks
 

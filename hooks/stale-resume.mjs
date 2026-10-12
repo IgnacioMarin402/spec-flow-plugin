@@ -9,7 +9,7 @@
  * starts from its contract. The denial says which, and the commands tell the
  * orchestrator to spawn the new one.
  *
- * Stands down outside a run, like every hook but the gate: a SendMessage in a
+ * Stands down outside a run, like the budget and preflight: a SendMessage in a
  * repo that merely has the plugin installed is not this engine's business.
  */
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';

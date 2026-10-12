@@ -102,6 +102,11 @@ function parseTrace(line) {
   return entry;
 }
 
+// This flow's agent put to work with no run phase (ADR-040). One written
+// between runs lands before the next `--mark`, so no snapshot ever takes it:
+// on its own it is no run.
+const outsideRun = (e) => e.raw?.includes(' dispatch ') && e.why === 'no-run';
+
 const minutesBetween = (a, b) => Math.round((b - a) / 60000);
 const say = (...args) => console.log(...args);
 const warn = [];
@@ -125,7 +130,7 @@ if (gate.length === 0) {
     return acc;
   }, {});
   const summary = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ');
-  const withData = runs.filter((r) => r.gate.length > 0 || r.trace.length > 0).length;
+  const withData = runs.filter((r) => r.gate.length > 0 || r.trace.some((e) => !outsideRun(e))).length;
   const scope = withData > 1 ? ` across ${withData} run(s)` : '';
   say(`  ${gate.length} invocation(s)${scope}: ${summary}`);
 
@@ -346,13 +351,24 @@ if (dispatched.length > 0) {
     Object.entries(list.flatMap((e) => String(e.why).split(',').map((why) => `${e.agent}:${why}`)).reduce((acc, k) => ({ ...acc, [k]: (acc[k] ?? 0) + 1 }), {}))
       .map(([k, n]) => `${k} x${n}`)
       .join(', ');
-  const [recorded, armed, denied] = [count('record'), count('armed'), count('deny')];
+  // A dispatch with no run phase is no rule to weigh: nothing counted, traced
+  // or gated it (ADR-040).
+  const outside = count('record').filter(outsideRun);
+  const [recorded, armed, denied] = [count('record').filter((e) => !outsideRun(e)), count('armed'), count('deny')];
   say(
     `  dispatch: ${recorded.length} off the commands' contract${recorded.length ? ` (${tally(recorded)})` : ''}, recorded, not denied; ` +
       `the gate armed by arm-gate ${armed.length} time(s)${denied.length ? `, the implementer denied ${denied.length} time(s) (${tally(denied)})` : ''}.`,
   );
+  if (outside.length > 0) say(`  outside a run: ${outside.length} of this flow's agent(s) put to work (${tally(outside)}), with no budget, trace or agent gate.`);
   if (recorded.length > 0) {
     warn.push(`${recorded.length} dispatch(es) the commands do not describe (${tally(recorded)}). Each went through; read the \`dispatch\` lines with --raw before a rule becomes a denial (ADR-035).`);
+  }
+  // Step 0 writes the phase before either is spawned, so one with none is a run
+  // that skipped it or had it reset under it. Anyone else there is a question
+  // between runs, or the fresh implementer step 6 offers after `done`.
+  const unarmed = outside.filter((e) => ['spec-writer', 'planner'].includes(e.agent));
+  if (unarmed.length > 0) {
+    warn.push(`${unarmed.length} spec-writer or planner spawn(s) with no run phase (${tally(unarmed)}): no budget, trace or agent gate applied to them. A run that skipped writing \`spec\`, or whose phase was reset under it, looks like this (ADR-040).`);
   }
 }
 say('');
