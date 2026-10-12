@@ -443,8 +443,8 @@ armed.
 | `spec`, `plan`, `review` | orchestrator | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
 | `implement` | orchestrator, or `arm-gate` if it forgot | **the gate**, **lint-on-write**, **the command deny**, plus the above |
 | `blocked` | **the gate**, at the attempt cap | `preflight`, Opus budget, `phase-guard`, `arm-gate`, `dispatch-guard` |
-| `done` | orchestrator, if `phase-guard` allows | nothing |
-| `idle` | orchestrator on rejection; `session-start` on an abandoned run | nothing |
+| `done` | orchestrator, if `phase-guard` allows | `dispatch-guard`, for this flow's agents only |
+| `idle` | orchestrator on rejection; `session-start` on an abandoned run | `dispatch-guard`, for this flow's agents only |
 
 - **The vocabulary is closed.** Any other value would disarm every hook at
   once, so `phase-guard` denies it.

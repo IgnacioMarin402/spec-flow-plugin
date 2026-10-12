@@ -1,10 +1,11 @@
 # ADR-040 — this flow's agent put to work outside a run is recorded
 
-**Date:** 2026-10-12 · **Status:** accepted · **Governs:** `hooks/dispatch-guard.mjs`, `scripts/specflow-stats.mjs`, `REFERENCE.md` · **Extends:** ADR-035
+**Date:** 2026-10-12 · **Status:** accepted · **Governs:** `hooks/dispatch-guard.mjs`, `hooks/lib/io.mjs`, `scripts/specflow-stats.mjs`, `REFERENCE.md` · **Extends:** ADR-035
 
-**Question.** Every hook that counts, records or holds a spawn reads the phase
-first and stands down without a run phase. What sees one of this flow's agents
-put to work when no run is in progress?
+**Question.** Every hook that counts, traces or holds a spawn stands down
+without a run phase; `register-agent` still maps an id to its type, and that is
+all. What sees one of this flow's agents put to work when no run is in
+progress?
 
 **Measured.**
 
@@ -21,11 +22,19 @@ put to work when no run is in progress?
 - `dispatch-guard` records, and lets through, a spawn or a message that puts
   one of this flow's agents to work while the phase is empty, `idle` or
   `done`: a `dispatch` line with `why=no-run` and the phase it found (`-` for
-  none). Other agents outside a run are still left alone.
-- Only where `.claude/state/` exists: a repository the engine never ran in is
-  left without one.
-- Stats warns about these apart from ADR-035's records: they are not a rule to
-  weigh, but a dispatch nothing counted, traced or held.
+  none). This flow's agent is `spec-flow:<role>`, the name the harness
+  reports; a bare `reviewer` there is a person's own, and is left alone like
+  every other agent.
+- Only where `.claude/state/` exists and git tracks nothing in it. A repository
+  the engine never ran in is left without one, and one a clone brought is
+  content: its phase file's text would land in the line, and its log may link
+  out of the repository.
+- Stats keeps these out of ADR-035's records. A spec-writer or planner with no
+  run phase is warned about: step 0 writes the phase before either, so it is a
+  run that skipped writing `spec` or had its phase reset under it. Any other
+  is reported as use outside a run (a question to the architect, the fresh
+  implementer step 6 offers after `done`), and a slice holding only these
+  counts as no run.
 
 **Refused.**
 
@@ -40,4 +49,7 @@ put to work when no run is in progress?
   happened, which is what was missing.
 
 **Cost.** One hook process per spawn outside a run, already paid: the hook
-ran and returned. One line per such dispatch.
+ran and returned. One `git ls-files` per spawn of this flow's agent there, and
+one line. A line written between runs lands before the next `--mark`, so no
+snapshot takes it and it stays in stats' `(current)`: a spec-writer or planner
+asked for between runs keeps its warning there.

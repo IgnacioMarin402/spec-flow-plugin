@@ -44,7 +44,8 @@ tokens over at least three real runs on an engine at `80feaea` or later
 (ADR-038 changed what it dispatches) — then decide whether the command pins a
 model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
 `620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
-B43, B57, and B58 for the `620901d` run.
+B43, B57, and a spec step the telemetry never saw (ADR-040) for the `620901d`
+run.
 
 ### B41 — which hooks could be mods
 
@@ -74,8 +75,8 @@ them.
 
 Step 5 has the orchestrator offer "a fresh implementer for that milestone" in
 its step 6 summary, after `done`. On `done`, `arm-gate` arms nothing,
-`dispatch-guard` records nothing, and the gate, `lint-on-write` and the command
-deny stand down, so the fix runs unchecked and unrecorded. In one real run the
+`dispatch-guard` leaves only a `why=no-run` line (ADR-040), and the gate,
+`lint-on-write` and the command deny stand down, so the fix runs unchecked. In one real run the
 fold reported a requirement whose test asserted only half of it, and the
 orchestrator offered exactly that. **Done:** the offer is a `/spec-fix` case 2
 (gated, then folded), still the human's to accept (ADR-020), and an
@@ -131,7 +132,8 @@ the copy matched token-trace for each of five agents on input, cache and
 requests, and its output was the higher, exact count (B43). Neither splits
 cache writes by TTL (5-minute writes cost 1.25× input, 1-hour ones 2×); the
 transcript does, and `agent-cache.mjs` already reads it. Both lack that run's
-spec-step spec-writer and first planner, and neither says so (B58). **Done:**
+spec-step spec-writer and first planner, and neither says so; `dispatch-guard`
+records such a spawn from ADR-040 on. **Done:**
 the copy line carries `model=` and `effort=`, and `token-trace` records cache
 writes by TTL: a live-view test and a token-fixture case, each red on
 `620901d`.

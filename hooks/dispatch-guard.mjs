@@ -19,7 +19,7 @@
  * Opus budget, run-trace, token-trace and the agent gate all stand down there
  * (ADR-040).
  */
-import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
+import { projectDir, readPhase, readPayload, run, stateIsTracked } from './lib/io.mjs';
 import { matchAgent, recipientRecord, recipientType } from './lib/agent-name.mjs';
 import { shippedAgents } from './lib/routing.mjs';
 import { DISPATCHED_IN, recordDispatch } from './lib/dispatch.mjs';
@@ -92,10 +92,11 @@ await run(async () => {
   }
 
   if (!inRun) {
-    // By exact name only: outside a run is where people use their own agents,
-    // and a `code-reviewer` is not this flow's reviewer.
-    const own = /^(?:spec-flow:)?([a-z][a-z-]*)$/.exec(String(exactType ?? ''))?.[1];
-    if (roles.includes(own)) recordDispatch(root, payload, phase || '-', { agent: own, result: 'record', why: 'no-run' });
+    // By the namespaced name only: the harness reports this plugin's agents as
+    // `spec-flow:<role>`, and outside a run is where people use their own — a
+    // `reviewer` or `code-reviewer` of theirs is not this flow's.
+    const own = /^spec-flow:([a-z][a-z-]*)$/i.exec(String(exactType ?? ''))?.[1]?.toLowerCase();
+    if (roles.includes(own) && !stateIsTracked(root)) recordDispatch(root, payload, phase || '-', { agent: own, result: 'record', why: 'no-run' });
     return;
   }
 

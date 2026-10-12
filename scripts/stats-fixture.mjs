@@ -367,11 +367,26 @@ check("dispatches off the commands' contract are counted by agent and reason, an
 
 // This flow's agents put to work with no run phase (ADR-040): told apart from
 // the rules ADR-035 weighs, since nothing counted or traced them.
-check('agents put to work with no run phase get a warning of their own', () => {
-  const line = (minute, phase, who, why) => `${stamp(minute)} phase=${phase} session=s dispatch agent=${who} tool=Agent result=record why=${why}`;
-  const { out } = report({ trace: [line(1, 'done', 'spec-writer', 'no-run'), line(2, 'done', 'planner', 'no-run')], gate: [pass(3)] });
+const noRun = (minute, phase, who) => `${stamp(minute)} phase=${phase} session=s dispatch agent=${who} tool=Agent result=record why=no-run`;
+check('a spec-writer or planner with no run phase reads as a run that skipped step 0', () => {
+  const { out } = report({ trace: [noRun(1, 'done', 'spec-writer'), noRun(2, 'done', 'planner')], gate: [pass(3)] });
   if (out.includes('read the `dispatch` lines with --raw')) return `no-run dispatches were reported as rules to weigh:\n${out}`;
-  return contains(out, '2 spec-flow agent(s) put to work with no run phase (spec-writer:no-run x1, planner:no-run x1)');
+  return (
+    contains(out, "dispatch: 0 off the commands' contract, recorded, not denied") ||
+    contains(out, '2 spec-writer or planner spawn(s) with no run phase (spec-writer:no-run x1, planner:no-run x1)')
+  );
+});
+
+// A question to the architect between runs lands before the next `--mark`: no
+// snapshot takes it, so it stays in `(current)` through every later report.
+check('any other agent outside a run is reported, not warned about, and is no run', () => {
+  const { out } = report({
+    trace: [noRun(9, 'done', 'architect'), noRun(10, 'done', 'implementer')],
+    archived: [{ slug: 'refunds', gate: [pass(5)], trace: [agent(4, 'spec-flow:implementer')] }],
+  });
+  if (out.includes('skipped writing `spec`')) return `a question between runs read as a skipped step 0:\n${out}`;
+  if (out.includes('across 2 run(s)')) return `the slice holding only outside-run lines was counted as a run:\n${out}`;
+  return contains(out, "outside a run: 2 of this flow's agent(s) put to work (architect:no-run x1, implementer:no-run x1)");
 });
 
 // orchestrator-scope stands down until the trace shows agent ids (ADR-034);

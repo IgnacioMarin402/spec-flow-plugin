@@ -2202,6 +2202,12 @@ t("dispatch-guard leaves a subagent's call, and another flow's agent outside a r
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   spawn(repo, 'Explore');
   spawn(repo, 'code-reviewer', 'review my diff');
+  // A bare name is a person's own agent: the harness namespaces this plugin's.
+  spawn(repo, 'reviewer', 'review my diff');
+  spawn(repo, 'other-plugin:planner', 'plan this');
+  spawn(repo, 'spec-flow:planner', 'plan this', { agent_id: 'impl1' });
+  const message = subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 });
+  runHook('dispatch-guard.mjs', { ...message, tool_input: { ...message.tool_input, to: 'b0123456789abcdef' } }, repo);
   const lines = dispatches(repo);
   return lines.length === 0 ? null : `recorded outside the orchestrator's run:\n${lines.join('\n')}`;
 });
@@ -2219,7 +2225,7 @@ t('dispatch-guard records this flow\'s agent put to work with no run phase, and 
   at('idle');
   spawn(repo, 'spec-flow:spec-writer', 'add a refund endpoint');
   rmSync(join(repo, '.claude/state/phase'));
-  spawn(repo, 'architect', 'Which port owns this?');
+  spawn(repo, 'spec-flow:Architect', 'Which port owns this?');
   const lines = dispatches(repo);
   for (const [phase, agent] of [['done', 'planner'], ['done', 'implementer'], ['idle', 'spec-writer'], ['-', 'architect']]) {
     if (!lines.some((l) => new RegExp(` phase=${phase} .*dispatch agent=${agent} tool=Agent result=record why=no-run$`).test(l))) {
@@ -2233,6 +2239,27 @@ t('dispatch-guard records a message to this flow\'s agent with no run phase', (r
   runHook('dispatch-guard.mjs', subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 }), repo);
   const line = dispatches(repo)[0] ?? '';
   return / phase=done .*dispatch agent=implementer tool=SendMessage result=record why=no-run$/.test(line) ? null : `no record of the message: "${line}"`;
+}, { phase: 'done' });
+
+// A clone can ship `.claude/state/`: a phase whose text lands in the line, a
+// log that links out of the repository. What git tracks there is content.
+t('dispatch-guard appends nothing outside a run to a .claude/state the repository committed', (repo) => {
+  spawn(repo, 'spec-flow:architect', 'Which port owns this?');
+  if (existsSync(join(repo, '.claude/state/run-trace.log'))) return `a committed phase file was taken for a run the engine kept:\n${dispatches(repo).join('\n')}`;
+  rmSync(join(repo, '.claude/state/phase'));
+  writeFileSync(join(repo, '.claude/state/run-trace.log'), 'shipped\n');
+  gitIn(repo, 'add', '-f', '--', '.claude/state/run-trace.log');
+  gitIn(repo, 'commit', '-q', '-m', 'a log this repository committed');
+  spawn(repo, 'spec-flow:architect', 'Which port owns this?');
+  const log = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8');
+  return log === 'shipped\n' ? null : `a line was appended to a log the repository committed:\n${log}`;
+}, { phase: 'done', commitPhase: true });
+
+t('dispatch-guard writes a phase outside the vocabulary as one field', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'x\necho from-the-phase-file\n#');
+  spawn(repo, 'spec-flow:architect', 'Which port owns this?');
+  const log = readFileSync(join(repo, '.claude/state/run-trace.log'), 'utf8').trimEnd().split('\n');
+  return log.length === 1 && / phase=xechofrom-the-phase-file# .*why=no-run$/.test(log[0]) ? null : `the phase file's text split the line:\n${log.join('\n')}`;
 }, { phase: 'done' });
 
 // A guard: this passed before and must keep passing.
