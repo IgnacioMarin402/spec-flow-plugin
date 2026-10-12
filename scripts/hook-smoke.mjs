@@ -924,6 +924,28 @@ t('run-trace logs a failing scoped test run as red', (repo) => {
   return /test verdict=red target=tests\/a\.spec\.ts/.test(log) ? null : `a failing test run was not recorded as red: ${log || '(nothing traced)'}`;
 });
 
+// The target is what the runner was handed, not every path in the command:
+// a real line held a redirection and eslint's own script.
+t('run-trace targets only what the runner ran in a chain of commands', (repo) => {
+  runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts >/dev/null\nnpx eslint tests/c.spec.ts; eslint tests/b.spec.ts && node node_modules/eslint/bin/eslint.js lib/b.ts', 'Exit code 1\nexpected 3, got undefined'), repo);
+  const target = / target=(\S+)/.exec(traceText(repo))?.[1];
+  return target === 'tests/a.spec.ts' ? null : `want target=tests/a.spec.ts, got ${target ?? '(nothing traced)'}: ${traceText(repo)}`;
+});
+
+// The ways an agent writes one command that hand the runner the same path.
+t('run-trace targets the path through a continued line, a subshell, quotes, and a directory named for the runner', (repo) => {
+  const commands = [
+    'npx ftest \\\n  tests/a.spec.ts \\\n  --verbose',
+    '(cd sub && npx ftest run tests/a.spec.ts)',
+    'npx ftest run "tests/a.spec.ts"',
+    'npx ftest run tests/ftest-utils/a.spec.ts',
+  ];
+  const want = ['tests/a.spec.ts', 'tests/a.spec.ts', 'tests/a.spec.ts', 'tests/ftest-utils/a.spec.ts'];
+  for (const command of commands) runHook('run-trace.mjs', bashFailure(command, 'Exit code 1\nexpected 3, got undefined'), repo);
+  const got = [...traceText(repo).matchAll(/ target=(\S+)/g)].map((m) => m[1]);
+  return got.join(' ') === want.join(' ') ? null : `want ${want.join(' ')}, got ${got.join(' ') || '(nothing traced)'}`;
+});
+
 t('run-trace does not call an interrupted test run red', (repo) => {
   runHook('run-trace.mjs', bashFailure('npx ftest run tests/a.spec.ts', 'Interrupted', { is_interrupt: true }), repo);
   const log = traceText(repo);

@@ -219,9 +219,13 @@ const baseOf = (path) => path.split(/[\\/]/).pop();
 
 let expectedTestName = null;
 let pairingProblem = '';
+// What a test is called and where tests live, which tell a run that selected
+// other tests from one that loaded a config or a module.
+let proof = { suffix: '', dir: '' };
 try {
   const config = loadConfig(root);
   const suffix = config.trace.proof_suffix;
+  proof = { suffix: suffix ?? '', dir: config.trace.proof_dir ?? '' };
   const sourceExts = [...new Set(config.verify.scope_globs.map((g) => g.replace(/^\*/, '')).filter((e) => e.startsWith('.')))];
   if (!suffix || sourceExts.length === 0) {
     pairingProblem = 'the contract names no proof_suffix or no source extension, so a source file cannot be paired to its test';
@@ -242,29 +246,77 @@ try {
 // passed) is evidence of nothing. A line from before `why=` existed is the former.
 const NOT_A_FAILED_RUN = new Set(['not-the-runner', 'not-found', 'summary-passed']);
 
+/**
+ * What a run's `target=` says about `test`: `true` when a path in it names the
+ * test or a directory above it, from a path-segment start; `false` only when
+ * it names other tests outright, by the proof suffix or under the proof
+ * directory; otherwise why it cannot say. A MISS claims no red run happened,
+ * so nothing short of other tests named reads as "ran something else":
+ *   - `pattern`: the name sits inside the test's path, not at a segment start.
+ *     jest and vitest match an argument anywhere in a path, so it may have run;
+ *   - `no-test-path`: only a config, an output file or a module a flag loads;
+ *   - `glob`, `no-path`: nothing to match.
+ * Blind to case and separator, past `./`, `../` and grouping parens, and a Git
+ * Bash `/c/` reads as `c:/` against a Windows test. A target from before
+ * run-trace kept only the runner's own command may carry another command's
+ * words: a redirection is dropped, a trailing `;` or `&` cut.
+ */
+function runCovers(target, test) {
+  const windows = /^[a-zA-Z]:/.test(test);
+  const norm = (p) => p.replace(/\\+/g, '/').toLowerCase();
+  const tokens = String(target ?? '-')
+    .split(',')
+    .map((t) => norm(t).replace(/^[(`]+|[;&|)`]+$/g, '').replace(/^(\.\.?\/)+/, '').replace(/\/$/, ''))
+    .map((t) => (windows ? t.replace(/^\/([a-z])\//, '$1:/') : t))
+    .filter((t) => t && t !== '-' && t !== '.' && !/^[<>]|^\d+>/.test(t));
+  if (tokens.length === 0) return 'no-path';
+  if (tokens.some((t) => /[*?[\]{}]/.test(t))) return 'glob';
+  const path = `/${norm(test)}`;
+  const bare = (t) => t.replace(/^\//, '');
+  if (tokens.some((t) => path.includes(`/${bare(t)}`))) return true;
+  if (tokens.some((t) => path.includes(bare(t)))) return 'pattern';
+  const dir = norm(proof.dir).replace(/^\.\/?|\/$/g, '');
+  const selects = (t) => (proof.suffix && t.endsWith(proof.suffix.toLowerCase())) || (dir && `${t}/`.startsWith(`${dir}/`));
+  return tokens.some(selects) ? false : 'no-test-path';
+}
+
 const verdicts = [];
 for (const run of expectedTestName ? runs : []) {
   const firstWrite = new Map();
-  const firstWriteByName = new Map();
   for (const [i, e] of run.trace.entries()) {
     if (!e.file || !e.raw.includes(' write file=')) continue; // a READ of a file says nothing about when it was written
     if (!firstWrite.has(e.file)) firstWrite.set(e.file, i);
-    if (!firstWriteByName.has(baseOf(e.file))) firstWriteByName.set(baseOf(e.file), i);
   }
+  // Every test written under a name: two tests can share one, and the trace
+  // cannot say which of them a source's is.
+  const testsByName = new Map();
+  for (const [file, i] of firstWrite) testsByName.set(baseOf(file), [...(testsByName.get(baseOf(file)) ?? []), [file, i]]);
 
   for (const [file, sourceIdx] of firstWrite) {
     const testName = expectedTestName(file);
     if (!testName) continue;
-    const specIdx = firstWriteByName.get(testName);
-    if (specIdx === undefined) continue;
+    const tests = testsByName.get(testName);
+    if (!tests) continue;
+    const specIdx = Math.min(...tests.map(([, i]) => i));
 
-    const between = run.trace.filter((e, i) => i > specIdx && i < sourceIdx && e.verdict);
-    const unjudged = between.filter((e) => e.verdict === '?' && !NOT_A_FAILED_RUN.has(e.why));
+    // Only a run of this test speaks for it: a run naming other tests is
+    // passed over, and a red one that cannot be matched is unjudged.
+    const coversAt = (target, at) => {
+      const answers = tests.filter(([, i]) => i < at).map(([test]) => runCovers(target, test));
+      return answers.includes(true) || answers.find((a) => typeof a === 'string') || false;
+    };
+    const between = run.trace
+      .map((e, i) => ({ ...e, i }))
+      .filter((e) => e.i > specIdx && e.i < sourceIdx && e.verdict)
+      .map((e) => ({ ...e, covers: coversAt(e.target, e.i) }))
+      .filter((e) => e.covers !== false);
+    const unjudged = between.filter((e) => (e.verdict === '?' && !NOT_A_FAILED_RUN.has(e.why)) || (e.verdict === 'red' && e.covers !== true));
     let status = 'no-red-run';
     if (specIdx > sourceIdx) status = 'code-first';
-    else if (between.some((e) => e.verdict === 'red')) status = 'red-first';
+    else if (between.some((e) => e.verdict === 'red' && e.covers === true)) status = 'red-first';
     else if (unjudged.length > 0) status = 'no-verdict';
-    verdicts.push({ file, status, why: [...new Set(unjudged.map((e) => e.why ?? 'not-recorded'))].join(','), run: run.name });
+    const whyOf = (e) => (e.verdict === 'red' ? e.covers : (e.why ?? 'not-recorded'));
+    verdicts.push({ file, status, why: [...new Set(unjudged.map(whyOf))].join(','), run: run.name });
   }
 }
 

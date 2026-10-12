@@ -89,23 +89,35 @@ function runsRunner(cmd, testName) {
 function traceTest(input, res, testName, failure) {
   if (!testName) return ''; // no contract read -> no runner name to look for, trace nothing rather than guess one
 
-  const cmd = String(input.command ?? '')
+  const raw = String(input.command ?? '')
     .split('<<')[0] // everything after a heredoc operator is data fed TO the command
-    .replace(/"[^"]*"|'[^']*'/g, ' '); // and a quoted message, e.g. a commit -m, is not the command either
+    .replace(/\\\r?\n/g, ' '); // a `\` at a line's end continues the same command
+  const cmd = raw.replace(/"[^"]*"|'[^']*'/g, ' '); // and a quoted message, e.g. a commit -m, is not the command either
 
   if (/^\s*git(\s|$)/.test(cmd)) return ''; // git never runs tests
 
   const runner = testName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (!new RegExp(`(^|[^a-zA-Z-])${runner}([^a-zA-Z-]|$)`).test(cmd)) return '';
+  const namesRunner = new RegExp(`(^|[^a-zA-Z-])${runner}([^a-zA-Z-]|$)`);
+  if (!namesRunner.test(cmd)) return '';
 
   const out = failure
     ? failure.error
     : [res?.stdout, res?.stderr, typeof res === 'string' ? res : ''].filter((v) => typeof v === 'string').join('\n');
 
+  // What the runner was handed, which stats credits test-first by: the paths
+  // of the commands in a chain that run it, past any redirection. Another
+  // command's paths — a lint of the same files, `>/dev/null` — ran no test.
+  // A quoted word with no space in it is a path, often a Windows one; the
+  // runner's own script and config carry its name, a test under it need not.
   const target =
-    cmd
-      .split(/\s+/)
-      .filter((t) => !t.startsWith('-') && /[/.]/.test(t) && !t.includes(testName) && !/^(pnpm|npm|npx|yarn|node)$/.test(t))
+    raw
+      .replace(/"([^"\s]+)"|'([^'\s]+)'/g, ' $1$2 ')
+      .replace(/"[^"]*"|'[^']*'/g, ' ')
+      .replace(/\d*[<>]{1,2}&?\s*[^\s;|&<>]*/g, ' ')
+      .split(/;|&&|\|\||\||&|\n/)
+      .filter((part) => namesRunner.test(part))
+      .flatMap((part) => part.replace(/[()`]/g, ' ').split(/\s+/))
+      .filter((t) => !t.startsWith('-') && /[/.]/.test(t) && !t.split(/[\\/]/).pop().includes(testName) && !/^(pnpm|npm|npx|yarn|node)$/.test(t))
       .join(',') || '-';
 
   // `Tests:` is jest's summary, `Tests  N` vitest's; mocha and node's own

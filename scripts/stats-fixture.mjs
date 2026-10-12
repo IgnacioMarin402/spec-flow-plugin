@@ -586,6 +586,114 @@ check('the test-first warning counts source files and the runs they span', () =>
   return contains(out, '2 of 2 source file(s) across 2 runs show no red test run before the code');
 });
 
+// A verdict is evidence for the test it ran, not for every test written
+// before it. One real milestone wrote three tests and ran one; all three were
+// credited with that one run.
+const ranOn = (minute, verdict, target, why) => `${stamp(minute)} phase=implement test verdict=${verdict} target=${target}${why ? ` why=${why}` : ''}`;
+const threePairs = (...runs) => [
+  write(1, 'tests/orders/place.spec.ts'),
+  write(2, 'tests/orders/cancel.spec.ts'),
+  write(3, 'tests/orders/ship.spec.ts'),
+  ...runs,
+  write(20, 'lib/orders/place.ts'),
+  write(21, 'lib/orders/cancel.ts'),
+  write(22, 'lib/orders/ship.ts'),
+];
+
+check('a red run of one test credits that test alone', () => {
+  const section = testFirst(report({ trace: threePairs(ranOn(10, 'red', 'tests/orders/place.spec.ts')) }).out);
+  return (
+    contains(section, 'OK   lib/orders/place.ts  (red-first)') ||
+    contains(section, 'MISS lib/orders/cancel.ts  (no-red-run)') ||
+    contains(section, 'MISS lib/orders/ship.ts  (no-red-run)')
+  );
+});
+
+check('an unreadable run of one test leaves the others missed, not unmeasured', () => {
+  const section = testFirst(report({ trace: threePairs(ranOn(10, '?', 'tests/orders/place.spec.ts', 'pipe')) }).out);
+  return contains(section, '?    lib/orders/place.ts  (a test run the trace could not judge: pipe)') || contains(section, 'MISS lib/orders/ship.ts  (no-red-run)');
+});
+
+check('a red run of the tests\' directory credits each test under it', () => {
+  const section = testFirst(report({ trace: threePairs(ranOn(10, 'red', 'tests/orders')) }).out);
+  return ['place', 'cancel', 'ship'].map((m) => contains(section, `OK   lib/orders/${m}.ts  (red-first)`)).find(Boolean) ?? '';
+});
+
+check('a red run that names no path is unjudged, not credited', () => {
+  const section = testFirst(report({ trace: threePairs(ranOn(10, 'red', '-')) }).out);
+  return contains(section, '?    lib/orders/ship.ts  (a test run the trace could not judge: no-path)');
+});
+
+// A whole-suite run with its output thrown away, as an older trace recorded it.
+check('a target holding only a redirection names no path', () => {
+  const section = testFirst(report({ trace: threePairs(ranOn(10, 'red', '>/dev/null;')) }).out);
+  return contains(section, '?    lib/orders/ship.ts  (a test run the trace could not judge: no-path)');
+});
+
+// jest and vitest match an argument anywhere in a path: `place.spec.ts` runs
+// `replace.spec.ts` too, so that run may have been this test's.
+check('a name found inside a test\'s name, not at a path segment, is unjudged', () => {
+  const trace = [write(1, 'tests/orders/replace.spec.ts'), ranOn(2, 'red', 'place.spec.ts'), write(3, 'lib/orders/replace.ts')];
+  return contains(testFirst(report({ trace }).out), '?    lib/orders/replace.ts  (a test run the trace could not judge: pattern)');
+});
+
+// A MISS says no red run happened: a run that loaded a config or a module, or
+// matched a glob, ran a suite the trace cannot see into.
+check('a run naming only a config, a module, or a glob is unjudged, never a miss', () => {
+  const section = testFirst(
+    report({ trace: threePairs(ranOn(10, 'red', 'config/unit.json'), ranOn(11, 'red', 'ts-node/register'), ranOn(12, 'red', 'tests/orders/*.spec.ts')) }).out,
+  );
+  return contains(section, '?    lib/orders/ship.ts  (a test run the trace could not judge: no-test-path,glob)');
+});
+
+check('a run of another directory of tests is not a run of these', () => {
+  return contains(testFirst(report({ trace: threePairs(ranOn(10, 'red', 'tests/billing')) }).out), 'MISS lib/orders/ship.ts  (no-red-run)');
+});
+
+check('a target is matched past ./, ../, a subshell paren, and from Git Bash', () => {
+  const at = (p) => `C:\\Users\\i\\repo\\${p.replace(/\//g, '\\')}`;
+  const trace = [
+    write(1, at('tests/orders/place.spec.ts')),
+    write(2, at('tests/orders/cancel.spec.ts')),
+    write(3, at('tests/orders/ship.spec.ts')),
+    write(4, at('tests/orders/pack.spec.ts')),
+    ranOn(5, 'red', './tests/orders/place.spec.ts'),
+    ranOn(6, 'red', '../tests/orders/cancel.spec.ts)'),
+    ranOn(7, 'red', '/c/Users/i/repo/tests/orders/ship.spec.ts'),
+    ranOn(8, 'red', 'tests\\\\orders\\\\pack.spec.ts'),
+    ...['place', 'cancel', 'ship', 'pack'].map((m, i) => write(10 + i, at(`lib/orders/${m}.ts`))),
+  ];
+  const section = testFirst(report({ trace }).out);
+  return ['place', 'cancel', 'ship', 'pack'].map((m) => contains(section, `${m}.ts  (red-first)`)).find(Boolean) ?? '';
+});
+
+// Two changes in one log can each write a `utils.spec.ts`.
+check('a source is credited by a red run of any test under its test\'s name', () => {
+  const trace = [
+    write(1, 'tests/item/utils.spec.ts'),
+    write(2, 'lib/item/utils.ts'),
+    write(3, 'tests/city/utils.spec.ts'),
+    ranOn(4, 'red', 'tests/city/utils.spec.ts'),
+    write(5, 'lib/city/utils.ts'),
+  ];
+  const section = testFirst(report({ trace }).out);
+  return contains(section, 'OK   lib/city/utils.ts  (red-first)') || contains(section, 'MISS lib/item/utils.ts  (no-red-run)');
+});
+
+// The shape a real run left: Windows paths written, a relative target run, and
+// a target from before run-trace kept only the runner's own command.
+check('a target is matched to a Windows path, and past what another command left in it', () => {
+  const trace = [
+    write(1, 'C:\\Users\\someone\\repo\\tests\\orders\\place.spec.ts'),
+    write(2, 'C:\\Users\\someone\\repo\\tests\\orders\\ship.spec.ts'),
+    ranOn(3, 'red', 'tests/orders/place.spec.ts;,>/dev/null;,node_modules/eslint/bin/eslint.js'),
+    write(4, 'C:\\Users\\someone\\repo\\lib\\orders\\place.ts'),
+    write(5, 'C:\\Users\\someone\\repo\\lib\\orders\\ship.ts'),
+  ];
+  const section = testFirst(report({ trace }).out);
+  return contains(section, 'place.ts  (red-first)') || (section.includes('ship.ts  (red-first)') ? `credited a test no run named.\n${section}` : '');
+});
+
 // ---- the gate: a PASS followed by nothing ----------------------------------
 // After a PASS the next milestone's implementer works for as long as it takes,
 // and the next gate line comes only when it ends. Measured to that line, every
