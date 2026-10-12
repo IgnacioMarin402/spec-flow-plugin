@@ -80,6 +80,16 @@ function phaseIsTracked(root) {
 }
 
 /**
+ * Whether the repo COMMITTED anything under `.claude/state/`: then the
+ * directory, its phase file and its logs are what a clone brought, a log may
+ * be a link out of the repository, and nothing is appended there outside a
+ * run (ADR-040). Not asked of a run phase, which ADR-017 already settles.
+ */
+export function stateIsTracked(root) {
+  return spawnSync('git', ['ls-files', '--error-unmatch', '--', '.claude/state'], { cwd: root, encoding: 'utf8' }).status === 0;
+}
+
+/**
  * The phase this REPOSITORY is in, if a run put it there — `''` otherwise.
  *
  * Every hook that arms reads the phase through here rather than through

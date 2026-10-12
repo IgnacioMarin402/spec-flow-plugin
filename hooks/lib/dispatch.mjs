@@ -2,8 +2,8 @@
 /**
  * What the commands dispatch, and the line a dispatch outside it leaves in
  * run-trace.log (ADR-035). One copy, because `arm-gate` records the
- * implementer's dispatches and `dispatch-guard` every other one, and stats
- * reads both as one tally.
+ * implementer's phase moves and denials and `dispatch-guard` every other
+ * departure, and stats reads both as one tally.
  */
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,8 +24,9 @@ export const DISPATCHED_IN = {
 
 /**
  * One `dispatch` line: `agent=`, not run-trace's `type=`, which stats reads
- * as an agent's return. Every value is whitespace-free, because the log is
- * read back by a whitespace split.
+ * as an agent's return. Every value is whitespace-free, the phase included,
+ * because the log is read back by a whitespace split; outside a run the phase
+ * is whatever the file holds.
  */
 export function recordDispatch(root, payload, phase, { agent, result, why, extra = {} }) {
   const safe = (v) => String(v).replace(/\s+/g, '') || '-';
@@ -34,7 +35,7 @@ export function recordDispatch(root, payload, phase, { agent, result, why, extra
     .map(([k, v]) => `${k}=${safe(v)}`)
     .join(' ');
   try {
-    appendFileSync(join(stateDir(root), 'run-trace.log'), `${new Date().toISOString()} phase=${phase}${session ? ` session=${session}` : ''} dispatch ${fields}\n`);
+    appendFileSync(join(stateDir(root), 'run-trace.log'), `${new Date().toISOString()} phase=${safe(phase)}${session ? ` session=${session}` : ''} dispatch ${fields}\n`);
   } catch {
     /* a record must never be why a dispatch fails */
   }
