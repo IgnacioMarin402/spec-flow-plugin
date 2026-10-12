@@ -72,18 +72,6 @@ enabled it. **Done:** `token-trace` records the advisor's iterations as a group
 of their own, by model and by the agent that consulted it, and `stats` reports
 them.
 
-### B45 — a weak test found at the fold is fixed after `done`, with the gate off
-
-Step 5 has the orchestrator offer "a fresh implementer for that milestone" in
-its step 6 summary, after `done`. On `done`, `arm-gate` arms nothing,
-`dispatch-guard` leaves only a `why=no-run` line (ADR-040), and the gate,
-`lint-on-write` and the command deny stand down, so the fix runs unchecked. In one real run the
-fold reported a requirement whose test asserted only half of it, and the
-orchestrator offered exactly that. **Done:** the offer is a `/spec-fix` case 2
-(gated, then folded), still the human's to accept (ADR-020), and an
-`agent-contracts` case fails while step 5 names no `/spec-fix`. It is red on
-`620901d`, where `spec-flow.md` never names it.
-
 ### B46 — a requirement that forbids something is proven by a test of what it allows
 
 spec-trace binds an id to a test that ran under its name, so one test named for
