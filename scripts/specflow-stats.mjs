@@ -351,8 +351,15 @@ if (dispatched.length > 0) {
     `  dispatch: ${recorded.length} off the commands' contract${recorded.length ? ` (${tally(recorded)})` : ''}, recorded, not denied; ` +
       `the gate armed by arm-gate ${armed.length} time(s)${denied.length ? `, the implementer denied ${denied.length} time(s) (${tally(denied)})` : ''}.`,
   );
-  if (recorded.length > 0) {
-    warn.push(`${recorded.length} dispatch(es) the commands do not describe (${tally(recorded)}). Each went through; read the \`dispatch\` lines with --raw before a rule becomes a denial (ADR-035).`);
+  // A dispatch with no run phase is not a rule to weigh: it ran with nothing
+  // counting or tracing it (ADR-040).
+  const outside = recorded.filter((e) => String(e.why).split(',').includes('no-run'));
+  const offRules = recorded.filter((e) => !outside.includes(e));
+  if (offRules.length > 0) {
+    warn.push(`${offRules.length} dispatch(es) the commands do not describe (${tally(offRules)}). Each went through; read the \`dispatch\` lines with --raw before a rule becomes a denial (ADR-035).`);
+  }
+  if (outside.length > 0) {
+    warn.push(`${outside.length} spec-flow agent(s) put to work with no run phase (${tally(outside)}): no budget, trace or agent gate applied to them. A run that skipped writing \`spec\` looks like this (ADR-040).`);
   }
 }
 say('');

@@ -2197,12 +2197,53 @@ t("dispatch-guard leaves no line for the commands' own dispatches", (repo) => {
   return lines.length === 0 ? null : `the commands' own dispatches were recorded:\n${lines.join('\n')}`;
 });
 
-t("dispatch-guard leaves a subagent's call, and a call outside a run, alone", (repo) => {
+t("dispatch-guard leaves a subagent's call, and another flow's agent outside a run, alone", (repo) => {
   spawn(repo, 'Explore', '', { agent_id: 'impl1' });
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');
   spawn(repo, 'Explore');
+  spawn(repo, 'code-reviewer', 'review my diff');
   const lines = dispatches(repo);
   return lines.length === 0 ? null : `recorded outside the orchestrator's run:\n${lines.join('\n')}`;
+});
+
+// ---- this flow's agent with no run phase (ADR-040) -------------------------
+//
+// A real run's spec step and first plan left no line anywhere: with the phase
+// at `done`, everything that counts or records a spawn stood down.
+t('dispatch-guard records this flow\'s agent put to work with no run phase, and lets it through', (repo) => {
+  const at = (phase) => writeFileSync(join(repo, '.claude/state/phase'), phase);
+  at('done');
+  const r = spawn(repo, 'spec-flow:planner', 'Plan specflow/my-change/spec.md');
+  if (r.status !== 0) return `a recorded dispatch was denied (exit ${r.status}): ${r.stderr}`;
+  spawn(repo, 'spec-flow:implementer', IMPL_ORDER);
+  at('idle');
+  spawn(repo, 'spec-flow:spec-writer', 'add a refund endpoint');
+  rmSync(join(repo, '.claude/state/phase'));
+  spawn(repo, 'architect', 'Which port owns this?');
+  const lines = dispatches(repo);
+  for (const [phase, agent] of [['done', 'planner'], ['done', 'implementer'], ['idle', 'spec-writer'], ['-', 'architect']]) {
+    if (!lines.some((l) => new RegExp(` phase=${phase} .*dispatch agent=${agent} tool=Agent result=record why=no-run$`).test(l))) {
+      return `no record of the ${agent} put to work with phase "${phase}":\n${lines.join('\n')}`;
+    }
+  }
+  return lines.length === 4 ? null : `expected four lines:\n${lines.join('\n')}`;
+}, { phase: 'done' });
+
+t('dispatch-guard records a message to this flow\'s agent with no run phase', (repo) => {
+  runHook('dispatch-guard.mjs', subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 }), repo);
+  const line = dispatches(repo)[0] ?? '';
+  return / phase=done .*dispatch agent=implementer tool=SendMessage result=record why=no-run$/.test(line) ? null : `no record of the message: "${line}"`;
+}, { phase: 'done' });
+
+// A guard: this passed before and must keep passing.
+t('dispatch-guard leaves a repository the engine never ran in without a .claude/state', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'smoke-bare-'));
+  try {
+    runHook('dispatch-guard.mjs', { session_id: 's', tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:planner', prompt: 'x' } }, dir);
+    return existsSync(join(dir, '.claude')) ? 'a spawn outside any run created .claude/ in a repository the engine never ran in' : null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- a case 3 waits for a human's answer (ADR-036) -------------------------

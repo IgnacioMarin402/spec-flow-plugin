@@ -389,7 +389,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `orchestrator-scope` | `PreToolUse` | `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` | During a run, denies the session itself — not a subagent — reading a repository file outside `specflow/`, `specs/`, `.spec-flow/`, `.claude/` and the root's `*.md`, or writing, moving or deleting one outside `.claude/state/` and `specflow/`, or a log under `.claude/state/` ([ADR-034](decisions/034-the-orchestrator-routes-and-a-hook-keeps-it-routing.md)) |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner and architect calls, each against its own cap, and denies past it |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it, by type, name or a message to its id; from `spec`, denies the spawn instead while a live spec is not ready to build from; in any run phase, denies it while a case 3 brief has no person's answer since it was written |
-| `dispatch-guard` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Records, and lets through, a dispatch of the session's the commands do not describe: an agent outside its phase, one that is not this flow's, an implementer handed more or less than `plan.md` and its milestone, a message to an agent this session did not spawn ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)) |
+| `dispatch-guard` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Records, and lets through, a dispatch of the session's the commands do not describe: an agent outside its phase, one that is not this flow's, an implementer handed more or less than `plan.md` and its milestone, a message to an agent this session did not spawn ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)); outside a run, this flow's agent put to work at all ([ADR-040](decisions/040-a-flow-agent-put-to-work-outside-a-run-is-recorded.md)) |
 | `model-route` | `PreToolUse` | `Task`, `Agent` | Runs every spawn of this plugin in the background (interactive sessions), and applies the project's `agents` routing to it |
 | `stale-resume` | `PreToolUse` | `SendMessage` | Denies resuming one of this plugin's agents whose prompt cache has expired ([ADR-025](decisions/025-an-agent-is-resumed-only-while-its-cache-is-warm.md)) |
 | `lint-on-write` | `PostToolUse` | `Write`, `Edit` | Lints the file just written |
@@ -400,8 +400,8 @@ Without it, run the same scripts by path, from your repo's root:
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
-`preflight`, `opus-budget`, `arm-gate`, `dispatch-guard`, `stale-resume`, `phase-guard`, `orchestrator-scope` and `agent-gate` stand down
-outside a run. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
+`preflight`, `opus-budget`, `arm-gate`, `stale-resume`, `phase-guard`, `orchestrator-scope` and `agent-gate` stand down
+outside a run; `dispatch-guard` records only this flow's agents there. `model-route` applies to every spawn of this plugin's agents. Every hook but the gate
 fails open on its own crash.
 
 What the agent gate can see is a return's shape, the files on disk, the ids in

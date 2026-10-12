@@ -13,12 +13,18 @@
  *
  * The implementer's phase is `arm-gate`'s, which moves it and records that.
  * A subagent's call is not the orchestrator dispatching, and stands down here.
+ *
+ * Outside a run it records one thing: this flow's agent put to work with no
+ * run phase. Nothing else counts or traces such a dispatch — preflight, the
+ * Opus budget, run-trace, token-trace and the agent gate all stand down there
+ * (ADR-040).
  */
 import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { matchAgent, recipientRecord, recipientType } from './lib/agent-name.mjs';
 import { shippedAgents } from './lib/routing.mjs';
 import { DISPATCHED_IN, recordDispatch } from './lib/dispatch.mjs';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Repository paths a prompt names, relative to `root`, past URLs and the
@@ -50,7 +56,10 @@ function inputProblems(text, root) {
 await run(async () => {
   const root = projectDir();
   const phase = readPhase(root);
-  if (!Object.hasOwn(DISPATCHED_IN, phase)) return;
+  const inRun = Object.hasOwn(DISPATCHED_IN, phase);
+  // Outside a run, only where the engine has run before: a repository it never
+  // ran in is left with no `.claude/state/` it did not have.
+  if (!inRun && !existsSync(join(root, '.claude', 'state'))) return;
 
   const payload = await readPayload();
   if (typeof payload.agent_id === 'string' && payload.agent_id) return;
@@ -62,27 +71,39 @@ await run(async () => {
   const extra = {};
 
   let agent;
+  let exactType;
   if (tool === 'SendMessage') {
     const rec = recipientRecord(payload);
     if (!rec) return; // no id or no transcript: nothing to say who it is for
     // By the session's record of the spawn, else by a role name in `to`.
     const type = recipientType(payload);
+    exactType = type || rec.to;
     agent = matchAgent([type || rec.to], roles) ?? type;
     if (!agent) {
       // An agent this session spawned has a transcript beside its own, typed
       // or not; a target with neither is no agent of this run.
-      if (!existsSync(rec.file)) recordDispatch(root, payload, phase, { agent: '-', result: 'record', why: 'unknown-target', extra: { to: rec.to } });
+      if (inRun && !existsSync(rec.file)) recordDispatch(root, payload, phase, { agent: '-', result: 'record', why: 'unknown-target', extra: { to: rec.to } });
       return;
     }
   } else {
     const type = [input.subagent_type, input.subagentType, input.agent_type].find((v) => typeof v === 'string') ?? '';
+    exactType = type;
     agent = matchAgent([type], roles) ?? type;
-    if (agent === 'implementer') {
-      const text = [input.prompt, input.description].filter((v) => typeof v === 'string').join('\n').replace(/\\/g, '/');
-      const found = inputProblems(text, root);
-      why.push(...found.why);
-      if (found.other.length > 0) extra.files = found.other.join(',');
-    }
+  }
+
+  if (!inRun) {
+    // By exact name only: outside a run is where people use their own agents,
+    // and a `code-reviewer` is not this flow's reviewer.
+    const own = /^(?:spec-flow:)?([a-z][a-z-]*)$/.exec(String(exactType ?? ''))?.[1];
+    if (roles.includes(own)) recordDispatch(root, payload, phase || '-', { agent: own, result: 'record', why: 'no-run' });
+    return;
+  }
+
+  if (tool !== 'SendMessage' && agent === 'implementer') {
+    const text = [input.prompt, input.description].filter((v) => typeof v === 'string').join('\n').replace(/\\/g, '/');
+    const found = inputProblems(text, root);
+    why.push(...found.why);
+    if (found.other.length > 0) extra.files = found.other.join(',');
   }
 
   if (!roles.includes(agent)) why.push('not-this-flow');

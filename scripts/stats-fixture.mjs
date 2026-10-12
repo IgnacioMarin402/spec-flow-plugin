@@ -365,6 +365,15 @@ check("dispatches off the commands' contract are counted by agent and reason, an
   );
 });
 
+// This flow's agents put to work with no run phase (ADR-040): told apart from
+// the rules ADR-035 weighs, since nothing counted or traced them.
+check('agents put to work with no run phase get a warning of their own', () => {
+  const line = (minute, phase, who, why) => `${stamp(minute)} phase=${phase} session=s dispatch agent=${who} tool=Agent result=record why=${why}`;
+  const { out } = report({ trace: [line(1, 'done', 'spec-writer', 'no-run'), line(2, 'done', 'planner', 'no-run')], gate: [pass(3)] });
+  if (out.includes('read the `dispatch` lines with --raw')) return `no-run dispatches were reported as rules to weigh:\n${out}`;
+  return contains(out, '2 spec-flow agent(s) put to work with no run phase (spec-writer:no-run x1, planner:no-run x1)');
+});
+
 // orchestrator-scope stands down until the trace shows agent ids (ADR-034);
 // a run where it never armed must not read as one where nothing was denied.
 check('a run where orchestrator-scope or the case 3 check stood down says so', () => {

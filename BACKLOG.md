@@ -216,20 +216,6 @@ in one log. **Done:** the turn that writes `done` leaves a line in
 after the PASS already clears the warning on `620901d`, so a stats case only
 guards.
 
-### B58 — an agent spawned outside a run leaves no trace and spends no budget
-
-With the phase at `done`, `idle` or empty, every hook that counts or records a
-spawn stands down: preflight, the Opus budget, dispatch-guard, run-trace,
-token-trace (it drops the slice) and the agent gate. A planner spawned so
-writes nothing to `opus_calls` or `run-trace.log` (run on `620901d`). In one
-real run, the spec step and the first plan left no line in the archived
-telemetry; they ran in an earlier session of the same console, whose live view
-the later session's copy does not hold. That snapshot also held the run before
-it: the step-0 `--mark` had not moved. Both fit a run whose step 0 never wrote
-`spec`. **Done:** dispatch-guard records a spec-flow agent dispatched outside a
-run (ADR-035: recorded before it is denied), stats reports it, and a hook-smoke
-case is red on `620901d`.
-
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full
