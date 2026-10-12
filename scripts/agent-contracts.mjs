@@ -302,6 +302,19 @@ for (const file of ['spec-flow.md', 'resume.md']) {
   }
 }
 
+// A weak test the fold names is fixed after `done`, where the gate, lint-on-write
+// and the command deny stand down. Only a new run arms them again: /spec-fix,
+// whose triage reads it as case 2 (ADR-042).
+for (const file of ['spec-flow.md', 'spec-fix.md']) {
+  const foldStep = /^## 5\. FOLD[\s\S]*?(?=^## )/m.exec(readFileSync(join(ROOT, 'commands', file), 'utf8'))?.[0] ?? '';
+  const gapsOffer = foldStep.split('\n').find((line) => line.includes('`GAPS:`')) ?? '';
+  if (!gapsOffer) {
+    problems.push(`commands/${file} step 5 has no line naming \`GAPS:\`; fix this check rather than leaving it matching nothing.`);
+  } else if (!gapsOffer.includes('/spec-fix')) {
+    problems.push(`commands/${file} step 5 offers a fix for a weak test without naming \`/spec-fix\`. Offered after \`done\`, any other fix runs with the gate, lint-on-write and the command deny standing down.`);
+  }
+}
+
 // ---- every shipped agent says what it may use ----------------------------
 //
 // An agent with no `tools:` inherits every tool the harness offers, `Task`
