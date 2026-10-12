@@ -1,6 +1,6 @@
 # ADR-004 — Node is a floor and is enforced; Claude Code is recorded
 
-**Date:** 2026-08-15 · **Status:** accepted · **Record:** `e7b6afa`
+**Date:** 2026-08-15 · **Status:** accepted; where `cc=` is read from refined by [ADR-041](041-claude-code-is-read-from-the-transcript.md) · **Record:** `e7b6afa`
 
 **Question.** The Node running the engine and the Claude Code hosting it both
 decide whether it works. Should either be enforced?

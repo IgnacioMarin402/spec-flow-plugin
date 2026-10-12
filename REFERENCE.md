@@ -252,7 +252,8 @@ conversations; only `/model` and session-only effort do.
 - **Node** — a floor, enforced: `preflight` refuses a run below
   `package.json`'s `engines.node`, inside a run only.
 - **Claude Code** — recorded, not checked: `cc=` on every gate-history line
-  ([ADR-004](decisions/004-versions-checked-versus-recorded.md)).
+  ([ADR-004](decisions/004-versions-checked-versus-recorded.md)), read from the
+  session's transcript ([ADR-041](decisions/041-claude-code-is-read-from-the-transcript.md)).
 - **The engine** — `engine=` on the same line: the commit of the copy that
   judged, or `v<version>` when no commit resolves
   ([ADR-018](decisions/018-the-engine-records-a-revision-not-a-version.md)).

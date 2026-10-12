@@ -34,6 +34,8 @@
  *   phase file. The wait state would be unreachable under `implement`, since
  *   stopping to wait re-triggers this gate.
  */
+import { Buffer } from 'node:buffer';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -65,6 +67,45 @@ const MAX_TEST_LINES = 60;
 function shortSha(root) {
   const res = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
   return res.status === 0 ? res.stdout.trim() : '-';
+}
+
+/**
+ * The Claude Code that ran this session: the `version` of the transcript's
+ * last line that carries one, else `?` (ADR-041). Each line is stamped by the
+ * build that wrote it, so a resumed session's transcript holds every build it
+ * ran under, and the last is this one. Read from the end, widening until a
+ * whole line answers: a transcript runs to megabytes, and so can one line.
+ */
+function claudeCodeVersion(payload) {
+  const path = [payload.transcript_path, payload.transcriptPath].find((v) => typeof v === 'string' && v);
+  if (!path) return '?';
+  let fd;
+  try {
+    fd = openSync(path, 'r');
+    const size = fstatSync(fd).size;
+    for (let span = 256 * 1024; ; span *= 4) {
+      const length = Math.min(size, span);
+      const tail = Buffer.alloc(length);
+      readSync(fd, tail, 0, length, size - length);
+      const lines = tail.toString('utf8').split('\n');
+      if (length < size) lines.shift(); // begins mid-line
+      for (const line of lines.reverse()) {
+        let version;
+        try {
+          version = JSON.parse(line).version;
+        } catch {
+          continue;
+        }
+        // Whitespace-free, because the history is read back by a split.
+        if (typeof version === 'string' && /^\d+\.\d+\.\d+[\w.+-]*$/.test(version)) return version;
+      }
+      if (length === size) return '?';
+    }
+  } catch {
+    return '?';
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 /**
@@ -112,11 +153,11 @@ let armed = null;
 
 await run(
   async () => {
-    // The payload is read for one field: which session this Stop belongs to.
-    // `readOwnedPhase` needs it to tell a phase this session is driving from
-    // one another session sealed — see ADR-017. `Stop` fires for the
-    // ORCHESTRATING turn, which is what makes this one of the two hooks that
-    // may safely ask.
+    // The payload says which session this Stop belongs to: `readOwnedPhase`
+    // needs it to tell a phase this session is driving from one another
+    // session sealed — see ADR-017. `Stop` fires for the ORCHESTRATING turn,
+    // which is what makes this one of the two hooks that may safely ask. It
+    // also names the transcript `cc=` is read from.
     const payload = await readPayload();
 
     const root = projectDir();
@@ -148,10 +189,12 @@ await run(
     const histFile = join(state, 'gate-history.log');
 
     const attemptsNow = () => readFileOrDefault(attFile, '0');
+    const cc = claudeCodeVersion(payload);
     const line = (result, lintRc, testRc, unscopedFields, filesField) =>
       // `cc=` records the Claude Code that ran this gate — recorded, never
-      // checked (ADR-004). `?` when the harness does not expose it: an absent
-      // value must read as "not known here", never as a version.
+      // checked (ADR-004), read from the transcript (ADR-041). `?` when it
+      // cannot be: an absent value must read as "not known here", never as a
+      // version.
       //
       // `engine=` records WHICH REVISION of this engine judged the milestone.
       // Recorded, not enforced, for the same reason `cc=` is (ADR-004): it is a
@@ -163,7 +206,7 @@ await run(
       // have (ADR-016), and the SHA is that axis; the version number is a
       // second one that moved once and would keep reading `0.1.0` over every
       // change this file will ever see.
-      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${process.env.CLAUDE_CODE_VERSION ?? '?'} engine=${engineRevision(ENGINE_ROOT)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
+      `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${cc} engine=${engineRevision(ENGINE_ROOT)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
     /**
      * The one failure this file's own catch-all cannot reach: a `command`
