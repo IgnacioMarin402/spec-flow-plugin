@@ -2385,13 +2385,13 @@ t('dispatch-guard records this flow\'s agent put to work with no run phase, and 
   at('done');
   const r = spawn(repo, 'spec-flow:planner', 'Plan specflow/my-change/spec.md');
   if (r.status !== 0) return `a recorded dispatch was denied (exit ${r.status}): ${r.stderr}`;
-  spawn(repo, 'spec-flow:implementer', IMPL_ORDER);
+  spawn(repo, 'spec-flow:reviewer', 'Review specflow/my-change/plan.md');
   at('idle');
   spawn(repo, 'spec-flow:spec-writer', 'add a refund endpoint');
   rmSync(join(repo, '.claude/state/phase'));
   spawn(repo, 'spec-flow:Architect', 'Which port owns this?');
   const lines = dispatches(repo);
-  for (const [phase, agent] of [['done', 'planner'], ['done', 'implementer'], ['idle', 'spec-writer'], ['-', 'architect']]) {
+  for (const [phase, agent] of [['done', 'planner'], ['done', 'reviewer'], ['idle', 'spec-writer'], ['-', 'architect']]) {
     if (!lines.some((l) => new RegExp(` phase=${phase} .*dispatch agent=${agent} tool=Agent result=record why=no-run$`).test(l))) {
       return `no record of the ${agent} put to work with phase "${phase}":\n${lines.join('\n')}`;
     }
@@ -2400,10 +2400,45 @@ t('dispatch-guard records this flow\'s agent put to work with no run phase, and 
 }, { phase: 'done' });
 
 t('dispatch-guard records a message to this flow\'s agent with no run phase', (repo) => {
-  runHook('dispatch-guard.mjs', subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 }), repo);
+  runHook('dispatch-guard.mjs', subagentOnDisk(repo, { type: 'spec-flow:spec-writer', ageMin: 1 }), repo);
   const line = dispatches(repo)[0] ?? '';
-  return / phase=done .*dispatch agent=implementer tool=SendMessage result=record why=no-run$/.test(line) ? null : `no record of the message: "${line}"`;
+  return / phase=done .*dispatch agent=spec-writer tool=SendMessage result=record why=no-run$/.test(line) ? null : `no record of the message: "${line}"`;
 }, { phase: 'done' });
+
+// Outside a run the implementer has no work order and nothing checks what it
+// writes: a change after `done` is a /spec-fix or a /spec-flow (ADR-044).
+const armGate = (repo, payload) => runHook('arm-gate.mjs', payload, repo);
+const implementerCall = { session_id: 's', tool_name: 'Agent', tool_input: { subagent_type: 'spec-flow:implementer', prompt: 'strengthen tests/a.spec.ts' } };
+
+t("arm-gate denies this flow's implementer outside a run, and says what to run instead", (repo) => {
+  for (const phase of ['done', 'idle']) {
+    writeFileSync(join(repo, '.claude/state/phase'), phase);
+    const r = armGate(repo, implementerCall);
+    if (r.status !== 2) return `an implementer was put to work on ${phase} (exit ${r.status})`;
+    if (!/\/spec-fix/.test(r.stderr)) return `the denial does not name /spec-fix: ${r.stderr}`;
+  }
+  const m = armGate(repo, subagentOnDisk(repo, { type: 'spec-flow:implementer', ageMin: 1 }));
+  if (m.status !== 2) return `a message resumed an implementer on idle (exit ${m.status})`;
+  // dispatch-guard runs on the same call: the denial is recorded once, by arm-gate.
+  runHook('dispatch-guard.mjs', implementerCall, repo);
+  const lines = dispatches(repo);
+  return lines.length === 3 && lines.every((l) => / dispatch agent=implementer tool=\w+ result=deny why=no-run$/.test(l)) ? null : `want three denials, one per call:\n${lines.join('\n')}`;
+}, { phase: 'done' });
+
+t("arm-gate leaves outside a run a person's own implementer, the architect, and a repo with no phase", (repo) => {
+  for (const type of ['implementer', 'spec-flow:architect']) {
+    const r = armGate(repo, { session_id: 's', tool_name: 'Agent', tool_input: { subagent_type: type, prompt: 'x' } });
+    if (r.status !== 0) return `${type} was denied on done (exit ${r.status}): ${r.stderr}`;
+  }
+  rmSync(join(repo, '.claude/state/phase'));
+  const r = armGate(repo, implementerCall);
+  return r.status === 0 ? null : `an implementer was denied in a repo with no phase (exit ${r.status})`;
+}, { phase: 'done' });
+
+t('arm-gate leaves alone a repository that committed .claude/state', (repo) => {
+  const r = armGate(repo, implementerCall);
+  return r.status === 0 ? null : `denied over a phase the repository committed (exit ${r.status}): ${r.stderr}`;
+}, { phase: 'done', commitPhase: true });
 
 // A clone can ship `.claude/state/`: a phase whose text lands in the line, a
 // log that links out of the repository. What git tracks there is content.

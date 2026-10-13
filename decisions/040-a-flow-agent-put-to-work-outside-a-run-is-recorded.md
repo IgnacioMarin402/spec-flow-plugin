@@ -1,6 +1,6 @@
 # ADR-040 — this flow's agent put to work outside a run is recorded
 
-**Date:** 2026-10-12 · **Status:** accepted · **Governs:** `hooks/dispatch-guard.mjs`, `hooks/lib/io.mjs`, `scripts/specflow-stats.mjs`, `REFERENCE.md` · **Extends:** ADR-035
+**Date:** 2026-10-12 · **Status:** accepted; its refusal to deny revisited for the implementer by [ADR-044](044-the-implementer-works-only-inside-a-run.md) · **Governs:** `hooks/dispatch-guard.mjs`, `hooks/lib/io.mjs`, `scripts/specflow-stats.mjs`, `REFERENCE.md` · **Extends:** ADR-035
 
 **Question.** Every hook that counts, traces or holds a spawn stands down
 without a run phase; `register-agent` still maps an id to its type, and that is

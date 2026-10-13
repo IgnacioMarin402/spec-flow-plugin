@@ -21,8 +21,8 @@
  * and the planner never writes is noise in a prompt; a field the planner
  * writes and nobody checks is the bug above.
  *
- * Four more halves, each the same rule aimed at a different seam where prose
- * has to agree with prose or with code:
+ * More halves, each the same rule aimed at a different seam where prose has
+ * to agree with prose or with code:
  *
  *   - a field the spec-writer RETURNS must be read by a command, or be exempt
  *     with a reason. `GAPS:` is the case that forced it — the only channel
@@ -34,6 +34,8 @@
  *     harness offers, and it looks identical to a deliberate one.
  *   - the spec-writer's contract must state the question cap and carry the
  *     assumptions section the checks hold its output to.
+ *   - each command's fold step must offer a weak test's fix as `/spec-fix`,
+ *     and a fresh implementer only to say never (ADR-042).
  *
  *   node scripts/agent-contracts.mjs
  */
@@ -310,8 +312,8 @@ for (const file of ['spec-flow.md', 'spec-fix.md']) {
   const gapsOffer = foldStep.split('\n').find((line) => line.includes('`GAPS:`')) ?? '';
   if (!gapsOffer) {
     problems.push(`commands/${file} step 5 has no line naming \`GAPS:\`; fix this check rather than leaving it matching nothing.`);
-  } else if (!gapsOffer.includes('/spec-fix')) {
-    problems.push(`commands/${file} step 5 offers a fix for a weak test without naming \`/spec-fix\`. Offered after \`done\`, any other fix runs with the gate, lint-on-write and the command deny standing down.`);
+  } else if (!gapsOffer.includes('/spec-fix') || /fresh implementer/i.test(gapsOffer.replace(/never a fresh implementer/gi, ''))) {
+    problems.push(`commands/${file} step 5 offers a fix for a weak test other than \`/spec-fix\`. Offered after \`done\`, any other fix runs with the gate, lint-on-write and the command deny standing down.`);
   }
 }
 

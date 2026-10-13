@@ -27,11 +27,12 @@
  *
  * Each time it acts, it records that in run-trace.log.
  *
- * FAILS OPEN on an unrecognized recipient, and only acts while a run is in
- * progress: outside one, spawning an implementer-shaped agent is a deliberate
- * human act, not a step the orchestrator forgot.
+ * FAILS OPEN on an unrecognized recipient. Outside a run, on `done` or
+ * `idle`, it denies this flow's implementer: no run means no work order and
+ * nothing checking what it writes, and every change the flow makes is a run
+ * (ADR-044). A person's own agent named `implementer` is theirs.
  */
-import { projectDir, phasePath, readPhase, claimPhase, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, phasePath, readPhase, claimPhase, writeFile, readPayload, run, stateIsTracked } from './lib/io.mjs';
 import { nameishFields, matchAgent, recipientType } from './lib/agent-name.mjs';
 import { recordDispatch } from './lib/dispatch.mjs';
 import { leavingSpecProblems } from '../scripts/spec-time.mjs';
@@ -43,7 +44,20 @@ await run(async () => {
 
   // `readPhase`: a phase the REPOSITORY committed is not a run this hook may
   // advance, and writing over it would dirty a tracked file (ADR-017).
-  const phase = readPhase(root) || 'idle';
+  const read = readPhase(root);
+  if ((read === 'done' || read === 'idle') && !stateIsTracked(root)) {
+    const payload = await readPayload();
+    const named = [...nameishFields(payload.tool_input ?? {}), recipientType(payload)];
+    if (!named.some((t) => /^spec-flow:implementer$/i.test(String(t ?? '')))) return;
+    recordDispatch(root, payload, read, { agent: 'implementer', result: 'deny', why: 'no-run' });
+    process.stderr.write(
+      `[spec-flow] Denied: no run is in progress (phase '${read}'), and the implementer works only inside one — its work order is a ` +
+        `run's plan.md and milestone, and outside a run the gate, lint-on-write and the command deny stand down. To change code ` +
+        `now, run \`/spec-fix <what is wrong>\` (a weak test the fold named is its case 2), or \`/spec-flow <feature>\` for new behaviour (ADR-044).\n`,
+    );
+    process.exit(2); // PreToolUse denial protocol
+  }
+  const phase = read || 'idle';
   if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown -> not our business
 
   const payload = await readPayload();
