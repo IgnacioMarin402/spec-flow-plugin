@@ -44,6 +44,13 @@ export const TOKEN_FIELDS = ['in', 'out', 'cache_read', 'cache_write', 'think'];
 export const human = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : String(v));
 
 /**
+ * A count `token-trace.mjs` documents as a floor — `out` and `think` — printed
+ * as one. A cost read off a bare number came out low, and output is the most
+ * expensive token.
+ */
+export const atLeast = (v) => `≥${human(v)}`;
+
+/**
  * Parsed trace entries -> one row per model and chain, output-heaviest first.
  *
  * `sidechain` arrives as the STRING `"true"`: these rows come back from a log
@@ -70,5 +77,5 @@ export function summarizeTokens(entries) {
 
 /** One reported row, padded so a stack of them lines up. */
 export function tokenRow(row, width) {
-  return `${row.model.padEnd(width)}  ${row.chain.padEnd(8)}  in ${human(row.in)}  out ${human(row.out)}  cache_read ${human(row.cache_read)}  think ${human(row.think)}  (${row.msgs} msg)`;
+  return `${row.model.padEnd(width)}  ${row.chain.padEnd(8)}  in ${human(row.in)}  out ${atLeast(row.out)}  cache_read ${human(row.cache_read)}  think ${atLeast(row.think)}  (${row.msgs} msg)`;
 }

@@ -434,6 +434,26 @@ check('status and stats report the same totals off one log', () => {
     : `the two readers disagree about one log.\n  status: ${JSON.stringify(fromStatus)}\n  stats:  ${JSON.stringify(fromStats)}`;
 });
 
+// Each case here failed on the engine before its fix.
+
+check('every output count either reader prints says it is a floor', () => {
+  const report = (repo, script) =>
+    spawnSync('node', [join(ENGINE, 'scripts', script)], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo }, cwd: tmpdir() }).stdout ?? '';
+  // One run whose tokens name their agent, and one whose do not: stats prints
+  // the second as an average per spawn.
+  const named = makeRepo();
+  const t = transcript(named, [entry({ out: 1234, think: 50 })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ out: 4321, sidechain: true })]);
+  stop(named, t);
+  const unnamed = makeRepo();
+  stop(unnamed, transcript(unnamed, [entry({ out: 1234 }), entry({ out: 4321, sidechain: true })]));
+  appendFileSync(join(unnamed, '.claude/state/run-trace.log'), '2026-08-31T00:00:01Z phase=implement agent type=spec-flow:planner status=PLAN_READY\n');
+  const printed = [named, unnamed].flatMap((repo) => ['status.mjs', 'specflow-stats.mjs'].map((s) => report(repo, s))).join('\n');
+  const bare = [...printed.matchAll(/\b(?:out|think|output:) +(\S+)/g)].filter(([, v]) => /^\d/.test(v)).map(([m]) => m);
+  if (!/≥/.test(printed)) return `no count was printed as a floor:\n${printed}`;
+  return bare.length === 0 ? '' : `printed as an exact count: ${[...new Set(bare)].join(', ')}\n--- reports ---\n${printed}`;
+});
+
 // ---- report ----------------------------------------------------------------
 for (const dir of temps) removeTemp(dir);
 

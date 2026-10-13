@@ -45,7 +45,8 @@ tokens over at least three real runs on an engine at `80feaea` or later
 (ADR-038 changed what it dispatches) — then decide whether the command pins a
 model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
 `620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
-B43, a closing turn nothing counted (ADR-043), and for the `620901d` run a
+output read where its final count was not written, a closing turn nothing
+counted (ADR-043), and for the `620901d` run a
 spec step the telemetry never saw (ADR-040). An archive never holds its run's
 closing turn: stats charges it to the run from the live log, which a cloud
 branch loses with its container.
@@ -55,15 +56,6 @@ branch loses with its container.
 A mod may only show (ADR-029), from `.claude/state/` and the session's own
 events (ADR-037). **Done:** a list of the hooks and scripts that only observe,
 each with what a mod would add, before any is moved.
-
-### B43 — `token-trace`'s output is a floor, and the reports read it as a count
-
-In one real run, `token-trace` recorded 26,968 output tokens for five agents,
-22.7% fewer than the 34,886 the API reported per request, as the live view
-counted them (ADR-037). Its header documents `out` as a floor; `stats` and
-`status` print it as a count. Output is the most expensive token, so a cost
-read off it comes out low. **Done:** the reports say floor, or the count comes
-from where the final number is.
 
 ### B44 — the advisor's tokens are counted nowhere
 
@@ -106,7 +98,7 @@ every gate.
 "Copy exact counts" gives each agent's tokens with no model and no effort, so
 pricing it means joining it to `run-trace.log` by agent id. On one real run
 the copy matched token-trace for each of five agents on input, cache and
-requests, and its output was the higher, exact count (B43). Neither splits
+requests, and its output was the higher, exact count. Neither splits
 cache writes by TTL (5-minute writes cost 1.25× input, 1-hour ones 2×); the
 transcript does, and `agent-cache.mjs` already reads it. Both lack that run's
 spec-step spec-writer and first planner, and neither says so; `dispatch-guard`

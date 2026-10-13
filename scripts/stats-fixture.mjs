@@ -303,9 +303,9 @@ check("a run's tokens are reported by role, with the orchestrator apart", () => 
     gate: [pass(5)],
   });
   return (
-    contains(out, 'orchestrator  model-alpha  in 10  out 900') ||
-    contains(out, 'reviewer (1 agent(s), effort low)  model-alpha  in 10  out 300') ||
-    contains(out, 'unattributed (1 agent(s))  model-alpha  in 10  out 50') ||
+    contains(out, 'orchestrator  model-alpha  in 10  out ≥900') ||
+    contains(out, 'reviewer (1 agent(s), effort low)  model-alpha  in 10  out ≥300') ||
+    contains(out, 'unattributed (1 agent(s))  model-alpha  in 10  out ≥50') ||
     contains(out, 'largest prompt 12k')
   );
 });
@@ -735,7 +735,7 @@ check('a closed run shows no open milestone, and its closing turn is charged to 
   const { out } = report({ trace: [closing], archived: [{ slug: 'refunds', gate: [pass(5)], trace: [...planner, read(4, 'lib/orders/place.ts'), closed] }] });
   if (out.includes('never reached a PASS')) return `a closed run shows an open milestone:\n${out}`;
   if (out.includes('[(current)]')) return `the closing turn stayed in (current):\n${out}`;
-  return /by role \[refunds\]:[\s\S]*?orchestrator\s+model-alpha\s+in 10\s+out 7 /.test(out) ? '' : `the closing turn was not charged to its run:\n${out}`;
+  return /by role \[refunds\]:[\s\S]*?orchestrator\s+model-alpha\s+in 10\s+out ≥7 /.test(out) ? '' : `the closing turn was not charged to its run:\n${out}`;
 });
 
 const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();

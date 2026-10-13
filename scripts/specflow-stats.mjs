@@ -36,7 +36,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from './spec-flow-config.mjs';
-import { parseFields as parse, roleOf, summarizeTokens, tokenRow, human } from './trace-lines.mjs';
+import { parseFields as parse, roleOf, summarizeTokens, tokenRow, human, atLeast } from './trace-lines.mjs';
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const STATE = join(root, '.claude', 'state');
@@ -805,8 +805,8 @@ if (tokenLines.length === 0) {
   for (const r of rows) say(`  ${tokenRow(r, width)}`);
 
   const total = (field, filter = () => true) => rows.filter(filter).reduce((sum, r) => sum + r[field], 0);
-  say(`  total: in ${human(total('in'))}, out ${human(total('out'))}, cache_read ${human(total('cache_read'))}, cache_write ${human(total('cache_write'))}`);
-  say('  out and think are floors: some messages never get their final count written.');
+  say(`  total: in ${human(total('in'))}, out ${atLeast(total('out'))}, cache_read ${human(total('cache_read'))}, cache_write ${human(total('cache_write'))}`);
+  say('  out and think are floors (≥): some messages never get their final count written.');
 
   // The number the budget cannot see. A spawn is charged once whatever it
   // costs, so cost-per-spawn is the only thing that can say whether a cap in
@@ -845,11 +845,11 @@ if (tokenLines.length === 0) {
         // message count times its average prompt — the two numbers a change
         // to how the orchestrator works moves (ADR-033).
         const perMessage = r.msgs > 0 ? `  ${r.msgs} msg, ~${human(Math.round((r.in + r.cache_read + r.cache_write) / r.msgs))} prompt/msg` : '';
-        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${human(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}${perMessage}`);
+        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${atLeast(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}${perMessage}`);
       }
     }
   } else if (subagentOut > 0 && spawns > 0) {
-    say(`  subagent output: ${human(subagentOut)} across ${spawns} recorded spawn(s) — ~${human(Math.round(subagentOut / spawns))}/spawn.`);
+    say(`  subagent output: ${atLeast(subagentOut)} across ${spawns} recorded spawn(s) — ${atLeast(Math.round(subagentOut / spawns))}/spawn on average.`);
     say('  That average is the unit the escalation caps do not charge; it says nothing about which agent.');
   } else if (subagentOut === 0 && spawns > 0) {
     say(`  ${spawns} spawn(s) recorded and no subagent tokens with them.`);

@@ -106,6 +106,7 @@ if (rows.length === 0) {
 } else {
   const width = Math.max(...rows.map((r) => r.model.length));
   for (const r of rows) say(`  ${tokenRow(r, width)}`);
+  say('  out and think are floors (≥): some messages never get their final count written.');
   say('  This is the live state only. `spec-flow stats` adds every archived run.');
 }
 say('');
