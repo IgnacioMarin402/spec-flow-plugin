@@ -41,6 +41,40 @@ export function stateDir(root = projectDir()) {
 // either is not a phase write.
 export const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase(?![\w.-])/;
 
+// Where a command writes into the phase file: a redirect, `>|` too, or a
+// `tee`, its path quoted or not. Read through `resolveCd`.
+const INTO_PHASE = `\\s*(?:"[^"]*?|'[^']*?|[^'"\\s|;&]*?)${PHASE_FILE_RE.source}`;
+export const PHASE_REDIRECT_RE = new RegExp(`>>?\\|?${INTO_PHASE}`);
+export const PHASE_WRITE_RE = new RegExp(`(?:>>?\\|?|\\btee(?:\\s+-a)?)${INTO_PHASE}`);
+
+/**
+ * `cmd` with each relative redirect or `tee` target after a `cd` written under
+ * that directory, so `cd .claude/state && printf done > phase` names the phase
+ * file as the hooks read it. Linear: a `cd` inside a subshell is taken as
+ * lasting, which can only name more paths, never fewer.
+ */
+export function resolveCd(cmd) {
+  let dir = '';
+  return cmd
+    .split(/(;|&&|\n)/)
+    .map((part) => {
+      // One shell word, its quotes dropped: `"$CLAUDE_PROJECT_DIR"/.claude/state/`.
+      const word = /^\s*\(?\s*cd\s+((?:"[^"]*"|'[^']*'|[^'"\s;&|)])+)/.exec(part)?.[1];
+      if (word) {
+        const to = word.replace(/["']/g, '').replace(/(.)[\\/]+$/, '$1');
+        dir = /^([\\/~]|[A-Za-z]:)/.test(to) || !dir ? to : `${dir}/${to}`;
+        return part;
+      }
+      if (!dir) return part;
+      // A directory with a space in it is quoted, so the target stays one word.
+      const open = /\s/.test(dir) ? '"' : '';
+      return part.replace(/(>>?\|?|\btee(?:\s+-a)?)(\s*)(['"]?)([^'"\s;&|<>]+)/g, (_, op, space, quote, target) =>
+        quote ? `${op}${space}${quote}${dir}/${target.replace(/^\.\//, '')}` : `${op}${space}${open}${dir}/${target.replace(/^\.\//, '')}${open}`,
+      );
+    })
+    .join('');
+}
+
 /**
  * The phase file's path, WITHOUT creating anything.
  *

@@ -22,7 +22,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute, sep } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, resolveCd } from './lib/io.mjs';
 
 const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 const WRITABLE = ['.claude/state/', 'specflow/'];
@@ -99,7 +99,7 @@ await run(async () => {
   }
 
   const written =
-    tool === 'Bash' ? bashWrites(String(input.command ?? '')) : [String(input.file_path ?? input.notebook_path ?? input.filePath ?? '')].filter(Boolean);
+    tool === 'Bash' ? bashWrites(resolveCd(String(input.command ?? ''))) : [String(input.file_path ?? input.notebook_path ?? input.filePath ?? '')].filter(Boolean);
   const outside = written.map((p) => inRepo(root, p)).filter((rel) => rel !== null && (!under(rel, WRITABLE) || HOOKS_ONLY.test(rel)));
   if (outside.length === 0) return;
   if (outside.every((rel) => HOOKS_ONLY.test(rel))) {

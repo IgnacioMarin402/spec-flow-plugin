@@ -163,17 +163,6 @@ naming a commit on every gate line. Compared on gate attempts per milestone,
 architect calls, test-first and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.
 
-### B59 — a phase write through `cd` passes phase-guard unread
-
-`phase-guard` reads a Bash phase write by a redirect into a path naming
-`.claude/state/phase`. `cd .claude/state && printf done > phase` names only
-`phase`, so on a commit no gate passed it lets an unearned `done` through
-(exit 0) and logs nothing to `phase-guard-unmatched.log`, while the same
-`printf done > .claude/state/phase` is denied; `run-trace` does not read it as
-the run's close either (ADR-043). `cp x .claude/state/phase` goes through as
-well, as the hook's header says it does. **Done:** the `cd` form is denied on
-such a commit, or at least logged: a hook-smoke case red on `0b24ff3`.
-
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full

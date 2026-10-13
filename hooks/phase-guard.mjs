@@ -50,7 +50,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
@@ -110,7 +110,7 @@ const LEAVES_SPEC = ['plan', 'review', 'implement'];
  */
 function bashWrittenValue(cmd) {
   if (!PHASE_FILE_RE.test(cmd)) return null;
-  if (!/>>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase(?![\w.-])/.test(cmd)) return null;
+  if (!PHASE_REDIRECT_RE.test(cmd)) return null;
 
   const source = cmd.split('>')[0];
   const producer = /(?:^|[;&|]|\s)(printf|echo)\s+(.*)$/.exec(source);
@@ -149,12 +149,14 @@ function bashWrittenValue(cmd) {
  */
 function recordUnreadableWrite(root, cmd) {
   try {
-    const redirects = />>?\s*['"]?[^'"\s]*\.claude[\\/]state[\\/]phase(?![\w.-])/.test(cmd);
+    const redirects = PHASE_REDIRECT_RE.test(cmd);
 
     // The pipeline SEGMENT that names the file is the one touching it; in
     // `printf x | tee <phase>` the command's own first token is the producer,
-    // which is not what got past.
-    const segments = cmd.split('|');
+    // which is not what got past. Within the command of a chain that names it:
+    // after `cd .claude/state &&`, the writer is not `cd`.
+    const command = cmd.split(/&&|\|\||;|\n/).find((part) => PHASE_FILE_RE.test(part)) ?? cmd;
+    const segments = command.split('|');
     const at = segments.findIndex((s) => PHASE_FILE_RE.test(s));
 
     // Something must be flowing INTO the file. A redirect says so outright; a
@@ -189,7 +191,7 @@ await run(async () => {
 
   let written = null;
   if (String(payload.tool_name ?? '') === 'Bash') {
-    const cmd = String(input.command ?? '');
+    const cmd = resolveCd(String(input.command ?? ''));
     written = bashWrittenValue(cmd);
     // In or out of a run: a command writing into `.claude/state/phase` creates
     // that directory itself, so recording it there leaves nothing behind that

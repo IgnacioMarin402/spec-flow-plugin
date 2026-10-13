@@ -1128,6 +1128,15 @@ t('a run is closed by each way the phase file is written, and by nothing else', 
   return closed.join(',') === 'Bash,Bash,Bash,Edit,Write,Write' ? null : `want Bash,Bash,Bash,Edit,Write,Write, got ${closed.join(',') || '(none)'}:\n${traceText(repo)}`;
 });
 
+t('a run closed after a cd into .claude/state leaves its line', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'done');
+  for (const command of ['cd .claude/state && printf done > phase', 'cd .claude/state/ && printf done | tee phase']) {
+    runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command } }, repo);
+  }
+  const closed = traceText(repo).match(/ closed tool=Bash$/gm) ?? [];
+  return closed.length === 2 ? null : `want two closes after a cd, got ${closed.length}:\n${traceText(repo)}`;
+});
+
 t("another session's turn after the run closed is not charged, and the closer's still is", (repo) => {
   const a = join(repo, 'a.jsonl');
   const b = join(repo, 'b.jsonl');
@@ -1540,6 +1549,51 @@ t('phase-guard denies done while the gate has not passed the current commit', (r
   }
   if (!/gate has not passed/.test(r.stderr)) return `the denial does not say what is missing: ${r.stderr.slice(0, 300)}`;
   return null;
+});
+
+// A phase write after a `cd` names the file by a path relative to it, which
+// the reader never matched: an unearned `done` went through unread.
+t('phase-guard reads a phase write made after a cd', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  for (const command of [
+    'cd .claude/state && printf done > phase',
+    'cd .claude; echo done > state/phase',
+    'cd .claude && cd state && printf done > phase',
+    "cd .claude/state && printf 'done' > ./phase",
+    'cd .claude/state/ && printf done > phase',
+    'cd .claude/ && printf done > state/phase',
+    'cd "$CLAUDE_PROJECT_DIR"/.claude/state && printf done > phase',
+    'cd ${CLAUDE_PROJECT_DIR}/.claude/state/ && printf done > phase',
+    'cd ".claude/state" && printf done > phase',
+    '(cd .claude/state && printf done > phase)',
+    'cd "My Projects/app/.claude/state" && printf done > phase',
+    'cd .claude/state || exit 1; printf done > phase',
+    'cd .claude/state\nprintf done > phase',
+    // The same reader, with no cd: a quoted path with a space, and `>|`.
+    'printf done > "/Users/First Last/app/.claude/state/phase"',
+    'echo done >| .claude/state/phase',
+  ]) {
+    const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
+    if (r.status !== 2) return `\`${command}\` wrote an unearned done (exit ${r.status})`;
+  }
+  return null;
+});
+
+t('a cd makes no other file named phase, nor another state file, a phase write', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  for (const command of ['cd .claude/state && printf 0 > gate_attempts', 'cd docs && printf done > phase', 'echo cd .claude/state && printf done > phase', 'cd .claude/state && cat phase > /tmp/p']) {
+    const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
+    if (r.status !== 0) return `\`${command}\` was denied as a phase write: ${r.stderr.slice(0, 200)}`;
+  }
+  const log = join(repo, '.claude/state/phase-guard-unmatched.log');
+  return existsSync(log) ? `logged as an unread phase write: ${readFileSync(log, 'utf8')}` : null;
+});
+
+t('a phase write it cannot read after a cd is logged under its writer, not cd', (repo) => {
+  runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command: 'cd .claude/state && cat /tmp/x > phase' } }, repo);
+  const log = join(repo, '.claude/state/phase-guard-unmatched.log');
+  const programs = existsSync(log) ? readFileSync(log, 'utf8').trim() : '';
+  return programs === 'cat' ? null : `want the writer cat logged, got "${programs}"`;
 });
 
 t('phase-guard denies done when no gate ever judged the current commit', (repo) => {
@@ -2196,6 +2250,15 @@ t('orchestrator-scope denies a redirect or a sed -i into code', (repo) => {
     if (r.status !== 2) return `\`${command}\` went through (exit ${r.status})`;
   }
   return null;
+});
+
+// The same reader as phase-guard's: a write after a cd lands under it.
+t('orchestrator-scope reads a write after a cd where it lands', (repo) => {
+  attributed(repo);
+  const state = sessionBash(repo, 'cd .claude/state && printf 0 > gate_attempts && printf 0 > opus_calls');
+  if (state.status !== 0) return `the session's counter reset after a cd was denied as a write elsewhere (exit ${state.status}): ${state.stderr}`;
+  const code = sessionBash(repo, 'cd lib/deep && printf x > ../a.ts');
+  return code.status === 2 ? null : `a write into lib/ after a cd went through (exit ${code.status})`;
 });
 
 // Guards: the session's own steps, as the commands write them.
