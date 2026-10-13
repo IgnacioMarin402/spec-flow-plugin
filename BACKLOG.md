@@ -57,15 +57,6 @@ A mod may only show (ADR-029), from `.claude/state/` and the session's own
 events (ADR-037). **Done:** a list of the hooks and scripts that only observe,
 each with what a mod would add, before any is moved.
 
-### B44 — the advisor's tokens are counted nowhere
-
-An advisor consultation is billed at the advisor model's rates, but its tokens
-arrive in `usage.iterations` as `advisor_message`, outside the usage
-`token-trace` sums (ADR-038). The planner may consult one wherever the human
-enabled it. **Done:** `token-trace` records the advisor's iterations as a group
-of their own, by model and by the agent that consulted it, and `stats` reports
-them.
-
 ### B46 — a requirement that forbids something is proven by a test of what it allows
 
 spec-trace binds an id to a test that ran under its name, so one test named for
@@ -136,7 +127,7 @@ On `sonnet`, the implementers of the one real run on `80feaea` or later cost
 at least US$1.16 for two milestones; `haiku`'s prices are a twentieth of
 `sonnet`'s. Decided by a paired experiment, not by price: the same milestones
 on both tiers at the same session effort, on an engine at `80feaea` or later
-(ADR-038), with the advisor off (B44), plugin auto-update off, and `engine=`
+(ADR-038), with the advisor off, plugin auto-update off, and `engine=`
 naming a commit on every gate line. Compared on gate attempts per milestone,
 architect calls, test-first and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.

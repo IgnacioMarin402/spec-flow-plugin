@@ -320,6 +320,28 @@ check('each role reports its messages and its average prompt per message', () =>
   return contains(out, 'largest prompt 60k  5 msg, ~66k prompt/msg');
 });
 
+// An advisor is billed at its own model's rates and outside the usage of the
+// request that consulted it: a row of its own, under whoever consulted it.
+check("an advisor's tokens are reported apart, under the role that consulted it", () => {
+  const tok = (minute, model, sidechain, out, extra) =>
+    `${stamp(minute)} phase=plan tokens model=${model} sidechain=${sidechain}${extra.includes('advisor') ? ' advisor=true' : ''} in=10 out=${out} cache_read=0 cache_write=0 msgs=1 max_prompt=9${extra.replace('advisor', '')}`;
+  const { out } = report({
+    trace: [
+      `${stamp(1)} phase=plan agent type=spec-flow:planner status=PLAN_READY effort=high agent_id=a1`,
+      tok(2, 'model-alpha', 'true', 300, ' think=0 agent_id=a1'),
+      tok(3, 'model-gamma', 'true', 1612, 'advisor agent_id=a1'),
+      tok(4, 'model-gamma', 'false', 40, 'advisor'),
+    ],
+    gate: [pass(5)],
+  });
+  return (
+    contains(out, 'planner (1 agent(s), effort high)  model-alpha  in 10  out ≥300') ||
+    contains(out, 'advisor ← planner (1 agent(s))  model-gamma  in 10  out ≥2k') ||
+    contains(out, 'advisor ← orchestrator  model-gamma  in 10  out ≥40') ||
+    contains(out, 'model-gamma  advisor   in 20  out ≥2k  cache_read 0  think ?')
+  );
+});
+
 // A 1-hour cache write costs 2× input and a 5-minute one 1.25×, so a role's
 // writes are priced only once they are split.
 check("a role's cache writes are split by TTL where every line of it carries the split", () => {

@@ -820,7 +820,8 @@ if (tokenLines.length === 0) {
     // Who spent it, per run: the orchestrator (the session's own transcript)
     // by model, then each role, joined by agent_id to the role and effort its
     // return line recorded. A sidechain line naming no agent, or an agent
-    // with no return line yet, is `unattributed` rather than guessed.
+    // with no return line yet, is `unattributed` rather than guessed. An
+    // advisor is charged to whoever consulted it, apart from their own row.
     for (const run of runs) {
       const lines = run.trace.filter((e) => e.model && e.msgs !== undefined);
       if (lines.length === 0) continue;
@@ -828,11 +829,13 @@ if (tokenLines.length === 0) {
       const byRole = new Map();
       for (const e of lines) {
         const back = returned.get(e.agent_id);
-        const role = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
+        const caller = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
+        const role = e.advisor === 'true' ? `advisor ← ${caller}` : caller;
         const key = `${role}|${e.model}`;
         const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, m5: 0, h1: 0, split: true, maxPrompt: 0, msgs: 0 };
         if (e.agent_id) row.agents.add(e.agent_id);
-        if (back?.effort) row.efforts.add(back.effort);
+        // The effort on the return line is the consulting agent's, not its advisor's.
+        if (back?.effort && e.advisor !== 'true') row.efforts.add(back.effort);
         for (const f of ['in', 'out', 'cache_read', 'cache_write']) row[f] += Number(e[f]) || 0;
         // A line written without the split by TTL leaves the row's unknown.
         if (e.cache_write_5m !== undefined && e.cache_write_1h !== undefined) {
@@ -845,7 +848,7 @@ if (tokenLines.length === 0) {
       }
       say(`  by role${runs.length > 1 ? ` [${run.name}]` : ''}:`);
       for (const r of [...byRole.values()].sort((a, b) => b.out - a.out)) {
-        const who = r.role === 'orchestrator' ? 'orchestrator' : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
+        const who = r.agents.size === 0 ? r.role : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
         // Every message re-reads the whole prompt, so a role's cost is its
         // message count times its average prompt — the two numbers a change
         // to how the orchestrator works moves (ADR-033).

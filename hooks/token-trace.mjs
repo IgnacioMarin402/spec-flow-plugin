@@ -203,6 +203,19 @@ const newGroup = (model, sidechain, agent) => ({
   ...Object.fromEntries([...Object.keys(COUNTERS), ...Object.keys(TTL)].map((name) => [name, 0])),
 });
 
+/** One request's whole prompt: input plus cache read plus cache write. */
+const prompt = (usage) => num(COUNTERS.in(usage)) + num(COUNTERS.cache_read(usage)) + num(COUNTERS.cache_write(usage));
+
+/**
+ * The advisor's consultations in a message's usage, one iteration each. They
+ * are billed at the advisor model's rates and left out of the message's own
+ * counts, so they are a group of their own, charged to the agent that
+ * consulted (ADR-038). An iteration that names no model is dropped, as a
+ * message that names none is.
+ */
+const advisorCalls = (usage) =>
+  (Array.isArray(usage.iterations) ? usage.iterations : []).filter((it) => it?.type === 'advisor_message' && typeof it.model === 'string');
+
 /** A usage record's cache writes, by TTL, onto its group — see TTL. */
 function addTtl(group, usage) {
   if (Object.values(TTL).every((pick) => Number.isFinite(pick(usage)))) {
@@ -214,8 +227,9 @@ function addTtl(group, usage) {
 
 /**
  * Usage summed per `model|sidechain|agent` into `groups`, over the transcript
- * lines in `text`. Returns the message the slice ended inside, as
- * `{id, out, think}`, for the next slice of the same file to carry on from.
+ * lines in `text`, and each advisor model's beside it. Returns the message the
+ * slice ended inside, as `{id, out, think, adv}` — `adv` the consultations
+ * already counted — for the next slice of the same file to carry on from.
  *
  * `carry` is that value from the previous slice: a message whose lines
  * straddle two stops has its input counted already.
@@ -261,14 +275,27 @@ function tally(text, groups, carry, agentId = '') {
           last[name] = value;
         }
       }
-      continue;
+    } else {
+      group.msgs += 1;
+      for (const [name, pick] of Object.entries(COUNTERS)) group[name] += num(pick(usage));
+      addTtl(group, usage);
+      group.maxPrompt = Math.max(group.maxPrompt, prompt(usage));
+      last = id === null ? null : { id, adv: 0, ...Object.fromEntries(GROWING.map((name) => [name, num(COUNTERS[name](usage))])) };
     }
 
-    group.msgs += 1;
-    for (const [name, pick] of Object.entries(COUNTERS)) group[name] += num(pick(usage));
-    addTtl(group, usage);
-    group.maxPrompt = Math.max(group.maxPrompt, num(COUNTERS.in(usage)) + num(COUNTERS.cache_read(usage)) + num(COUNTERS.cache_write(usage)));
-    last = id === null ? null : { id, ...Object.fromEntries(GROWING.map((name) => [name, num(COUNTERS[name](usage))])) };
+    // A message's later lines repeat the consultations its earlier ones
+    // carried, so only those past the count already taken are new.
+    const calls = advisorCalls(usage);
+    for (const call of calls.slice(num(last?.adv))) {
+      const advKey = `${call.model}|${entry.isSidechain === true}|${agent}|advisor`;
+      const adv = groups.get(advKey) ?? { ...newGroup(call.model, entry.isSidechain === true, agent), advisor: true };
+      groups.set(advKey, adv);
+      adv.msgs += 1;
+      for (const [name, pick] of Object.entries(COUNTERS)) adv[name] += num(pick(call));
+      addTtl(adv, call);
+      adv.maxPrompt = Math.max(adv.maxPrompt, prompt(call));
+    }
+    if (last) last.adv = Math.max(num(last.adv), calls.length);
   }
 
   return last;
@@ -361,7 +388,7 @@ await run(async () => {
 
     const carry =
       slice.continued && typeof before?.id === 'string'
-        ? { id: before.id, ...Object.fromEntries(GROWING.map((name) => [name, num(before[name])])) }
+        ? { id: before.id, adv: num(before.adv), ...Object.fromEntries(GROWING.map((name) => [name, num(before[name])])) }
         : null;
     // Between runs the slice is read and dropped: its turns belong to no run,
     // and left unread they were charged to the next run's first stop.
@@ -390,8 +417,12 @@ await run(async () => {
   // is read back by a whitespace split into `k=v` pairs, which has no way to
   // express a repeated key.
   for (const g of lines) {
-    const counts = [...Object.keys(COUNTERS), ...(g.ttlUnknown ? [] : Object.keys(TTL))].map((name) => `${name}=${g[name]}`).join(' ');
+    // An advisor's iteration reports no thinking apart from its output: not
+    // known, so not written.
+    const names = Object.keys(COUNTERS).filter((name) => !(g.advisor && name === 'think'));
+    const counts = [...names, ...(g.ttlUnknown ? [] : Object.keys(TTL))].map((name) => `${name}=${g[name]}`).join(' ');
     const agent = g.agent ? ` agent_id=${g.agent}` : '';
-    appendFileSync(join(state, 'run-trace.log'), `${stamp} tokens model=${g.model} sidechain=${g.sidechain} ${counts} msgs=${g.msgs} max_prompt=${g.maxPrompt}${agent}\n`);
+    const advisor = g.advisor ? ' advisor=true' : '';
+    appendFileSync(join(state, 'run-trace.log'), `${stamp} tokens model=${g.model} sidechain=${g.sidechain}${advisor} ${counts} msgs=${g.msgs} max_prompt=${g.maxPrompt}${agent}\n`);
   }
 });
