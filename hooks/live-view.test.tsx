@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Args, HookStream, On, TurnStepChunk, TurnStepInput, TurnStepResult } from 'claude-code'
+import type { Args, HookStream, On, TurnStepChunk, TurnStepInput, TurnStepResult, TurnStepServerToolUse } from 'claude-code'
 
 const ROOT = '/repo'
 const ME = 'session-me'
@@ -38,8 +38,16 @@ const PANE = {
 // The kit hands paths back in the platform's spelling: `C:\repo\.claude\state\phase` on Windows.
 const stateFile = (path: string) => /[\\/]\.claude[\\/]state[\\/](.+)$/.exec(path)?.[1] ?? path
 
-/** The world beneath the mod: `.claude/state/` as `files` (mutable), git's answer, and the model's. */
-function world(on: On, files: Record<string, string>, { tracked = false } = {}) {
+/**
+ * The world beneath the mod: `.claude/state/` as `files` (mutable), git's
+ * answer, the model's, and what the session has cost (`usd`, absent: no ledger).
+ * `server` holds the server tool calls of the next steps, one entry per step.
+ */
+function world(
+  on: On,
+  files: Record<string, string>,
+  { tracked = false, usd, server = [] }: { tracked?: boolean; usd?: number; server?: TurnStepServerToolUse[][] } = {},
+) {
   on('fs.read', (_, e) => {
     const text = files[stateFile(e.path)]
     if (text === undefined) throw new Error('ENOENT')
@@ -52,10 +60,12 @@ function world(on: On, files: Record<string, string>, { tracked = false } = {}) 
   })
   on('process.run', () => ({ value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '' } as never }))
   on('session.id', () => ({ value: ME }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...(usd === undefined ? {} : { cost: { usd } }) } as never }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('agent.spawn', (_, e) => ({ model: MODEL, agentId: `a-${e.subagentType.replace(/^spec-flow:/, '')}` }))
   on('turn.step', async function* (_, e) {
-    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: usage(3_100) }
+    const serverToolUses = server.shift()
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: usage(3_100), ...(serverToolUses ? { serverToolUses } : {}) }
   })
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('tool.call', () => ({ result: 'ok' as never }))
@@ -109,10 +119,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await step($)
     expect(await ui.find({ text: 'cache 400k · new 12k · out 3k' }), 'live tokens before it finishes').toBeDefined()
     expect(await ui.findAll({ type: 'Text', text: 'cache 400k · new 12k · out 3k' }), 'orchestrator counted apart').toHaveLength(2)
-    expect(await ui.find({ text: /^total 415k · ctx 412k$/ }), "the running agent's total").toBeDefined()
+    expect(await ui.find({ text: /^0s · 1 requests · ctx 412k$/ }), "the running agent's prompt").toBeDefined()
+    expect(await ui.find({ text: /^total |· total / }), 'no sum of cache reads and fresh tokens').toBeUndefined()
 
     await clock.advance(72_000)
-    expect(await ui.find({ text: /^1m12s · 0 calls · 1 requests$/ }), 'its clock runs while it does').toBeDefined()
+    expect(await ui.find({ text: /^1m12s · 1 requests · ctx 412k$/ }), 'its clock runs while it does').toBeDefined()
     expect(status.at(-1), 'Claude Code prefixes the plugin name itself').toBe('plan · planner')
 
     await $.turn.complete({
@@ -127,13 +138,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: '✓ PLAN_READY' }), 'its own status').toBeDefined()
     expect(await ui.find({ text: /running$/ }), 'nothing runs').toBeUndefined()
     expect(await ui.find({ text: /^1m12s · / }), 'its time is its turn').toBeDefined()
-    expect(await ui.find({ text: new RegExp(`^total 415k · ${MODEL_LABEL}$`) }), 'a finished box keeps its numbers, shorter').toBeDefined()
+    expect(await ui.find({ text: new RegExp(`^1m12s · 1 requests · ${MODEL_LABEL}$`) }), 'a finished box keeps its numbers, shorter').toBeDefined()
     expect(await ui.find({ text: /^▸ / }), 'a finished box has no live line').toBeUndefined()
 
     // The orchestrator's own call, in this session's run, is its own.
     await $.tool.call({ tool: 'Read', file_path: `${ROOT}/specflow/x/plan.md` } as never)
     expect(await ui.find({ text: '▸ Read plan.md' }), 'orchestrator working').toBeDefined()
-    expect(await ui.find({ text: /^1 calls · 1 requests/ }), 'orchestrator counts').toBeDefined()
+    expect(await ui.find({ text: /^1 requests · ctx/ }), 'orchestrator counts its requests').toBeDefined()
+    expect(await ui.find({ text: /^1 tools · 0 skills$/ }), 'and its calls').toBeDefined()
     await $.turn.complete(mainTurnEnds)
 
     // Another agent's turn is not the planner's.
@@ -145,13 +157,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /resumed 1/ }), 'resumed').toBeDefined()
     expect(await ui.find({ text: /running$/ }), 'running again').toBeDefined()
     expect(await ui.find({ text: 'cache 800k · new 24k · out 6k' }), 'its tokens add up').toBeDefined()
-    expect(await ui.find({ text: /^cache 1\.2M · new 36k · out 9k · total 1\.2M$/ }), 'the run total').toBeDefined()
+    expect(await ui.find({ text: /^cache 1\.2M · new 36k · out 9k$/ }), 'the run total').toBeDefined()
 
-    // The exact counts, in token-trace's field names, for a line-by-line comparison.
+    // The exact counts, in token-trace's field names, for a line-by-line comparison,
+    // with the model and effort that price them.
     await ui.press({ key: 'copy' })
     expect(copied).toEqual([
-      'agent_id=a-planner role=planner in=4000 cache_read=800000 cache_write=20000 out=6200 msgs=2\n' +
-        'agent_id=- role=orchestrator in=2000 cache_read=400000 cache_write=10000 out=3100 msgs=1',
+      `agent_id=a-planner role=planner model=${MODEL} effort=high in=4000 cache_read=800000 cache_write=20000 out=6200 msgs=2\n` +
+        `agent_id=- role=orchestrator model=${MODEL} effort=high in=2000 cache_read=400000 cache_write=10000 out=3100 msgs=1`,
     ])
   })
 
@@ -192,7 +205,66 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'copy' })
-    expect(copied.at(-1)?.split('\n').at(-1)).toBe('agent_id=- role=orchestrator in=6000 cache_read=1200000 cache_write=30000 out=9300 msgs=3')
+    expect(copied.at(-1)?.split('\n').at(-1)).toBe(`agent_id=- role=orchestrator model=${MODEL} effort=high in=6000 cache_read=1200000 cache_write=30000 out=9300 msgs=3`)
+  })
+
+  test(`${surface}: a copied line names a model and an effort only where one is known`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME })
+    const copied = clipboard(on)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    // Spawned, with no request yet: the spawn resolved its model, and nothing has named an effort.
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'copy' })
+    expect(copied).toEqual([
+      `agent_id=a-implementer role=implementer model=${MODEL} effort=? in=0 cache_read=0 cache_write=0 out=0 msgs=0\n` +
+        'agent_id=- role=orchestrator model=? effort=? in=0 cache_read=0 cache_write=0 out=0 msgs=0',
+    ])
+  })
+
+  test(`${surface}: each box counts its tools, its skills and the advisor's consultations`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const advice = (id: string, ms: number) => [{ id, name: 'advisor', input: {}, startedAt: 1_000, endedAt: 1_000 + ms }]
+    // One entry per step, in order: the implementer's two, then the orchestrator's.
+    world(on, { phase: 'implement', 'phase.session': ME }, { server: [advice('s1', 8_000), [], advice('s2', 3_000)] })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+
+    await $.tool.call({ tool: 'Read', file_path: `${ROOT}/lib/a.ts`, agentId: 'a-implementer' } as never)
+    await $.tool.call({ tool: 'Skill', skill: 'testing', agentId: 'a-implementer' } as never)
+    await $.tool.call({ tool: 'Edit', file_path: `${ROOT}/lib/a.ts`, agentId: 'a-implementer' } as never)
+    await step($, 'a-implementer')
+    await step($, 'a-implementer')
+    await $.tool.call({ tool: 'Skill', skill: 'review' } as never)
+    await step($)
+
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /^2 tools · 1 skills$/ }), "the implementer's").toBeDefined()
+    expect(await ui.find({ text: /^advisor 1 · 8s$/ }), "a card's own line, its consultation's time").toBeDefined()
+    expect(await ui.find({ text: /^0 tools · 1 skills · advisor 1 · 3s$/ }), "the orchestrator's").toBeDefined()
+    expect(await ui.find({ text: /1 agents · 2 tools · 2 skills · advisor 2 · 11s$/ }), 'the run line').toBeDefined()
+  })
+
+  test(`${surface}: the run line shows what the session cost, as /cost totals it`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'plan', 'phase.session': ME }, { usd: 1.234 })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: 'session cost US$1.23 (/cost)' })).toBeDefined()
+  })
+
+  test(`${surface}: a host that keeps no cost ledger shows none, never a zero`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'plan', 'phase.session': ME })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: 'session cost: none reported' })).toBeDefined()
+    expect(await ui.find({ text: /US\$/ })).toBeUndefined()
   })
 
   test(`${surface}: the milestone and the gate shown are this run's`, async ($, on) => {
@@ -233,8 +305,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ text: /^implementer · M2$/ }), 'an implementer works on its milestone').toBeDefined()
     expect(await ui.find({ text: '▸ Edit a.ts' })).toBeDefined()
-    expect(await ui.find({ text: /^0s · 1 calls · 0 requests$/ }), 'one call: its own').toBeDefined()
-    expect(await ui.find({ text: /^0 calls/ }), 'the orchestrator made none').toBeDefined()
+    expect(await ui.find({ text: /^1 tools · 0 skills$/ }), 'one call: its own').toBeDefined()
+    expect(await ui.find({ text: /^0 tools · 0 skills$/ }), 'the orchestrator made none').toBeDefined()
   })
 
   test(`${surface}: the phase and the gate are what .claude/state/ says`, async ($, on) => {

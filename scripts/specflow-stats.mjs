@@ -36,7 +36,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from './spec-flow-config.mjs';
-import { parseFields as parse, roleOf, summarizeTokens, tokenRow, human } from './trace-lines.mjs';
+import { parseFields as parse, roleOf, summarizeTokens, tokenRow, human, atLeast } from './trace-lines.mjs';
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const STATE = join(root, '.claude', 'state');
@@ -805,8 +805,8 @@ if (tokenLines.length === 0) {
   for (const r of rows) say(`  ${tokenRow(r, width)}`);
 
   const total = (field, filter = () => true) => rows.filter(filter).reduce((sum, r) => sum + r[field], 0);
-  say(`  total: in ${human(total('in'))}, out ${human(total('out'))}, cache_read ${human(total('cache_read'))}, cache_write ${human(total('cache_write'))}`);
-  say('  out and think are floors: some messages never get their final count written.');
+  say(`  total: in ${human(total('in'))}, out ${atLeast(total('out'))}, cache_read ${human(total('cache_read'))}, cache_write ${human(total('cache_write'))}`);
+  say('  out and think are floors (≥): some messages never get their final count written.');
 
   // The number the budget cannot see. A spawn is charged once whatever it
   // costs, so cost-per-spawn is the only thing that can say whether a cap in
@@ -820,7 +820,8 @@ if (tokenLines.length === 0) {
     // Who spent it, per run: the orchestrator (the session's own transcript)
     // by model, then each role, joined by agent_id to the role and effort its
     // return line recorded. A sidechain line naming no agent, or an agent
-    // with no return line yet, is `unattributed` rather than guessed.
+    // with no return line yet, is `unattributed` rather than guessed. An
+    // advisor is charged to whoever consulted it, apart from their own row.
     for (const run of runs) {
       const lines = run.trace.filter((e) => e.model && e.msgs !== undefined);
       if (lines.length === 0) continue;
@@ -828,28 +829,36 @@ if (tokenLines.length === 0) {
       const byRole = new Map();
       for (const e of lines) {
         const back = returned.get(e.agent_id);
-        const role = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
+        const caller = e.sidechain === 'true' ? (back?.type ?? 'unattributed') : 'orchestrator';
+        const role = e.advisor === 'true' ? `advisor ← ${caller}` : caller;
         const key = `${role}|${e.model}`;
-        const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, maxPrompt: 0, msgs: 0 };
+        const row = byRole.get(key) ?? { role, model: e.model, agents: new Set(), efforts: new Set(), in: 0, out: 0, cache_read: 0, cache_write: 0, m5: 0, h1: 0, split: true, maxPrompt: 0, msgs: 0 };
         if (e.agent_id) row.agents.add(e.agent_id);
-        if (back?.effort) row.efforts.add(back.effort);
+        // The effort on the return line is the consulting agent's, not its advisor's.
+        if (back?.effort && e.advisor !== 'true') row.efforts.add(back.effort);
         for (const f of ['in', 'out', 'cache_read', 'cache_write']) row[f] += Number(e[f]) || 0;
+        // A line written without the split by TTL leaves the row's unknown.
+        if (e.cache_write_5m !== undefined && e.cache_write_1h !== undefined) {
+          row.m5 += Number(e.cache_write_5m) || 0;
+          row.h1 += Number(e.cache_write_1h) || 0;
+        } else if (Number(e.cache_write) > 0) row.split = false;
         row.msgs += Number(e.msgs) || 0;
         row.maxPrompt = Math.max(row.maxPrompt, Number(e.max_prompt) || 0);
         byRole.set(key, row);
       }
       say(`  by role${runs.length > 1 ? ` [${run.name}]` : ''}:`);
       for (const r of [...byRole.values()].sort((a, b) => b.out - a.out)) {
-        const who = r.role === 'orchestrator' ? 'orchestrator' : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
+        const who = r.agents.size === 0 ? r.role : `${r.role} (${r.agents.size} agent(s)${r.efforts.size ? `, effort ${[...r.efforts].join('/')}` : ''})`;
         // Every message re-reads the whole prompt, so a role's cost is its
         // message count times its average prompt — the two numbers a change
         // to how the orchestrator works moves (ADR-033).
         const perMessage = r.msgs > 0 ? `  ${r.msgs} msg, ~${human(Math.round((r.in + r.cache_read + r.cache_write) / r.msgs))} prompt/msg` : '';
-        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${human(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}  largest prompt ${human(r.maxPrompt)}${perMessage}`);
+        const ttl = r.split && r.cache_write > 0 ? ` (5m ${human(r.m5)}, 1h ${human(r.h1)})` : '';
+        say(`    ${who}  ${r.model}  in ${human(r.in)}  out ${atLeast(r.out)}  cache_read ${human(r.cache_read)}  cache_write ${human(r.cache_write)}${ttl}  largest prompt ${human(r.maxPrompt)}${perMessage}`);
       }
     }
   } else if (subagentOut > 0 && spawns > 0) {
-    say(`  subagent output: ${human(subagentOut)} across ${spawns} recorded spawn(s) — ~${human(Math.round(subagentOut / spawns))}/spawn.`);
+    say(`  subagent output: ${atLeast(subagentOut)} across ${spawns} recorded spawn(s) — ${atLeast(Math.round(subagentOut / spawns))}/spawn on average.`);
     say('  That average is the unit the escalation caps do not charge; it says nothing about which agent.');
   } else if (subagentOut === 0 && spawns > 0) {
     say(`  ${spawns} spawn(s) recorded and no subagent tokens with them.`);

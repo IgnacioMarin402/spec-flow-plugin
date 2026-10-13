@@ -44,7 +44,16 @@ export const TOKEN_FIELDS = ['in', 'out', 'cache_read', 'cache_write', 'think'];
 export const human = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : String(v));
 
 /**
+ * A count `token-trace.mjs` documents as a floor — `out` and `think` — printed
+ * as one. A cost read off a bare number came out low, and output is the most
+ * expensive token.
+ */
+export const atLeast = (v) => `≥${human(v)}`;
+
+/**
  * Parsed trace entries -> one row per model and chain, output-heaviest first.
+ * An advisor's line is a chain of its own: billed at its model's rates, apart
+ * from the request that consulted it.
  *
  * `sidechain` arrives as the STRING `"true"`: these rows come back from a log
  * line, not from the hook that wrote it, so the boolean was flattened on the
@@ -57,18 +66,20 @@ export function summarizeTokens(entries) {
 
   for (const e of entries) {
     if (!e.model || e.msgs === undefined) continue;
-    const chain = e.sidechain === 'true' ? 'subagent' : 'main';
+    const chain = e.advisor === 'true' ? 'advisor' : e.sidechain === 'true' ? 'subagent' : 'main';
     const key = `${e.model}|${chain}`;
     const row = byModel.get(key) ?? { model: e.model, chain, msgs: 0, ...Object.fromEntries(TOKEN_FIELDS.map((f) => [f, 0])) };
     row.msgs += num(e.msgs);
     for (const f of TOKEN_FIELDS) row[f] += num(e[f]);
+    if (e.think === undefined) row.thinkUnknown = true;
     byModel.set(key, row);
   }
 
   return [...byModel.values()].sort((a, b) => b.out - a.out);
 }
 
-/** One reported row, padded so a stack of them lines up. */
+/** One reported row, padded so a stack of them lines up. A line that wrote no `think` makes it `?`. */
 export function tokenRow(row, width) {
-  return `${row.model.padEnd(width)}  ${row.chain.padEnd(8)}  in ${human(row.in)}  out ${human(row.out)}  cache_read ${human(row.cache_read)}  think ${human(row.think)}  (${row.msgs} msg)`;
+  const think = row.thinkUnknown ? '?' : atLeast(row.think);
+  return `${row.model.padEnd(width)}  ${row.chain.padEnd(8)}  in ${human(row.in)}  out ${atLeast(row.out)}  cache_read ${human(row.cache_read)}  think ${think}  (${row.msgs} msg)`;
 }

@@ -59,9 +59,13 @@ function makeRepo(phase = 'implement') {
  * keeps version ids out of this repo: the hook treats the value as opaque, and
  * an id nobody could special-case is what proves it.
  *
- * @param {{ model?: string, sidechain?: boolean, out?: number, input?: number, cacheRead?: number, cacheWrite?: number, think?: number, id?: string }} [fields]
+ * `ttl` adds `usage.cache_creation`, the split by TTL a current build writes
+ * beside the sum; without it the entry has the shape of a build that did not.
+ * `iterations` is `usage.iterations`, where an advisor's consultations are.
+ *
+ * @param {{ model?: string, sidechain?: boolean, out?: number, input?: number, cacheRead?: number, cacheWrite?: number, think?: number, id?: string, ttl?: { m5: number, h1: number }, iterations?: object[] }} [fields]
  */
-const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10, cacheRead = 0, cacheWrite = 0, think = 0, id } = {}) =>
+const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10, cacheRead = 0, cacheWrite = 0, think = 0, id, ttl, iterations } = {}) =>
   `${JSON.stringify({
     type: 'assistant',
     isSidechain: sidechain,
@@ -76,9 +80,28 @@ const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10
         cache_read_input_tokens: cacheRead,
         cache_creation_input_tokens: cacheWrite,
         output_tokens_details: { thinking_tokens: think },
+        ...(ttl ? { cache_creation: { ephemeral_5m_input_tokens: ttl.m5, ephemeral_1h_input_tokens: ttl.h1 } } : {}),
+        ...(iterations ? { iterations } : {}),
       },
     },
   })}\n`;
+
+/**
+ * An advisor consultation as `usage.iterations` reports it, in the shape the
+ * advisor tool's documentation gives: its own model, and counts that the
+ * message's top-level usage leaves out.
+ */
+const advisorCall = ({ model = 'model-gamma', input = 823, out = 1612, cacheRead = 0, cacheWrite = 0 } = {}) => ({
+  type: 'advisor_message',
+  model,
+  input_tokens: input,
+  cache_read_input_tokens: cacheRead,
+  cache_creation_input_tokens: cacheWrite,
+  output_tokens: out,
+});
+
+/** The executor's own step in the same array, which the top-level usage already sums. */
+const executorStep = (out) => ({ type: 'message', input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: out });
 
 function transcript(repo, lines) {
   const path = join(repo, 'transcript.jsonl');
@@ -193,6 +216,55 @@ check('a message whose lines straddle two stops is counted once', () => {
   return wrong.length === 0 ? '' : `the second stop re-counted the first message: ${wrong.map(([k, v]) => `${k} want ${v}, got ${got[k]}`).join('; ')}`;
 });
 
+check('cache writes are recorded by TTL, as the transcript splits them', () => {
+  const repo = makeRepo();
+  const write1h = { id: 'msg_1', cacheWrite: 700, ttl: { m5: 0, h1: 700 } };
+  const t = transcript(repo, [entry(write1h), entry(write1h), entry({ id: 'msg_2', cacheWrite: 50, ttl: { m5: 0, h1: 50 } })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ sidechain: true, cacheWrite: 300, ttl: { m5: 300, h1: 0 } })]);
+  const { lines } = stop(repo, t);
+  const main = lines.find((l) => field(l, 'sidechain') === 'false') ?? '';
+  const sub = lines.find((l) => field(l, 'sidechain') === 'true') ?? '';
+  const got = [field(main, 'cache_write_5m'), field(main, 'cache_write_1h'), field(sub, 'cache_write_5m'), field(sub, 'cache_write_1h')];
+  return JSON.stringify(got) === JSON.stringify(['0', '750', '300', '0'])
+    ? ''
+    : `5m/1h were ${got.join('/')}, want 0/750 for the session and 300/0 for the subagent:\n${lines.join('\n')}`;
+});
+
+check('an advisor consultation is a group of its own, by its model and the agent that consulted it', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ input: 1760, out: 531, iterations: [executorStep(89), advisorCall(), executorStep(442)] })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ sidechain: true, iterations: [advisorCall({ input: 100, out: 50 })] })]);
+  const { lines } = stop(repo, t);
+  const executor = lines.find((l) => field(l, 'model') === 'model-alpha' && field(l, 'sidechain') === 'false') ?? '';
+  const mine = lines.find((l) => field(l, 'advisor') === 'true' && field(l, 'sidechain') === 'false') ?? '';
+  const agents = lines.find((l) => field(l, 'advisor') === 'true' && field(l, 'sidechain') === 'true') ?? '';
+  if (!mine || !agents) return `no advisor group — its tokens are counted nowhere:\n${lines.join('\n')}`;
+  const wrong = [
+    field(executor, 'in') === '1760' && field(executor, 'out') === '531' && !field(executor, 'advisor') ? '' : `the executor's line changed: ${executor}`,
+    [field(mine, 'model'), field(mine, 'in'), field(mine, 'out'), field(mine, 'msgs'), field(mine, 'agent_id')].join() === 'model-gamma,823,1612,1,' ? '' : `the session's consultation: ${mine}`,
+    field(agents, 'agent_id') === 'a0123456789abcdef' && field(agents, 'in') === '100' && field(agents, 'out') === '50' ? '' : `the subagent's consultation: ${agents}`,
+    field(mine, 'think') === undefined ? '' : `an advisor's thinking is not reported apart, yet its line says think=${field(mine, 'think')}`,
+  ].filter(Boolean);
+  return wrong.join('\n');
+});
+
+check('a consultation repeated on later lines of its message, or after a stop, is counted once', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [
+    entry({ id: 'msg_1', out: 5, iterations: [executorStep(5)] }),
+    entry({ id: 'msg_1', out: 40, iterations: [executorStep(5), advisorCall()] }),
+  ]);
+  stop(repo, t);
+  appendFileSync(
+    t,
+    entry({ id: 'msg_1', out: 90, iterations: [executorStep(5), advisorCall(), executorStep(50)] }) +
+      entry({ id: 'msg_2', out: 3, iterations: [advisorCall({ input: 7, out: 3 })] }),
+  );
+  const { lines } = stop(repo, t);
+  const calls = lines.filter((l) => field(l, 'advisor') === 'true').map((l) => `${field(l, 'msgs')}:${field(l, 'in')}`);
+  return JSON.stringify(calls) === JSON.stringify(['1:823', '1:7']) ? '' : `consultations by stop were ${JSON.stringify(calls)}, want ["1:823","1:7"]:\n${lines.join('\n')}`;
+});
+
 check('each subagent transcript keeps its own offset', () => {
   const repo = makeRepo();
   const t = transcript(repo, [entry({ out: 100 })]);
@@ -269,6 +341,14 @@ check('a usage record with no model is dropped rather than absorbed into a total
   const { lines } = stop(repo, t);
   if (lines.length !== 1) return `expected one line, got ${lines.length}:\n${lines.join('\n')}`;
   return field(lines[0], 'out') === '100' ? '' : `the unattributable 999 landed in a total: out=${field(lines[0], 'out')}`;
+});
+
+check('a cache write with no split by TTL leaves the split unwritten, never a zero', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ cacheWrite: 700 }), entry({ cacheWrite: 50, ttl: { m5: 0, h1: 50 } })]);
+  const { lines } = stop(repo, t);
+  if (field(lines[0] ?? '', 'cache_write') !== '750') return `the sum is wrong:\n${lines.join('\n')}`;
+  return /cache_write_(5m|1h)=/.test(lines[0] ?? '') ? `a split was written that the transcript did not give:\n${lines[0]}` : '';
 });
 
 check('an unreadable line does not stop the readable ones', () => {
@@ -421,17 +501,37 @@ check("one session's stop keeps another session's offsets", () => {
 
 check('status and stats report the same totals off one log', () => {
   const repo = makeRepo();
-  const t = transcript(repo, [entry({ out: 1234, sidechain: true }), entry({ out: 4321 })]);
+  const t = transcript(repo, [entry({ out: 1234, sidechain: true }), entry({ out: 4321, iterations: [advisorCall()] })]);
   stop(repo, t);
   const run = (script) =>
     spawnSync('node', [join(ENGINE, 'scripts', script)], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo }, cwd: tmpdir() }).stdout ?? '';
-  const rows = (out) => (out.match(/model-\S+\s+(?:main|subagent)\s+in \S+\s+out \S+/g) ?? []).sort();
+  const rows = (out) => (out.match(/model-\S+\s+(?:main|subagent|advisor)\s+in \S+\s+out \S+/g) ?? []).sort();
   const fromStatus = rows(run('status.mjs'));
   const fromStats = rows(run('specflow-stats.mjs'));
   if (fromStatus.length === 0) return `status reported no token rows at all:\n${run('status.mjs')}`;
   return JSON.stringify(fromStatus) === JSON.stringify(fromStats)
     ? ''
     : `the two readers disagree about one log.\n  status: ${JSON.stringify(fromStatus)}\n  stats:  ${JSON.stringify(fromStats)}`;
+});
+
+// Each case here failed on the engine before its fix.
+
+check('every output count either reader prints says it is a floor', () => {
+  const report = (repo, script) =>
+    spawnSync('node', [join(ENGINE, 'scripts', script)], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo }, cwd: tmpdir() }).stdout ?? '';
+  // One run whose tokens name their agent, and one whose do not: stats prints
+  // the second as an average per spawn.
+  const named = makeRepo();
+  const t = transcript(named, [entry({ out: 1234, think: 50 })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ out: 4321, sidechain: true })]);
+  stop(named, t);
+  const unnamed = makeRepo();
+  stop(unnamed, transcript(unnamed, [entry({ out: 1234 }), entry({ out: 4321, sidechain: true })]));
+  appendFileSync(join(unnamed, '.claude/state/run-trace.log'), '2026-08-31T00:00:01Z phase=implement agent type=spec-flow:planner status=PLAN_READY\n');
+  const printed = [named, unnamed].flatMap((repo) => ['status.mjs', 'specflow-stats.mjs'].map((s) => report(repo, s))).join('\n');
+  const bare = [...printed.matchAll(/\b(?:out|think|output:) +(\S+)/g)].filter(([, v]) => /^\d/.test(v)).map(([m]) => m);
+  if (!/≥/.test(printed)) return `no count was printed as a floor:\n${printed}`;
+  return bare.length === 0 ? '' : `printed as an exact count: ${[...new Set(bare)].join(', ')}\n--- reports ---\n${printed}`;
 });
 
 // ---- report ----------------------------------------------------------------

@@ -397,7 +397,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `register-agent` | `PostToolUse` | `Task`, `Agent` | Maps session ids to agent types, so a `SendMessage` can be charged |
 | `run-trace` | `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | `Write`, `Edit`, `Read`, `Bash` (a failure: `Bash`) | The run's timeline, and each subagent's return. Enforces nothing |
 | `agent-gate` | `SubagentStop` | — | Sends back, at most twice per agent, a return the orchestrator cannot route — no `STATUS:` where a return is owed, a status the agent's contract does not declare, a `*_PATH` to nothing — and a spec-writer's that breaks [ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md) ([ADR-031](decisions/031-an-agents-return-is-checked-before-it-is-acted-on.md)) |
-| `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts. Enforces nothing |
+| `token-trace` | `Stop` | — | Token accounting from the session's and its subagents' transcripts, an advisor's consultations apart, charged to whoever consulted it. Enforces nothing |
 | `gate` | `Stop` | — | The external gate. The only hook that fails closed |
 
 `gate`, `lint-on-write` and `no-gate-cmds` arm only on `implement`.
@@ -418,17 +418,20 @@ with the human at sign-off and with the reviewer.
 A mod in the same `hooks.json`
 ([ADR-037](decisions/037-a-mod-may-show-the-sessions-events-and-still-decides-nothing.md)).
 It shows a pane with one box per spec-flow agent while the agent works: model,
-effort, time, tool calls, requests, tokens and the last tool. When the agent
-finishes, its box shows the `STATUS:` it handed back. The orchestrator, the
-phase and the last gate sit above the boxes, and the status line names the
-phase and who is running.
+effort, time, requests, how many tools and skills it called, the advisor's
+consultations and their time, its tokens split into cache read, fresh and
+output, and the last tool. When the agent finishes, its box shows the
+`STATUS:` it handed back. The orchestrator, the phase and the last gate sit
+above the boxes, the run line totals them with what the session cost as
+`/cost` counts it, and the status line names the phase and who is running.
 
 - `/spec-flow-live` opens the pane, even mid-turn. The pane also opens by
   itself at the first spawn, if there is room beside the transcript.
 - It shows this session's run only: a phase another session owns, or one git
   tracks, shows as none.
 - It gates nothing. The numbers `status`, `stats` and the snapshot report are
-  `token-trace`'s.
+  `token-trace`'s, the advisor's tokens among them: Claude Code's events do
+  not carry those, so the pane counts consultations only.
 - The plugin's `live_view` setting turns it off. A Claude Code without
   function hooks skips it, and the engine runs as before.
 
