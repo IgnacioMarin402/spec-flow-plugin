@@ -59,9 +59,12 @@ function makeRepo(phase = 'implement') {
  * keeps version ids out of this repo: the hook treats the value as opaque, and
  * an id nobody could special-case is what proves it.
  *
- * @param {{ model?: string, sidechain?: boolean, out?: number, input?: number, cacheRead?: number, cacheWrite?: number, think?: number, id?: string }} [fields]
+ * `ttl` adds `usage.cache_creation`, the split by TTL a current build writes
+ * beside the sum; without it the entry has the shape of a build that did not.
+ *
+ * @param {{ model?: string, sidechain?: boolean, out?: number, input?: number, cacheRead?: number, cacheWrite?: number, think?: number, id?: string, ttl?: { m5: number, h1: number } }} [fields]
  */
-const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10, cacheRead = 0, cacheWrite = 0, think = 0, id } = {}) =>
+const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10, cacheRead = 0, cacheWrite = 0, think = 0, id, ttl } = {}) =>
   `${JSON.stringify({
     type: 'assistant',
     isSidechain: sidechain,
@@ -76,6 +79,7 @@ const entry = ({ model = 'model-alpha', sidechain = false, out = 100, input = 10
         cache_read_input_tokens: cacheRead,
         cache_creation_input_tokens: cacheWrite,
         output_tokens_details: { thinking_tokens: think },
+        ...(ttl ? { cache_creation: { ephemeral_5m_input_tokens: ttl.m5, ephemeral_1h_input_tokens: ttl.h1 } } : {}),
       },
     },
   })}\n`;
@@ -193,6 +197,20 @@ check('a message whose lines straddle two stops is counted once', () => {
   return wrong.length === 0 ? '' : `the second stop re-counted the first message: ${wrong.map(([k, v]) => `${k} want ${v}, got ${got[k]}`).join('; ')}`;
 });
 
+check('cache writes are recorded by TTL, as the transcript splits them', () => {
+  const repo = makeRepo();
+  const write1h = { id: 'msg_1', cacheWrite: 700, ttl: { m5: 0, h1: 700 } };
+  const t = transcript(repo, [entry(write1h), entry(write1h), entry({ id: 'msg_2', cacheWrite: 50, ttl: { m5: 0, h1: 50 } })]);
+  subagentTranscript(t, 'a0123456789abcdef', [entry({ sidechain: true, cacheWrite: 300, ttl: { m5: 300, h1: 0 } })]);
+  const { lines } = stop(repo, t);
+  const main = lines.find((l) => field(l, 'sidechain') === 'false') ?? '';
+  const sub = lines.find((l) => field(l, 'sidechain') === 'true') ?? '';
+  const got = [field(main, 'cache_write_5m'), field(main, 'cache_write_1h'), field(sub, 'cache_write_5m'), field(sub, 'cache_write_1h')];
+  return JSON.stringify(got) === JSON.stringify(['0', '750', '300', '0'])
+    ? ''
+    : `5m/1h were ${got.join('/')}, want 0/750 for the session and 300/0 for the subagent:\n${lines.join('\n')}`;
+});
+
 check('each subagent transcript keeps its own offset', () => {
   const repo = makeRepo();
   const t = transcript(repo, [entry({ out: 100 })]);
@@ -269,6 +287,14 @@ check('a usage record with no model is dropped rather than absorbed into a total
   const { lines } = stop(repo, t);
   if (lines.length !== 1) return `expected one line, got ${lines.length}:\n${lines.join('\n')}`;
   return field(lines[0], 'out') === '100' ? '' : `the unattributable 999 landed in a total: out=${field(lines[0], 'out')}`;
+});
+
+check('a cache write with no split by TTL leaves the split unwritten, never a zero', () => {
+  const repo = makeRepo();
+  const t = transcript(repo, [entry({ cacheWrite: 700 }), entry({ cacheWrite: 50, ttl: { m5: 0, h1: 50 } })]);
+  const { lines } = stop(repo, t);
+  if (field(lines[0] ?? '', 'cache_write') !== '750') return `the sum is wrong:\n${lines.join('\n')}`;
+  return /cache_write_(5m|1h)=/.test(lines[0] ?? '') ? `a split was written that the transcript did not give:\n${lines[0]}` : '';
 });
 
 check('an unreadable line does not stop the readable ones', () => {

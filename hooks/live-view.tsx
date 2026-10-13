@@ -30,7 +30,7 @@ const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const CARD = 38 // 34 columns of text, its padding and its border
 
 const ZERO: LiveTokens = { in: 0, cacheRead: 0, cacheWrite: 0, out: 0 }
-const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', tokens: ZERO }
+const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', effort: '', tokens: ZERO }
 const TURN0: LiveTurn = { steps: 0, tokens: ZERO }
 const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0 }
 
@@ -201,7 +201,7 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
   // The orchestrator's request goes on its open turn; the turn's end decides whether it counts.
   const at = await $.clock.now()
   await update($, turn, t => ({ steps: t.steps + 1, tokens: plus(t.tokens, u) }))
-  await update($, orchestrator, m => ({ ...m, ctx: u ? sent(u) : m.ctx, model: u?.model ?? m.model, lastAt: at }))
+  await update($, orchestrator, m => ({ ...m, ctx: u ? sent(u) : m.ctx, model: u?.model ?? m.model, effort: effort || m.effort, lastAt: at }))
 }
 
 /**
@@ -238,9 +238,10 @@ const tone = (status: string) =>
   /BLOCK|FAIL|ERROR|ABORTED/.test(status) ? 'error' : /ESCALATE|CHANGES|NEEDS|NO_STATUS/.test(status) ? 'warning' : 'success'
 const mark = (status: string) => (tone(status) === 'error' ? '✗' : tone(status) === 'warning' ? '↺' : '✓')
 const elapsed = (a: LiveAgent, at: number) => a.activeMs + (a.endedAt === null ? Math.max(0, at - a.turnAt) : 0)
-// Exact, in token-trace's field names, so the two can be compared line by line (ADR-037).
-const countLine = (id: string, role: string, t: LiveTokens, msgs: number) =>
-  `agent_id=${id} role=${role} in=${t.in} cache_read=${t.cacheRead} cache_write=${t.cacheWrite} out=${t.out} msgs=${msgs}`
+// Exact, in token-trace's field names, so the two can be compared line by line
+// (ADR-037), and priced with no join: `?` is a model or effort no request named.
+const countLine = (id: string, role: string, a: { model: string; effort: string; tokens: LiveTokens }, msgs: number) =>
+  `agent_id=${id} role=${role} model=${a.model || '?'} effort=${a.effort || '?'} in=${a.tokens.in} cache_read=${a.tokens.cacheRead} cache_write=${a.tokens.cacheWrite} out=${a.tokens.out} msgs=${msgs}`
 
 export const register: Register = (on, options) => {
   // The plugin setting that turns the view off: nothing is hooked at all.
@@ -514,8 +515,8 @@ export const register: Register = (on, options) => {
                 const now = await read($, agents)
                 const charged = await read($, orchestrator)
                 const text = [
-                  ...now.map(a => countLine(a.agentId, a.role, a.tokens, a.steps)),
-                  countLine('-', 'orchestrator', charged.tokens, charged.steps),
+                  ...now.map(a => countLine(a.agentId, a.role, a, a.steps)),
+                  countLine('-', 'orchestrator', charged, charged.steps),
                 ].join('\n')
                 await $.ui.copy({ text, surface: e.surface })
               }}

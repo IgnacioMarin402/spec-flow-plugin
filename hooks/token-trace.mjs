@@ -69,6 +69,17 @@ const COUNTERS = {
 /** The counters that grow across a message's lines; the rest are fixed at its first. */
 const GROWING = ['out', 'think'];
 
+/**
+ * Cache writes by TTL, which are priced apart: a 5-minute write costs 1.25×
+ * input, a 1-hour one 2×. A group with a cache write whose usage carried no
+ * split leaves the whole group's split unknown, and an unknown split is not
+ * written at all — `cache_write` stays the sum.
+ */
+const TTL = {
+  cache_write_5m: (u) => u.cache_creation?.ephemeral_5m_input_tokens,
+  cache_write_1h: (u) => u.cache_creation?.ephemeral_1h_input_tokens,
+};
+
 const num = (v) => (Number.isFinite(v) ? v : 0);
 
 /** The session's transcript, then each of its subagents' — see the header. */
@@ -182,6 +193,25 @@ function noteMiss(state, what) {
 /** `agent-<id>.jsonl` -> `<id>`: the id the agent's payloads and return line carry. */
 const agentOf = (file) => /[\\/]agent-([\w-]+)\.jsonl$/.exec(file)?.[1] ?? '';
 
+const newGroup = (model, sidechain, agent) => ({
+  model,
+  sidechain,
+  agent,
+  msgs: 0,
+  maxPrompt: 0,
+  ttlUnknown: false,
+  ...Object.fromEntries([...Object.keys(COUNTERS), ...Object.keys(TTL)].map((name) => [name, 0])),
+});
+
+/** A usage record's cache writes, by TTL, onto its group — see TTL. */
+function addTtl(group, usage) {
+  if (Object.values(TTL).every((pick) => Number.isFinite(pick(usage)))) {
+    for (const [name, pick] of Object.entries(TTL)) group[name] += pick(usage);
+  } else if (num(COUNTERS.cache_write(usage)) > 0) {
+    group.ttlUnknown = true;
+  }
+}
+
 /**
  * Usage summed per `model|sidechain|agent` into `groups`, over the transcript
  * lines in `text`. Returns the message the slice ended inside, as
@@ -216,7 +246,7 @@ function tally(text, groups, carry, agentId = '') {
 
     const agent = entry.isSidechain === true ? agentId : '';
     const key = `${message.model}|${entry.isSidechain === true}|${agent}`;
-    const group = groups.get(key) ?? { model: message.model, sidechain: entry.isSidechain === true, agent, msgs: 0, maxPrompt: 0, ...Object.fromEntries(Object.keys(COUNTERS).map((name) => [name, 0])) };
+    const group = groups.get(key) ?? newGroup(message.model, entry.isSidechain === true, agent);
     groups.set(key, group);
 
     // A message's lines are consecutive among the lines that carry usage, so
@@ -236,6 +266,7 @@ function tally(text, groups, carry, agentId = '') {
 
     group.msgs += 1;
     for (const [name, pick] of Object.entries(COUNTERS)) group[name] += num(pick(usage));
+    addTtl(group, usage);
     group.maxPrompt = Math.max(group.maxPrompt, num(COUNTERS.in(usage)) + num(COUNTERS.cache_read(usage)) + num(COUNTERS.cache_write(usage)));
     last = id === null ? null : { id, ...Object.fromEntries(GROWING.map((name) => [name, num(COUNTERS[name](usage))])) };
   }
@@ -359,7 +390,7 @@ await run(async () => {
   // is read back by a whitespace split into `k=v` pairs, which has no way to
   // express a repeated key.
   for (const g of lines) {
-    const counts = Object.keys(COUNTERS).map((name) => `${name}=${g[name]}`).join(' ');
+    const counts = [...Object.keys(COUNTERS), ...(g.ttlUnknown ? [] : Object.keys(TTL))].map((name) => `${name}=${g[name]}`).join(' ');
     const agent = g.agent ? ` agent_id=${g.agent}` : '';
     appendFileSync(join(state, 'run-trace.log'), `${stamp} tokens model=${g.model} sidechain=${g.sidechain} ${counts} msgs=${g.msgs} max_prompt=${g.maxPrompt}${agent}\n`);
   }

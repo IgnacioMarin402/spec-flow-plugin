@@ -93,20 +93,6 @@ with an init-fixture case red on `620901d`. **Needs a decision first** for
 end-to-end checks, migrations and booting the app: where they run, if not at
 every gate.
 
-### B49 — a live-view copy cannot be priced, and does not say what it missed
-
-"Copy exact counts" gives each agent's tokens with no model and no effort, so
-pricing it means joining it to `run-trace.log` by agent id. On one real run
-the copy matched token-trace for each of five agents on input, cache and
-requests, and its output was the higher, exact count. Neither splits
-cache writes by TTL (5-minute writes cost 1.25× input, 1-hour ones 2×); the
-transcript does, and `agent-cache.mjs` already reads it. Both lack that run's
-spec-step spec-writer and first planner, and neither says so; `dispatch-guard`
-records such a spawn from ADR-040 on. **Done:**
-the copy line carries `model=` and `effort=`, and `token-trace` records cache
-writes by TTL: a live-view test and a token-fixture case, each red on
-`620901d`.
-
 ### B52 — the spec-writer on the cheapest tier
 
 ADR-030 shows the human what the spec-writer assumed, and ADR-031 holds its

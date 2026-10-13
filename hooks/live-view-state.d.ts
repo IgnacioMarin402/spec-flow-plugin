@@ -35,6 +35,7 @@ export type LiveOrchestrator = {
   lastAt: number
   ctx: number
   model: string
+  effort: string
   tokens: LiveTokens
 }
 

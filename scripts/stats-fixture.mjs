@@ -320,6 +320,25 @@ check('each role reports its messages and its average prompt per message', () =>
   return contains(out, 'largest prompt 60k  5 msg, ~66k prompt/msg');
 });
 
+// A 1-hour cache write costs 2× input and a 5-minute one 1.25×, so a role's
+// writes are priced only once they are split.
+check("a role's cache writes are split by TTL where every line of it carries the split", () => {
+  const tok = (minute, sidechain, write, ttl, agentId) =>
+    `${stamp(minute)} phase=implement tokens model=model-alpha sidechain=${sidechain} in=10 out=1 cache_read=0 cache_write=${write} think=0${ttl} msgs=1 max_prompt=9${agentId ? ` agent_id=${agentId}` : ''}`;
+  const { out } = report({
+    trace: [
+      `${agent(1, 'spec-flow:reviewer', 's1')} agent_id=a1`,
+      tok(2, 'true', 1200, ' cache_write_5m=1200 cache_write_1h=0', 'a1'),
+      tok(3, 'true', 300, ' cache_write_5m=100 cache_write_1h=200', 'a1'),
+      tok(4, 'false', 700, ' cache_write_5m=0 cache_write_1h=700'),
+      tok(5, 'false', 50, ''),
+    ],
+    gate: [pass(6)],
+  });
+  if (/orchestrator .*\(5m /.test(out)) return `a split was printed for a role with a line that carried none:\n${out}`;
+  return contains(out, 'cache_write 2k (5m 1k, 1h 200)');
+});
+
 // The measure the implementer experiment decides on: a PASS with no failure
 // since the previous PASS. A failure before the first PASS counts against it;
 // skip-dirty and running lines are not failures.

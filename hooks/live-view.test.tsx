@@ -147,11 +147,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: 'cache 800k · new 24k · out 6k' }), 'its tokens add up').toBeDefined()
     expect(await ui.find({ text: /^cache 1\.2M · new 36k · out 9k · total 1\.2M$/ }), 'the run total').toBeDefined()
 
-    // The exact counts, in token-trace's field names, for a line-by-line comparison.
+    // The exact counts, in token-trace's field names, for a line-by-line comparison,
+    // with the model and effort that price them.
     await ui.press({ key: 'copy' })
     expect(copied).toEqual([
-      'agent_id=a-planner role=planner in=4000 cache_read=800000 cache_write=20000 out=6200 msgs=2\n' +
-        'agent_id=- role=orchestrator in=2000 cache_read=400000 cache_write=10000 out=3100 msgs=1',
+      `agent_id=a-planner role=planner model=${MODEL} effort=high in=4000 cache_read=800000 cache_write=20000 out=6200 msgs=2\n` +
+        `agent_id=- role=orchestrator model=${MODEL} effort=high in=2000 cache_read=400000 cache_write=10000 out=3100 msgs=1`,
     ])
   })
 
@@ -192,7 +193,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'copy' })
-    expect(copied.at(-1)?.split('\n').at(-1)).toBe('agent_id=- role=orchestrator in=6000 cache_read=1200000 cache_write=30000 out=9300 msgs=3')
+    expect(copied.at(-1)?.split('\n').at(-1)).toBe(`agent_id=- role=orchestrator model=${MODEL} effort=high in=6000 cache_read=1200000 cache_write=30000 out=9300 msgs=3`)
+  })
+
+  test(`${surface}: a copied line names a model and an effort only where one is known`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME })
+    const copied = clipboard(on)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    // Spawned, with no request yet: the spawn resolved its model, and nothing has named an effort.
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'copy' })
+    expect(copied).toEqual([
+      `agent_id=a-implementer role=implementer model=${MODEL} effort=? in=0 cache_read=0 cache_write=0 out=0 msgs=0\n` +
+        'agent_id=- role=orchestrator model=? effort=? in=0 cache_read=0 cache_write=0 out=0 msgs=0',
+    ])
   })
 
   test(`${surface}: the milestone and the gate shown are this run's`, async ($, on) => {
