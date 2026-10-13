@@ -418,17 +418,20 @@ with the human at sign-off and with the reviewer.
 A mod in the same `hooks.json`
 ([ADR-037](decisions/037-a-mod-may-show-the-sessions-events-and-still-decides-nothing.md)).
 It shows a pane with one box per spec-flow agent while the agent works: model,
-effort, time, tool calls, requests, tokens and the last tool. When the agent
-finishes, its box shows the `STATUS:` it handed back. The orchestrator, the
-phase and the last gate sit above the boxes, and the status line names the
-phase and who is running.
+effort, time, requests, how many tools and skills it called, the advisor's
+consultations and their time, its tokens split into cache read, fresh and
+output, and the last tool. When the agent finishes, its box shows the
+`STATUS:` it handed back. The orchestrator, the phase and the last gate sit
+above the boxes, the run line totals them with what the session cost as
+`/cost` counts it, and the status line names the phase and who is running.
 
 - `/spec-flow-live` opens the pane, even mid-turn. The pane also opens by
   itself at the first spawn, if there is room beside the transcript.
 - It shows this session's run only: a phase another session owns, or one git
   tracks, shows as none.
 - It gates nothing. The numbers `status`, `stats` and the snapshot report are
-  `token-trace`'s.
+  `token-trace`'s, the advisor's tokens among them: Claude Code's events do
+  not carry those, so the pane counts consultations only.
 - The plugin's `live_view` setting turns it off. A Claude Code without
   function hooks skips it, and the engine runs as before.
 

@@ -12,7 +12,8 @@
  *
  * Per-agent activity comes from the session's events, joined by `agentId`.
  * Phase, milestone and gate come from `.claude/state/`. It never reads a
- * transcript (ADR-036).
+ * transcript (ADR-036). The one cost in dollars it shows is the session's, as
+ * Claude Code totals it: a share per role would be a guess (ADR-037).
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnStepInput, TurnStepResult } from 'claude-code'
@@ -30,9 +31,9 @@ const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const CARD = 38 // 34 columns of text, its padding and its border
 
 const ZERO: LiveTokens = { in: 0, cacheRead: 0, cacheWrite: 0, out: 0 }
-const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', effort: '', tokens: ZERO }
-const TURN0: LiveTurn = { steps: 0, tokens: ZERO }
-const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0 }
+const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, byTool: {}, advisor: 0, advisorMs: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', effort: '', tokens: ZERO }
+const TURN0: LiveTurn = { steps: 0, tokens: ZERO, advisor: 0, advisorMs: 0 }
+const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null }
 
 const agents = atom({ plugin: 'spec-flow', key: 'liveAgents' } as const, [])
 const orchestrator = atom({ plugin: 'spec-flow', key: 'liveOrchestrator' } as const, ORCH0)
@@ -104,12 +105,19 @@ async function poll($: EngineInterface): Promise<void> {
     gateLine = ''
   }
   const result = /\bresult=(\S+)/.exec(gateLine)?.[1] ?? ''
+  let usd: number | null = null
+  try {
+    usd = (await $.session.usage()).cost?.usd ?? null
+  } catch {
+    /* no ledger to read: shown as none */
+  }
   const after: LiveRun = {
     phase,
     milestone: phase && ours && mk ? `${mk} · ${slug}` : '',
     gate: phase && result ? `${result} ${gateLine.split(' ')[1] ?? ''}` : '',
     gateAt: Date.parse(gateLine.split(' ')[0] ?? '') || 0,
     attempts: phase ? Number(await stateText($, root, 'gate_attempts')) || 0 : 0,
+    usd,
   }
   if (JSON.stringify(after) !== JSON.stringify(before)) await update($, run, () => after)
 }
@@ -145,6 +153,14 @@ const sum = (a: LiveTokens, b: LiveTokens): LiveTokens => ({
 const sent = (u: TurnStepResult['usage']) =>
   u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0
 
+// The advisor runs inside the request, as a server tool, so no tool call is
+// made for it: its consultations are read off the step's result. Their tokens
+// are not in the step's usage; token-trace reads them from the transcript.
+const consulted = (res: TurnStepResult) => {
+  const uses = (res.serverToolUses ?? []).filter(u => u.name === 'advisor')
+  return { n: uses.length, ms: uses.reduce((sum, u) => sum + Math.max(0, (u.endedAt ?? u.startedAt) - u.startedAt), 0) }
+}
+
 const armed = async ($: EngineInterface) => ARMED.includes((await read($, run)).phase)
 
 async function noteCall($: EngineInterface, agentId: string | undefined, what: string, tool: string) {
@@ -161,7 +177,13 @@ async function noteCall($: EngineInterface, agentId: string | undefined, what: s
   }
   if (!(await armed($))) return
   const at = await $.clock.now()
-  await update($, orchestrator, m => ({ ...m, calls: m.calls + 1, lastTool: what, lastAt: at }))
+  await update($, orchestrator, m => ({
+    ...m,
+    calls: m.calls + 1,
+    byTool: { ...m.byTool, [tool]: (m.byTool?.[tool] ?? 0) + 1 },
+    lastTool: what,
+    lastAt: at,
+  }))
 }
 
 // A SendMessage resumes an agent under the same id: its first request is its new run.
@@ -179,6 +201,7 @@ async function noteResume($: EngineInterface, agentId: string | undefined) {
 async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResult) {
   const u = res.usage
   const effort = typeof e.effort === 'string' ? e.effort : ''
+  const adv = consulted(res)
   if (e.agentId !== undefined) {
     const id = e.agentId
     if (!(await read($, agents)).some(a => a.agentId === id)) return
@@ -189,6 +212,8 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
               ...a,
               steps: a.steps + 1,
               tokens: plus(a.tokens, u),
+              advisor: (a.advisor ?? 0) + adv.n,
+              advisorMs: (a.advisorMs ?? 0) + adv.ms,
               ctx: u ? sent(u) : a.ctx,
               model: u?.model ?? a.model,
               effort: effort || a.effort,
@@ -200,7 +225,12 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
   }
   // The orchestrator's request goes on its open turn; the turn's end decides whether it counts.
   const at = await $.clock.now()
-  await update($, turn, t => ({ steps: t.steps + 1, tokens: plus(t.tokens, u) }))
+  await update($, turn, t => ({
+    steps: t.steps + 1,
+    tokens: plus(t.tokens, u),
+    advisor: (t.advisor ?? 0) + adv.n,
+    advisorMs: (t.advisorMs ?? 0) + adv.ms,
+  }))
   await update($, orchestrator, m => ({ ...m, ctx: u ? sent(u) : m.ctx, model: u?.model ?? m.model, effort: effort || m.effort, lastAt: at }))
 }
 
@@ -216,7 +246,13 @@ async function closeTurn($: EngineInterface) {
   const open = await read($, turn)
   const closing = (await read($, run)).phase === 'done' && ARMED.includes(before)
   if (open.steps > 0 && ((await armed($)) || closing)) {
-    await update($, orchestrator, m => ({ ...m, steps: m.steps + open.steps, tokens: sum(m.tokens, open.tokens) }))
+    await update($, orchestrator, m => ({
+      ...m,
+      steps: m.steps + open.steps,
+      tokens: sum(m.tokens, open.tokens),
+      advisor: (m.advisor ?? 0) + (open.advisor ?? 0),
+      advisorMs: (m.advisorMs ?? 0) + (open.advisorMs ?? 0),
+    }))
   }
   await update($, turn, () => TURN0)
 }
@@ -231,9 +267,16 @@ const dur = (ms: number) => {
 }
 const shortModel = (m: string) =>
   m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)(-\d{8})?$/, ' $1.$2').replace(/-(\d+)$/, ' $1') || '?'
-const all = (t: LiveTokens) => t.in + t.cacheRead + t.cacheWrite + t.out
-// Read from cache, sent fresh (cache writes included), and generated.
+// Read from cache, sent fresh (cache writes included), and generated. Never one
+// sum: a cache read is billed at a fraction of a fresh token, and out at a multiple.
 const split = (t: LiveTokens) => `cache ${k(t.cacheRead)} · new ${k(t.in + t.cacheWrite)} · out ${k(t.out)}`
+// What it invoked, counted: tool calls, the skills among them, and the advisor's consultations.
+type Invoked = { calls: number; byTool: Record<string, number>; advisor: number; advisorMs: number }
+const counted = (x: Invoked) => `${x.calls - (x.byTool?.Skill ?? 0)} tools · ${x.byTool?.Skill ?? 0} skills`
+// '' when it consulted none: a card gives it a line of its own only then.
+const advised = (x: Invoked) => (x.advisor ? `advisor ${x.advisor} · ${dur(x.advisorMs ?? 0)}` : '')
+const invoked = (x: Invoked) => [counted(x), advised(x)].filter(Boolean).join(' · ')
+const usdLine = (usd: number | null) => (usd === null ? 'session cost: none reported' : `session cost US$${usd.toFixed(2)} (/cost)`)
 const tone = (status: string) =>
   /BLOCK|FAIL|ERROR|ABORTED/.test(status) ? 'error' : /ESCALATE|CHANGES|NEEDS|NO_STATUS/.test(status) ? 'warning' : 'success'
 const mark = (status: string) => (tone(status) === 'error' ? '✗' : tone(status) === 'warning' ? '↺' : '✓')
@@ -304,6 +347,8 @@ export const register: Register = (on, options) => {
         steps: 0,
         calls: 0,
         byTool: {},
+        advisor: 0,
+        advisorMs: 0,
         lastTool: '',
         ctx: 0,
         tokens: ZERO,
@@ -361,7 +406,13 @@ export const register: Register = (on, options) => {
     const r = await read($, run)
     const at = Math.max(await read($, clock), ...list.map(a => a.endedAt ?? a.turnAt), committed.lastAt)
     // What the orchestrator has spent so far: its charged turns and the one it is in.
-    const m = { ...committed, steps: committed.steps + open.steps, tokens: sum(committed.tokens, open.tokens) }
+    const m = {
+      ...committed,
+      steps: committed.steps + open.steps,
+      tokens: sum(committed.tokens, open.tokens),
+      advisor: (committed.advisor ?? 0) + (open.advisor ?? 0),
+      advisorMs: (committed.advisorMs ?? 0) + (open.advisorMs ?? 0),
+    }
 
     const cols = e.props.bodyColumns
     const live = list.filter(a => a.endedAt === null)
@@ -417,9 +468,9 @@ export const register: Register = (on, options) => {
         ) : (
           <Text dimColor>idle: your turn, or the gate's</Text>
         )}
-        <Text wrap="truncate-end">{`${m.calls} calls · ${m.steps} requests · ctx ${k(m.ctx)}`}</Text>
+        <Text wrap="truncate-end">{`${m.steps} requests · ctx ${k(m.ctx)}`}</Text>
+        <Text wrap="truncate-end">{invoked(m)}</Text>
         <Text wrap="truncate-end">{split(m.tokens)}</Text>
-        <Text wrap="truncate-end">{`total ${k(all(m.tokens))}`}</Text>
       </Box>
     )
 
@@ -438,14 +489,15 @@ export const register: Register = (on, options) => {
           <Text color={color}>{running ? `${spin} running` : `${mark(a.status)} ${a.status}`}</Text>
         </Box>
       )
-      const pace = `${dur(elapsed(a, at))} · ${a.calls} calls · ${a.steps} requests`
+      const pace = `${dur(elapsed(a, at))} · ${a.steps} requests`
       if (!running) {
         return (
           <Box key={`agent-${a.agentId}`} flexDirection="column" borderStyle="round" borderColor={color} borderDimColor paddingX={1} width={CARD}>
             {title}
-            <Text dimColor wrap="truncate-end">{pace}</Text>
-            <Text dimColor wrap="truncate-end">{`${split(a.tokens)}`}</Text>
-            <Text dimColor wrap="truncate-end">{`total ${k(all(a.tokens))} · ${shortModel(a.model)}`}</Text>
+            <Text dimColor wrap="truncate-end">{`${pace} · ${shortModel(a.model)}`}</Text>
+            <Text dimColor wrap="truncate-end">{counted(a)}</Text>
+            {advised(a) !== '' && <Text dimColor wrap="truncate-end">{advised(a)}</Text>}
+            <Text dimColor wrap="truncate-end">{split(a.tokens)}</Text>
           </Box>
         )
       }
@@ -455,9 +507,10 @@ export const register: Register = (on, options) => {
           <Text dimColor wrap="truncate-end">
             {`${shortModel(a.model)}${a.effort ? ` · ${a.effort}` : ''}${a.resumes ? ` · resumed ${a.resumes}` : ''}`}
           </Text>
-          <Text wrap="truncate-end">{pace}</Text>
+          <Text wrap="truncate-end">{`${pace} · ctx ${k(a.ctx)}`}</Text>
+          <Text wrap="truncate-end">{counted(a)}</Text>
+          {advised(a) !== '' && <Text wrap="truncate-end">{advised(a)}</Text>}
           <Text wrap="truncate-end">{split(a.tokens)}</Text>
-          <Text wrap="truncate-end">{`total ${k(all(a.tokens))} · ctx ${k(a.ctx)}`}</Text>
           <Text color="suggestion" wrap="truncate-end">{`▸ ${a.lastTool || 'thinking…'}`}</Text>
         </Box>
       )
@@ -469,8 +522,14 @@ export const register: Register = (on, options) => {
     for (let i = 0; i < list.length; i += perRow) rows.push(list.slice(i, i + perRow))
 
     const total = list.reduce(
-      (acc, a) => ({ calls: acc.calls + a.calls, tokens: sum(acc.tokens, a.tokens) }),
-      { calls: m.calls, tokens: m.tokens },
+      (acc, a) => ({
+        calls: acc.calls + a.calls,
+        byTool: { ...acc.byTool, Skill: (acc.byTool.Skill ?? 0) + (a.byTool?.Skill ?? 0) },
+        advisor: acc.advisor + (a.advisor ?? 0),
+        advisorMs: acc.advisorMs + (a.advisorMs ?? 0),
+        tokens: sum(acc.tokens, a.tokens),
+      }),
+      { calls: m.calls, byTool: { Skill: m.byTool?.Skill ?? 0 }, advisor: m.advisor, advisorMs: m.advisorMs, tokens: m.tokens },
     )
 
     return (
@@ -502,9 +561,10 @@ export const register: Register = (on, options) => {
         )}
         <Text wrap="wrap">
           <Text bold>run total </Text>
-          {`${list.length} agents · ${total.calls} calls`}
+          {`${list.length} agents · ${invoked(total)}`}
         </Text>
-        <Text wrap="wrap">{`${split(total.tokens)} · total ${k(all(total.tokens))}`}</Text>
+        <Text wrap="wrap">{split(total.tokens)}</Text>
+        <Text wrap="wrap">{usdLine(r.usd)}</Text>
         {list.length > 0 && (
           <Box>
             <Button

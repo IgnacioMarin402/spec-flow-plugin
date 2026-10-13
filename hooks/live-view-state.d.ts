@@ -21,6 +21,9 @@ export type LiveAgent = {
   steps: number
   calls: number
   byTool: Record<string, number>
+  // the advisor consultations its requests made, and the time they took
+  advisor: number
+  advisorMs: number
   lastTool: string
   // the last request's prompt: what the agent carries now
   ctx: number
@@ -31,6 +34,9 @@ export type LiveAgent = {
 export type LiveOrchestrator = {
   steps: number
   calls: number
+  byTool: Record<string, number>
+  advisor: number
+  advisorMs: number
   lastTool: string
   lastAt: number
   ctx: number
@@ -40,7 +46,7 @@ export type LiveOrchestrator = {
 }
 
 // The orchestrator's current turn, charged or dropped when it ends.
-export type LiveTurn = { steps: number; tokens: LiveTokens }
+export type LiveTurn = { steps: number; tokens: LiveTokens; advisor: number; advisorMs: number }
 
 // What .claude/state/ said at the last poll, as this session's run.
 export type LiveRun = {
@@ -49,6 +55,8 @@ export type LiveRun = {
   gate: string
   gateAt: number
   attempts: number
+  // what the session has cost, as /cost totals it; null where the host keeps no ledger
+  usd: number | null
 }
 
 declare module 'claude-code' {
