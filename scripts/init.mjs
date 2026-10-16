@@ -408,6 +408,41 @@ export function buildContract(root) {
   else if (lintName) missing.push('verify.lint_config_hint — no config file for the linter was found in the repo root.');
   else missing.push('verify.lint_config_hint — depends on the linter, which was not detected.');
 
+  // --- build and typecheck: what a repo declares that commonly needs no
+  // database and no running app, so it can hold at every gate.
+  //
+  // REVIEW either way, never MISSING: `extra_checks` is optional, so a
+  // MISSING line would hold the exit code of a repo whose contract is
+  // complete. Offered is REVIEW too: whether it belongs at every gate is the
+  // adopter's call, not a reading.
+  const extraChecks = [];
+  for (const name of ['build', 'typecheck']) {
+    if (!scripts[name]) continue;
+    const parsed = parseScript(scripts[name]);
+    if (!parsed) {
+      review.push(
+        `extra_checks — the "${name}" script (${scripts[name]}) was not offered: ${shellOnly(scripts[name]) ?? 'it names no command'}. Nothing runs it during a run; to have one, add an entry by hand, one argv token per array element and no quotes around any of them.`,
+      );
+      continue;
+    }
+    // No `stripTargets`: nothing is appended to an extra check, so its
+    // targets are the repo's own choice, as for `verify.test`.
+    const cmd = toArgv(root, parsed).argv;
+    extraChecks.push({
+      name,
+      field: name,
+      cmd,
+      green: `(the "${name}" script passes)`,
+      hint: `The repo's "${name}" script fails: fix what it reports.`,
+    });
+    review.push(
+      `extra_checks — offered "${name}" from the "${name}" script: ${cmd.join(' ')}. It runs at every gate, at done and in spec-flow check, inside the same Stop-hook time budget as the suite. Remove it if it needs a database, a network or a running app.` +
+        (name === 'build'
+          ? ' What it writes must be gitignored: any output git sees reads as an unfinished write at the next stop, and that gate is skipped.'
+          : ''),
+    );
+  }
+
   // --- scope
   const scopeGlobs = detectScopeGlobs(files);
   if (scopeGlobs.length > 0) detected.push(`verify.scope_globs — ${scopeGlobs.join(', ')}, from the files in this repo`);
@@ -509,7 +544,7 @@ export function buildContract(root) {
       // installed plugins and the user's own directory.
       require_skills_field: false,
     },
-    extra_checks: [],
+    extra_checks: extraChecks,
     unscoped_denied: {
       scripts: denyScripts,
       tools: denyTools,
