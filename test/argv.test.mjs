@@ -209,6 +209,18 @@ describe('resolveLocalBin', () => {
     });
   });
 
+  // A shebang's node flags sit between the interpreter and the target.
+  test('a shim passing node flags still resolves to the entrypoint', () => {
+    withDir((dir) => {
+      packageEntry(dir, 'x', 'bin/x.js');
+      writeFileSync(
+        join(dir, 'node_modules', '.bin', 'x'),
+        '#!/bin/sh\nexec node --no-warnings --max-old-space-size=4096 "$basedir/../x/bin/x.js" "$@"\n',
+      );
+      assert.equal(resolveLocalBin(dir, 'x'), 'node_modules/x/bin/x.js');
+    });
+  });
+
   test('the POSIX shape resolves through the symlink', (t) => {
     withDir((dir) => {
       packageEntry(dir, 'eslint', 'bin/eslint.js');
