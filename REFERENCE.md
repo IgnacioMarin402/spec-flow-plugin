@@ -146,6 +146,11 @@ a new id. `CHANGED` is only for edits that move no proof, and names which
 
 `(correction)` is legal only in a `/spec-fix` brief (case 3).
 
+An `ADDED` that pairs a prohibition with another claim, such as "filters by A
+and B, never by C", fails: a test of what it allows would prove it. What it
+forbids takes an id of its own
+([ADR-045](decisions/045-a-prohibition-has-an-id-of-its-own.md)).
+
 ### `extra_checks`
 
 Your own checks, run at every gate and again at `done`.

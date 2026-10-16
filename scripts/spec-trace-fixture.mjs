@@ -1189,6 +1189,37 @@ await Promise.all([
     ),
   ),
 
+  // ==== a prohibition has an id of its own (ADR-045) ========================
+  //
+  // The binding this script checks is an id to a test that ran under its
+  // name. Shared with what the requirement allows, the prohibition is proven
+  // by a test that never reaches it.
+
+  check('an ADDED that pairs a prohibition with another claim is reported at the gate', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/filters/spec.md': '# Spec — filters\n\n## Requirement deltas\n- ADDED REQ-USER-001 — filters by A and B, never by C\n',
+        'specflow/filters/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a prohibition proven by a test of what it allows passed: ${r.out}`;
+        return /id of its own/.test(r.out) ? null : `the failure did not name the split: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('an ADDED that is only a prohibition passes at the gate', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/filters/spec.md': '# Spec — filters\n\n## Requirement deltas\n- ADDED REQ-USER-001 — only an admin may filter by C\n',
+        'specflow/filters/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a prohibition on its own id was blocked: ${r.out}`),
+    ),
+  ),
+
   // ==== an ADDED id is new ==================================================
   //
   // Ids are permanent so that retiring one is safe. A new requirement given a

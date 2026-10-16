@@ -32,8 +32,9 @@
  *     project left it off.
  *   - a `tools:` list nobody wrote is not a blank: it is the widest grant the
  *     harness offers, and it looks identical to a deliberate one.
- *   - the spec-writer's contract must state the question cap and carry the
- *     assumptions section the checks hold its output to.
+ *   - the spec-writer's contract must state the question cap and the words
+ *     a prohibition is read by, and carry the assumptions section the checks
+ *     hold its output to.
  *   - each command's fold step must offer a weak test's fix as `/spec-fix`,
  *     and a fresh implementer only to say never (ADR-042).
  *
@@ -43,7 +44,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { returnBlocks, unroutedFields, MAX_OPEN_QUESTIONS } from './agent-blocks.mjs';
-import { assumptionsProblem } from './spec-shape.mjs';
+import { assumptionsProblem, PROHIBITION_WORDS } from './spec-shape.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = join(ROOT, 'agents');
@@ -297,6 +298,15 @@ if (specTemplate === null) {
 }
 if (!specWriter.includes(`at most ${MAX_OPEN_QUESTIONS} questions`)) {
   problems.push(`agents/spec-writer.md does not say "at most ${MAX_OPEN_QUESTIONS} questions", the cap in MAX_OPEN_QUESTIONS (scripts/agent-blocks.mjs).`);
+}
+// The words, in the code's order: a word the rule reads and the prose omits
+// refuses a writer that followed its contract (ADR-045).
+const prohibitions = PROHIBITION_WORDS.map((w) => `\`${w}\``);
+const prohibitionPhrase = `${prohibitions.slice(0, -1).join(', ')} or ${prohibitions.at(-1)}`;
+if (PROHIBITION_WORDS.length < 2) {
+  problems.push('PROHIBITION_WORDS (scripts/spec-shape.mjs) holds fewer than two words, so the phrase this check looks for is not a list. Fix this check rather than leaving it matching nothing.');
+} else if (!specWriter.includes(prohibitionPhrase)) {
+  problems.push(`agents/spec-writer.md does not say ${prohibitionPhrase}, the words in PROHIBITION_WORDS (scripts/spec-shape.mjs) that spec-trace refuses beside another claim on one id.`);
 }
 for (const file of ['spec-flow.md', 'resume.md']) {
   if (!/\bAssumptions\b/.test(readFileSync(join(ROOT, 'commands', file), 'utf8'))) {

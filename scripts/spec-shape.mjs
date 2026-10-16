@@ -184,6 +184,67 @@ export function assumptionsProblem(body) {
 }
 
 /**
+ * What makes a requirement a prohibition. One list: the rule below reads
+ * these and the spec-writer's contract must name each (ADR-045).
+ */
+export const PROHIBITION_WORDS = ['cannot', 'must not', 'never', 'only'];
+
+const WORD = `(?:${PROHIBITION_WORDS.map((w) => w.replace(/ /g, '\\s+')).join('|')})`;
+
+// Not in a compound or an identifier (`read-only`, `neverExpires`), not
+// `not only`, which adds a claim, and not `the only`, which names one thing.
+const PROHIBITION = new RegExp(`(?<![\\w-])(?<!\\b(?:not|the|an)\\s+)${WORD}(?![\\w-])`, 'i');
+
+// Where one claim ends and another begins. Not a bare `and`: it joins the
+// object of a single prohibition as often as two claims ("only admins and
+// owners may delete").
+const CLAUSE_BREAK = new RegExp(
+  [
+    ';',
+    '\\s[—–]\\s',
+    '\\s--?\\s',
+    ',\\s*(?:and|but|yet|while|whereas)\\b',
+    '\\s(?:but|yet|whereas)\\s',
+    `(?:,|\\sand)\\s+(?=${WORD}(?![\\w-]))`,
+  ].join('|'),
+  'i',
+);
+
+// A word after one of these, up to the next comma, describes a thing rather
+// than forbids one: "returns 404 when the user cannot be found".
+const SUBORDINATE = /\b(?:when|whenever|if|unless|once|until|because|since|after|before|where|whether|that|which|who|whom|whose)\b/i;
+
+/** The prohibition word a clause states, or null. */
+function prohibitionIn(clause) {
+  for (const segment of clause.split(',')) {
+    const word = PROHIBITION.exec(segment);
+    if (!word) continue;
+    const sub = SUBORDINATE.exec(segment);
+    if (!sub || sub.index > word.index) return word[0].toLowerCase().replace(/\s+/g, ' ');
+  }
+  return null;
+}
+
+const ADDED_DELTA = /^[-*]\s*ADDED\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)(.*)$/gm;
+
+/**
+ * Every ADDED delta that states a prohibition and another claim on one id,
+ * with the word that made it one. Quoted and code text is not read: a message
+ * or a flag may hold any of the words.
+ */
+export function* pairedProhibitions(body) {
+  for (const m of deltasSection(body).matchAll(ADDED_DELTA)) {
+    const claim = m[2]
+      .replace(/^\s*[—–:-]?\s*/, '')
+      .replace(/`[^`]*`|"[^"]*"|“[^”]*”/g, ' ');
+    const clauses = claim.split(CLAUSE_BREAK).filter((c) => c.trim());
+    if (clauses.length < 2) continue;
+    const word = clauses.map(prohibitionIn).find(Boolean);
+    if (word) yield { line: m[0], id: m[1], word };
+  }
+}
+
+/**
  * Why a live change spec cannot be built from, one message per problem: the
  * checks spec-trace makes of every live change at the gate. phase-guard makes
  * the same ones when a run leaves `spec`, so a spec that would fail its first
@@ -261,6 +322,29 @@ export function liveSpecProblems(slug, body, { hasProposal, archivedBodies }) {
       `specflow/${slug}/spec.md ADDs ${reused.join(', ')}, which this spec or a shipped change REMOVED. ` +
         `A retired id keeps meaning the behaviour that was removed — in the archive and in any test or record that names it — ` +
         `so a new requirement takes the next unused id in its capability's sequence.`,
+    );
+  }
+
+  // ---- a prohibition has an id of its own ----------------------------------
+  //
+  // spec-trace binds an id to a test that ran under its name, so one test of
+  // "filters by A and B, never by C" passes while it asserts only A and B: the
+  // half that forbids is the half a test of the other half never reaches.
+  // Alone on its id, the prohibition keeps the gate red until a test named
+  // for it runs. Fix briefs too: a case 1 ADDs exactly as a feature does.
+  //
+  // What this does NOT do: read grammar. It reads PROHIBITION_WORDS and the
+  // punctuation and conjunctions that join clauses, so "does not", "refuses"
+  // and "admins can delete and guests cannot" pass, and so does a single
+  // clause with "only", which allows as well as forbids. Nor does it check
+  // that the test named for the prohibition asserts it; the fold reads that
+  // (ADR-020). See ADR-045.
+  for (const { line, id, word } of pairedProhibitions(body)) {
+    problems.push(
+      `specflow/${slug}/spec.md: "${line.trim()}" pairs a prohibition ("${word}") with another claim on one id. ` +
+        `spec-trace binds ${id} to any test that ran under its name, so a test of what the requirement allows passes ` +
+        `while nothing checks what it forbids. Give the prohibition an ADDED id of its own — "filters by A and B" on one id, ` +
+        `"never filters by C" on the next — so the gate stays red until a test named for it runs.`,
     );
   }
 
