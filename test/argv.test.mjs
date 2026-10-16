@@ -191,6 +191,24 @@ describe('resolveLocalBin', () => {
     });
   });
 
+  // npm names the target as the package declares it, and typescript declares
+  // `bin/tsc`. The shim runs it with node, so it is the entrypoint.
+  test('an extensionless entrypoint the shim runs with node resolves', () => {
+    withDir((dir) => {
+      packageEntry(dir, 'typescript', 'bin/tsc');
+      writeFileSync(
+        join(dir, 'node_modules', '.bin', 'tsc'),
+        '#!/bin/sh\nbasedir=$(dirname "$0")\n' +
+          'if [ -x "$basedir/node" ]; then\n' +
+          '  exec "$basedir/node"  "$basedir/../typescript/bin/tsc" "$@"\n' +
+          'else \n' +
+          '  exec node  "$basedir/../typescript/bin/tsc" "$@"\n' +
+          'fi\n',
+      );
+      assert.equal(resolveLocalBin(dir, 'tsc'), 'node_modules/typescript/bin/tsc');
+    });
+  });
+
   test('the POSIX shape resolves through the symlink', (t) => {
     withDir((dir) => {
       packageEntry(dir, 'eslint', 'bin/eslint.js');
