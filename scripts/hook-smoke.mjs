@@ -1687,6 +1687,20 @@ t('phase-guard denies plan from spec over what spec-trace would reject at the fi
   return null;
 }, { phase: 'spec' });
 
+t('phase-guard denies plan from spec over an ADDED that pairs a prohibition with another claim', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('a thing', 'filters by A and B, never by C'));
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a prohibition sharing its id with what it allows (exit ${r.status})`;
+  if (!/REQ-USER-001/.test(r.stderr) || !/id of its own/.test(r.stderr)) return `the denial does not name the delta and the split: ${r.stderr.slice(0, 400)}`;
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard allows leaving spec with each prohibition on its own id', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', '- ADDED REQ-USER-001 — filters by A and B\n- ADDED REQ-USER-002 — never filters by C'));
+  const r = writePhase(repo, 'plan');
+  return r.status === 0 ? null : `a prohibition on its own id was denied (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
 t('phase-guard denies implement from spec over a fix brief whose CHANGED says no kind', (repo) => {
   writeChange(repo, '# Fix — my-change\n\n## Case\n3 SPEC-WRONG\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — now right\n', { proposal: false });
   const r = writePhase(repo, 'implement');

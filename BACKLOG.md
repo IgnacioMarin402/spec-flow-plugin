@@ -57,19 +57,6 @@ A mod may only show (ADR-029), from `.claude/state/` and the session's own
 events (ADR-037). **Done:** a list of the hooks and scripts that only observe,
 each with what a mod would add, before any is moved.
 
-### B46 — a requirement that forbids something is proven by a test of what it allows
-
-spec-trace binds an id to a test that ran under its name, so one test named for
-"filters by A and B, never by C" passes while asserting only A and B. Only the
-fold's reading caught it (ADR-020). **Candidates, cheapest first:** the
-spec-writer gives each prohibition ("cannot", "must not", "never", "only") an
-id of its own, so spec-trace stays red until a test named for it runs; the
-planner's `Tests` field and the reviewer's checklist name a test per clause.
-**Done:** the first, checked on the spec and not only in the prompt: a
-spec-time case in which an ADDED delta that pairs a prohibition with another
-claim is refused, red on `620901d`, with `agent-contracts` holding the
-spec-writer's contract to the same words, as it does the question cap (ADR-030).
-
 ### B48 — what needs a database or a running app is checked by nobody
 
 The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
