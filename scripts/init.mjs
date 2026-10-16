@@ -419,9 +419,17 @@ export function buildContract(root) {
   for (const name of ['build', 'typecheck']) {
     if (!scripts[name]) continue;
     const parsed = parseScript(scripts[name]);
-    if (!parsed) {
+    // A package manager, or another script's name (`npm run build:lib` parses
+    // to `build:lib`), hands off to scripts a shell runs. Spawned with none it
+    // fails at every gate, and an optional check that cannot run is worse
+    // than none.
+    const delegates = parsed && (PACKAGE_MANAGERS.has(parsed.bin) || Object.hasOwn(scripts, parsed.bin));
+    if (!parsed || delegates) {
+      const why =
+        shellOnly(scripts[name]) ??
+        (delegates ? 'it runs a package script through the package manager, and this engine spawns one command with no shell' : 'it names no command');
       review.push(
-        `extra_checks — the "${name}" script (${scripts[name]}) was not offered: ${shellOnly(scripts[name]) ?? 'it names no command'}. Nothing runs it during a run; to have one, add an entry by hand, one argv token per array element and no quotes around any of them.`,
+        `extra_checks — the "${name}" script (${scripts[name]}) was not offered: ${why}. Nothing runs it during a run; to have one, add an entry by hand, one argv token per array element and no quotes around any of them.`,
       );
       continue;
     }

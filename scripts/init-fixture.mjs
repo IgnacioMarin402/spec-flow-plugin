@@ -598,6 +598,30 @@ await Promise.all([
     }),
   ),
 
+  // Both parse to one token, and neither is a command this engine can spawn:
+  // `build:lib` is a script name, and a package manager on Windows is a
+  // `.cmd` no shell-less spawn finds.
+  check('a script that hands off to another package script is reported, not offered', () =>
+    withRepo(
+      {
+        ...COMPLETE,
+        scripts: { ...COMPLETE.scripts, build: 'npm run build:lib', 'build:lib': 'tsc -p .', typecheck: 'pnpm -r typecheck' },
+      },
+      async (dir) => {
+        const res = await run([], dir);
+        if (res.status !== 0) return `an optional script init cannot run held its exit code (${res.status}): ${res.stdout}`;
+        const checks = readContract(dir).extra_checks;
+        if (checks.length !== 0) return `init offered a command that cannot be spawned: ${JSON.stringify(checks.map((c) => c.cmd))}`;
+        for (const name of ['build', 'typecheck']) {
+          if (!new RegExp(`REVIEW\\s+extra_checks — the "${name}" script .* was not offered: it runs a package script`).test(res.stdout)) {
+            return `nothing said the "${name}" script will not run during a run: ${res.stdout}`;
+          }
+        }
+        return null;
+      },
+    ),
+  ),
+
   // A base it cannot resolve is reported and blocks the exit code, even
   // though the READER treats base_ref as optional. The two disagree on
   // purpose: most repos resolve a base without the field, so requiring it in
