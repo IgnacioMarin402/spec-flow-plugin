@@ -95,6 +95,12 @@ export function runUnscopedChecks(root, config) {
     } else if (check === SPEC_TRACE_CHECK) {
       out = `(${argv[1] ?? '?'} not present — the plugin install is broken or partial: spec-trace ships with the engine itself, it is never a repo-provided script)`;
       rc = 1;
+    } else if (/(^|[\\/])node_modules[\\/]/.test(check.cmd[1])) {
+      // A package's entrypoint (what init writes for a local bin) is installed,
+      // never written by the repo. Missing, it is an install not run, and the
+      // grace below would read it green with its own tool never spawned.
+      out = `(${argv[1]} not present — a dependency under node_modules/ is not installed: install the repo's dependencies, then re-run)`;
+      rc = 1;
     } else {
       out = `(${argv[1] ?? '?'} not present)`;
       rc = 0;
