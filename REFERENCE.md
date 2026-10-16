@@ -165,7 +165,8 @@ Your own checks, run at every gate and again at `done`.
 | `class` | no | `"lint/trace"` (route as an edit, default) or `"behaviour"` (route as a re-plan) |
 
 A `cmd` naming a repo-local script that does not exist yet is skipped, not
-failed.
+failed; one naming a file under `node_modules/` that is not installed fails.
+`init` offers the repo's `build` and `typecheck` scripts as entries.
 
 ### `unscoped_denied`
 

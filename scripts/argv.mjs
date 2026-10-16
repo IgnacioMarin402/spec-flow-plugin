@@ -153,10 +153,12 @@ export function resolveLocalBin(root, binName) {
   }
 
   try {
-    // The shim's `exec` line is the only machine-readable part. `$basedir/node`
-    // appears on it too, which is why the pattern insists on a JS extension
-    // rather than taking the first path it sees.
-    const target = /\$basedir\/(\S+?\.(?:js|mjs|cjs))/.exec(readFileSync(shim, 'utf8'));
+    // The shim's `exec` line is the only machine-readable part, and what it
+    // hands to `node` (bare, or as `"$basedir/node"`) is JavaScript whatever
+    // its name: typescript's `bin/tsc` has no extension. Keyed on the
+    // interpreter, not the first path: `$basedir/node` sits on the same line.
+    // Unquoted tokens between are the node flags a shebang carries.
+    const target = /exec\s+(?:node|"\$basedir\/node")\s+(?:[^\s"]+\s+)*"\$basedir\/([^"]+)"/.exec(readFileSync(shim, 'utf8'));
     if (!target) return null;
     const full = resolve(dirname(shim), target[1]);
     return existsSync(full) ? toPosix(relative(root, full)) : null;

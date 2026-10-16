@@ -80,12 +80,12 @@ node <the plugin's path>/scripts/init.mjs   # writes .spec-flow/config.json
 node <the plugin's path>/scripts/check-changed.mjs
 ```
 
-`init` reads your test and lint commands from `package.json`, adds your
-runner's reporter flag so the suite writes a report of what ran, and marks
-anything it inferred `REVIEW` and anything it could not read `MISSING`. If it
-leaves `MISSING` lines, ask Claude Code to set up spec-flow: the plugin's setup
-skill fills them and proves the result with `check-changed`. Green there means
-green at the gate. Every field is in
+`init` reads your test, lint, build and typecheck commands from
+`package.json`, adds your runner's reporter flag so the suite writes a report
+of what ran, and marks anything it inferred `REVIEW` and anything it could not
+read `MISSING`. If it leaves `MISSING` lines, ask Claude Code to set up
+spec-flow: the plugin's setup skill fills them and proves the result with
+`check-changed`. Green there means green at the gate. Every field is in
 [REFERENCE](REFERENCE.md#what-makes-a-requirement-proven).
 
 Before the first run, write down how a module is built in this repo — in

@@ -540,6 +540,88 @@ await Promise.all([
     }),
   ),
 
+  // ---- a build and a typecheck run during a run ----
+  //
+  // Neither needs a database or a running app, so both can hold at every
+  // gate. typescript declares its bin without an extension: the entry must
+  // still name the file node runs, since a bare `tsc` spawned with no shell
+  // is never found.
+  check('the repo\'s build and typecheck scripts become extra_checks entries', () =>
+    withRepo(
+      {
+        ...COMPLETE,
+        scripts: { ...COMPLETE.scripts, build: 'tsc -p tsconfig.build.json', typecheck: 'tsc --noEmit' },
+        installedBins: [...COMPLETE.installedBins, { name: 'tsc', pkg: 'typescript', entry: 'bin/tsc' }],
+      },
+      async (dir) => {
+        const res = await run([], dir);
+        if (res.status !== 0) return `init did not finish (exit ${res.status}): ${res.stdout}`;
+        const checks = readContract(dir).extra_checks;
+        for (const [name, args] of [['build', ['-p', 'tsconfig.build.json']], ['typecheck', ['--noEmit']]]) {
+          const entry = checks.find((c) => c.name === name);
+          if (!entry) return `no "${name}" entry in extra_checks, so no ${name} runs during a run: ${JSON.stringify(checks)}`;
+          if (entry.field !== name) return `the "${name}" entry writes "${entry.field}" in gate-history.log`;
+          const want = ['node', 'node_modules/typescript/bin/tsc', ...args];
+          if (JSON.stringify(entry.cmd) !== JSON.stringify(want)) {
+            return `the "${name}" entry runs ${JSON.stringify(entry.cmd)}, not ${JSON.stringify(want)}`;
+          }
+          if (!new RegExp(`REVIEW\\s+extra_checks — offered "${name}"`).test(res.stdout)) {
+            return `the "${name}" entry was written with no REVIEW line, so a check at every gate reads as a reading: ${res.stdout}`;
+          }
+        }
+        return null;
+      },
+    ),
+  ),
+
+  check('a repo with neither script keeps extra_checks empty', () =>
+    withRepo(COMPLETE, async (dir) => {
+      await run([], dir);
+      const checks = readContract(dir).extra_checks;
+      if (checks.length !== 0) return `init wrote a check the repo never declared: ${JSON.stringify(checks)}`;
+      return null;
+    }),
+  ),
+
+  // `extra_checks` is optional, so a script init cannot read must not hold
+  // the exit code the way an unreadable `test` does — nor vanish unsaid.
+  check('a build script only a shell can run is reported, not half-parsed, and init still finishes', () =>
+    withRepo({ ...COMPLETE, scripts: { ...COMPLETE.scripts, build: 'tsc && node bundle.mjs' } }, async (dir) => {
+      const res = await run([], dir);
+      if (res.status !== 0) return `an unreadable optional script held init's exit code (${res.status}): ${res.stdout}`;
+      const checks = readContract(dir).extra_checks;
+      if (checks.length !== 0) return `init wrote part of a chained script as a check: ${JSON.stringify(checks)}`;
+      if (!/REVIEW\s+extra_checks — the "build" script .* was not offered: it chains/.test(res.stdout)) {
+        return `nothing said the build script will not run during a run: ${res.stdout}`;
+      }
+      return null;
+    }),
+  ),
+
+  // Both parse to one token, and neither is a command this engine can spawn:
+  // `build:lib` is a script name, and a package manager on Windows is a
+  // `.cmd` no shell-less spawn finds.
+  check('a script that hands off to another package script is reported, not offered', () =>
+    withRepo(
+      {
+        ...COMPLETE,
+        scripts: { ...COMPLETE.scripts, build: 'npm run build:lib', 'build:lib': 'tsc -p .', typecheck: 'pnpm -r typecheck' },
+      },
+      async (dir) => {
+        const res = await run([], dir);
+        if (res.status !== 0) return `an optional script init cannot run held its exit code (${res.status}): ${res.stdout}`;
+        const checks = readContract(dir).extra_checks;
+        if (checks.length !== 0) return `init offered a command that cannot be spawned: ${JSON.stringify(checks.map((c) => c.cmd))}`;
+        for (const name of ['build', 'typecheck']) {
+          if (!new RegExp(`REVIEW\\s+extra_checks — the "${name}" script .* was not offered: it runs a package script`).test(res.stdout)) {
+            return `nothing said the "${name}" script will not run during a run: ${res.stdout}`;
+          }
+        }
+        return null;
+      },
+    ),
+  ),
+
   // A base it cannot resolve is reported and blocks the exit code, even
   // though the READER treats base_ref as optional. The two disagree on
   // purpose: most repos resolve a base without the field, so requiring it in

@@ -62,14 +62,11 @@ each with what a mod would add, before any is moved.
 The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
 `extra_checks` entry runs at every gate, at `done` and in `spec-flow check`, so
 one that needs a database or a running app fails wherever none is up, and is
-routed to the implementer as lint/trace. `spec-flow init` proposes no entry: it
-reads only the `test`, `lint` and `lint:fix`/`format` scripts and writes
-`extra_checks: []`, so not even a build or a typecheck, which need neither, runs
-during a run. B35 leaves any entry removable mid-run. **Done:** init offers the
-repo's `build` and `typecheck` scripts as `extra_checks` entries,
-with an init-fixture case red on `620901d`. **Needs a decision first** for
-end-to-end checks, migrations and booting the app: where they run, if not at
-every gate.
+routed to the implementer as lint/trace. `spec-flow init` now offers the
+repo's `build` and `typecheck` scripts, which need neither; it offers nothing
+that needs either. B35 leaves any entry removable mid-run. **Needs a decision
+first** for end-to-end checks, migrations and booting the app: where they run,
+if not at every gate.
 
 ### B52 — the spec-writer on the cheapest tier
 
