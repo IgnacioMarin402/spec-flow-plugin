@@ -427,9 +427,13 @@ It shows a pane with one box per spec-flow agent while the agent works: model,
 effort, time, requests, how many tools and skills it called, the advisor's
 consultations and their time, its tokens split into cache read, fresh and
 output, and the last tool. When the agent finishes, its box shows the
-`STATUS:` it handed back. The orchestrator, the phase and the last gate sit
-above the boxes, the run line totals them with what the session cost as
-`/cost` counts it, and the status line names the phase and who is running.
+`STATUS:` it handed back, and a box the agent gate sent back says how often
+and why. Above the boxes sit the orchestrator, the phase, the last gate with the
+checks it failed, the planner's and the architect's calls against their caps,
+and any check whose own log says it stood down during this run
+([ADR-047](decisions/047-an-observer-stays-a-command-hook-and-the-live-view-shows-its-record.md)).
+The run line totals them with what the session cost as `/cost` counts it, and
+the status line names the phase and who is running.
 
 - `/spec-flow-live` opens the pane, even mid-turn. The pane also opens by
   itself at the first spawn, if there is room beside the transcript.

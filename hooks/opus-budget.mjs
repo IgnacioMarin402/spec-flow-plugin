@@ -49,12 +49,7 @@ import { join } from 'node:path';
 import { projectDir, stateDir, readOwnedPhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 import { coldResume } from './lib/agent-cache.mjs';
-
-/** Each escalation role's cap, its default and its counter (ADR-038). */
-const BUDGETS = {
-  planner: { key: 'max_opus_calls', fallback: 6, counter: 'opus_calls' },
-  architect: { key: 'max_architect_calls', fallback: 3, counter: 'architect_calls' },
-};
+import { BUDGETS, budgetCap } from './lib/budgets.mjs';
 
 function readRegistry(path) {
   const reg = {};
@@ -136,13 +131,7 @@ await run(async () => {
 
   const budget = BUDGETS[agent];
   const countFile = join(state, budget.counter);
-  let max = budget.fallback;
-  try {
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    max = Number(config[budget.key] ?? budget.fallback);
-  } catch {
-    /* missing or malformed config -> the default */
-  }
+  const max = budgetCap(readFileOrDefault(configPath, ''), agent);
 
   const used = Number(readFileOrDefault(countFile, '0')) || 0;
 

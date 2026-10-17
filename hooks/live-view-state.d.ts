@@ -57,6 +57,16 @@ export type LiveRun = {
   attempts: number
   // what the session has cost, as /cost totals it; null where the host keeps no ledger
   usd: number | null
+  // the checks the last gate line records as failed: `lint`, `test`, an unscoped check's field
+  failed: string[]
+  // planner and architect calls this run, against the cap opus-budget denies at
+  budgets: { role: string; used: number; cap: number }[]
+  // the checks whose own log says they stood down during this run
+  stoodDown: string[]
+  // by agent id: the agent gate's send-backs, the last one's reasons, and whether it then let the return through
+  sentBack: Record<string, { n: number; why: string; cap: boolean }>
+  // run-trace.log is there and could not be read whole, so send-backs are unknown
+  traceUnread: boolean
 }
 
 declare module 'claude-code' {

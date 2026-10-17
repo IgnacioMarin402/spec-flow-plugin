@@ -11,15 +11,19 @@
  * engine reads what it shows: `token-trace` stays the record.
  *
  * Per-agent activity comes from the session's events, joined by `agentId`.
- * Phase, milestone and gate come from `.claude/state/`. It never reads a
- * transcript (ADR-036). The one cost in dollars it shows is the session's, as
- * Claude Code totals it: a share per role would be a guess (ADR-037).
+ * Phase, milestone, gate, budgets, send-backs and the checks that stood down
+ * come from `.claude/state/`, and the caps from the file `opus-budget` reads
+ * them from (ADR-047). It never reads a transcript (ADR-036). The one cost in
+ * dollars it shows is the session's, as Claude Code totals it: a share per
+ * role would be a guess (ADR-037).
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnStepInput, TurnStepResult } from 'claude-code'
 
-// The parser the agent gate and run-trace read a return with: one copy.
-import { parseReturn } from '../scripts/agent-blocks.mjs'
+// The parser the agent gate and run-trace read a return with, and the gate's cap: one copy.
+import { MAX_BLOCKS, parseReturn } from '../scripts/agent-blocks.mjs'
+// The caps opus-budget denies at: one copy.
+import { BUDGETS, budgetCap } from './lib/budgets.mjs'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
 
 const PANE = 'spec-flow-live'
@@ -33,7 +37,15 @@ const CARD = 38 // 34 columns of text, its padding and its border
 const ZERO: LiveTokens = { in: 0, cacheRead: 0, cacheWrite: 0, out: 0 }
 const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, byTool: {}, advisor: 0, advisorMs: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', effort: '', tokens: ZERO }
 const TURN0: LiveTurn = { steps: 0, tokens: ZERO, advisor: 0, advisorMs: 0 }
-const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null }
+const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null, failed: [], budgets: [], stoodDown: [], sentBack: {}, traceUnread: false }
+
+// The checks whose own log says they stood down, each line stamped when it did.
+const STOOD_DOWN = [
+  { file: 'orchestrator-scope-unmatched.log', what: 'orchestrator-scope stood down: no tool call attributed to an agent yet' },
+  { file: 'human-turn-unmatched.log', what: 'the case 3 check stood down: no answer ever recorded' },
+]
+// The gate line's fields that are not a check.
+const NOT_A_CHECK = ['cc', 'engine', 'phase', 'attempt', 'result', 'files']
 
 const agents = atom({ plugin: 'spec-flow', key: 'liveAgents' } as const, [])
 const orchestrator = atom({ plugin: 'spec-flow', key: 'liveOrchestrator' } as const, ORCH0)
@@ -58,6 +70,37 @@ let phaseSeen = ''
 let phaseTracked = false
 let gateSeen = ''
 let gateLine = ''
+let traceSeen = ''
+let stoodSeen = ''
+let stood: string[] = []
+let backs: LiveRun['sentBack'] = {}
+let traceUnread = false
+
+/** The checks a failing gate line names with a non-zero code: `lint`, `test`, an unscoped check's field. */
+const failedChecks = (line: string): string[] =>
+  /\bresult=fail:(behaviour|lint\/trace)\b/.test(line)
+    ? [...line.matchAll(/ ([\w-]+)=(\S+)/g)].filter(([, k, v]) => !NOT_A_CHECK.includes(k) && v !== '0' && v !== '-').map(([, k]) => k)
+    : []
+
+/** The agent gate's send-backs per agent, from its own `agent-check` lines (ADR-031). */
+function sendBacks(trace: string, ids: Set<string>): LiveRun['sentBack'] {
+  const out: LiveRun['sentBack'] = {}
+  for (const [, result, why, id] of trace.matchAll(/ agent-check agent=\S+ result=(block|cap) why=(\S+) agent_id=([\w-]+)$/gm)) {
+    if (!ids.has(id)) continue
+    const was = out[id] ?? { n: 0, why: '', cap: false }
+    out[id] = { n: was.n + (result === 'block' ? 1 : 0), why, cap: was.cap || result === 'cap' }
+  }
+  return out
+}
+
+async function statKey($: EngineInterface, path: string): Promise<string> {
+  try {
+    const st = await $.fs.stat(path)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return ''
+  }
+}
 
 /**
  * This session's run, as `readOwnedPhase` reads it (ADR-017): a phase another
@@ -111,6 +154,50 @@ async function poll($: EngineInterface): Promise<void> {
   } catch {
     /* no ledger to read: shown as none */
   }
+
+  // The run starts where its telemetry mark was set; no mark, every line counts, as above.
+  const offsetKey = await statKey($, `${root}/.claude/state/run-offset`)
+  const stoodKeys = [offsetKey, ...(await Promise.all(STOOD_DOWN.map(d => statKey($, `${root}/.claude/state/${d.file}`))))].join('|')
+  if (phase && stoodKeys !== stoodSeen) {
+    stoodSeen = stoodKeys
+    const startedAt = Number(offsetKey.split(':')[1]) || 0
+    stood = []
+    for (const d of STOOD_DOWN) {
+      const n = (await stateText($, root, d.file)).split('\n').filter(l => Date.parse(l.split(' ')[0] ?? '') >= startedAt).length
+      if (n > 0) stood.push(`${d.what} (${n}×)`)
+    }
+  }
+
+  const traceKey = await statKey($, `${root}/.claude/state/run-trace.log`)
+  const ids = (await read($, agents)).map(a => a.agentId)
+  if (phase && `${traceKey}|${ids.join(',')}` !== traceSeen) {
+    traceSeen = `${traceKey}|${ids.join(',')}`
+    backs = {}
+    traceUnread = false
+    if (traceKey !== '') {
+      try {
+        backs = sendBacks(await $.fs.read(`${root}/.claude/state/run-trace.log`), new Set(ids))
+      } catch {
+        // There and unread — over what one read takes — is said, never shown as nothing sent back.
+        traceUnread = true
+      }
+    }
+  }
+
+  // While a run can still spend them: at `done` or `idle` no spawn is charged.
+  let budgets: LiveRun['budgets'] = []
+  if (ARMED.includes(phase)) {
+    let config = ''
+    try {
+      config = await $.fs.read(`${root}/.claude/spec-flow.config.json`)
+    } catch {
+      /* none: each cap is its default, as opus-budget reads it */
+    }
+    budgets = await Promise.all(
+      Object.entries(BUDGETS).map(async ([role, b]) => ({ role, used: Number(await stateText($, root, b.counter)) || 0, cap: budgetCap(config, role) })),
+    )
+  }
+
   const after: LiveRun = {
     phase,
     milestone: phase && ours && mk ? `${mk} · ${slug}` : '',
@@ -118,6 +205,11 @@ async function poll($: EngineInterface): Promise<void> {
     gateAt: Date.parse(gateLine.split(' ')[0] ?? '') || 0,
     attempts: phase ? Number(await stateText($, root, 'gate_attempts')) || 0 : 0,
     usd,
+    failed: phase ? failedChecks(gateLine) : [],
+    budgets,
+    stoodDown: phase ? stood : [],
+    sentBack: phase ? backs : {},
+    traceUnread: phase !== '' && traceUnread,
   }
   if (JSON.stringify(after) !== JSON.stringify(before)) await update($, run, () => after)
 }
@@ -292,6 +384,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     root = e.cwd
+    traceSeen = stoodSeen = ''
     try {
       session = await $.session.id()
     } catch {
@@ -454,6 +547,22 @@ export const register: Register = (on, options) => {
           <Text dimColor>{`${r.gateAt ? ` · ${dur(at - r.gateAt)} ago` : ''} · failures in a row ${r.attempts}`}</Text>
         </Text>
       )
+    // Named by the checks the gate line records; their output stays in gate-failure.log.
+    const failed = r.failed.length > 0 && <Text color="error" wrap="truncate-end">{`  failed: ${r.failed.join(' · ')}`}</Text>
+
+    // A cap that is not a number is one opus-budget never denies at.
+    const budget = r.budgets.length > 0 && (
+      <Text wrap="truncate-end">
+        <Text dimColor>budget:</Text>
+        {r.budgets.map(b =>
+          Number.isFinite(b.cap) ? (
+            <Text color={b.used >= b.cap ? 'error' : b.used === b.cap - 1 ? 'warning' : undefined}>{` ${b.role} ${b.used}/${b.cap}`}</Text>
+          ) : (
+            <Text color="error">{` ${b.role} ${b.used}, cap unreadable: never denied`}</Text>
+          ),
+        )}
+      </Text>
+    )
 
     const orchestratorBox = (
       <Box flexDirection="column" borderStyle="round" borderColor="suggestion" paddingX={1} width={Math.min(cols, CARD * 2 + 3)}>
@@ -473,6 +582,16 @@ export const register: Register = (on, options) => {
         <Text wrap="truncate-end">{split(m.tokens)}</Text>
       </Box>
     )
+
+    const sentBack = (a: LiveAgent) => {
+      const b = r.sentBack[a.agentId]
+      if (!b) return null
+      return (
+        <Text color={b.cap ? 'error' : 'warning'} wrap="truncate-end">
+          {b.cap ? `sent back ${b.n}/${MAX_BLOCKS}, then let through · ${b.why}` : `sent back ${b.n}/${MAX_BLOCKS} · ${b.why}`}
+        </Text>
+      )
+    }
 
     // A running agent is drawn whole and lit; a finished one keeps its box, dimmed and shorter.
     const card = (a: LiveAgent) => {
@@ -494,6 +613,7 @@ export const register: Register = (on, options) => {
         return (
           <Box key={`agent-${a.agentId}`} flexDirection="column" borderStyle="round" borderColor={color} borderDimColor paddingX={1} width={CARD}>
             {title}
+            {sentBack(a)}
             <Text dimColor wrap="truncate-end">{`${pace} · ${shortModel(a.model)}`}</Text>
             <Text dimColor wrap="truncate-end">{counted(a)}</Text>
             {advised(a) !== '' && <Text dimColor wrap="truncate-end">{advised(a)}</Text>}
@@ -504,6 +624,7 @@ export const register: Register = (on, options) => {
       return (
         <Box key={`agent-${a.agentId}`} flexDirection="column" borderStyle="bold" borderColor={color} paddingX={1} width={CARD}>
           {title}
+          {sentBack(a)}
           <Text dimColor wrap="truncate-end">
             {`${shortModel(a.model)}${a.effort ? ` · ${a.effort}` : ''}${a.resumes ? ` · resumed ${a.resumes}` : ''}`}
           </Text>
@@ -536,6 +657,12 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         {bar}
         {gate}
+        {failed}
+        {budget}
+        {r.stoodDown.map(line => (
+          <Text color="warning" wrap="wrap">{`⚠ ${line}`}</Text>
+        ))}
+        {r.traceUnread && <Text dimColor wrap="wrap">run-trace.log is over what one read takes: the agent gate's send-backs are not shown</Text>}
         {orchestratorBox}
         {list.length === 0 ? (
           <Text dimColor>No spec-flow agent has been spawned in this session yet.</Text>

@@ -51,12 +51,6 @@ spec step the telemetry never saw (ADR-040). An archive never holds its run's
 closing turn: stats charges it to the run from the live log, which a cloud
 branch loses with its container.
 
-### B41 — which hooks could be mods
-
-A mod may only show (ADR-029), from `.claude/state/` and the session's own
-events (ADR-037). **Done:** a list of the hooks and scripts that only observe,
-each with what a mod would add, before any is moved.
-
 ### B48 — what needs a database or a running app is checked by nobody
 
 The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
