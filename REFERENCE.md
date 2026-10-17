@@ -135,9 +135,12 @@ The system sends a single-use link, valid for one hour.
 A change spec declares what it does to `specs/`. `ADDED` fails when the new id
 has no test that ran; `REMOVED` fails when a test still reports an id no spec
 declares. Once a change of this branch is stamped SHIPPED, an `ADDED` id it
-never wrote into `specs/` fails, and so does a `REMOVED` id still there
+never wrote into `specs/` fails, and so does a `REMOVED` id still there; during
+a run, only for the run's own change
 ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)). A
-claim that appears, disappears or changes is `REMOVED` + `ADDED` on a new id. `CHANGED` is only for edits that move no proof, and names which
+delta is one line, `- VERB REQ-<CAP>-0NN — <text>`: one spelled otherwise, or
+naming two ids before its text, fails. A claim that appears, disappears or
+changes is `REMOVED` + `ADDED` on a new id. `CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 
 ```markdown

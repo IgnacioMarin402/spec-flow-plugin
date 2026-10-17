@@ -41,6 +41,7 @@ import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
 import { resolveBase, archivedAtBase } from './changed-files.mjs';
+import { readPhase, readFileOrDefault } from '../hooks/lib/io.mjs';
 import {
   REQ_HEADING,
   REQ_TAG,
@@ -455,6 +456,15 @@ const shippedBodies = archived
   .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
   .filter(({ body }) => isShipped(body) && (deltas(body).next().done === false || unreadDeltas(body).next().done === false));
 let deltasUnchecked = false;
+// During a run the run answers for its own change, the one its milestones
+// name: a change the branch shipped before it is said, not failed, or every
+// milestone gate would route it to an implementer that did not cause it.
+// Outside a run, `spec-flow check` holds the whole branch (ADR-048).
+const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
+const runSlug = RUN_PHASES.includes(readPhase(root))
+  ? readFileOrDefault(join(root, '.claude', 'state', 'current-milestone'), '').split(/\s+/)[0] || null
+  : null;
+const earlier = [];
 if (specFiles.length > 0 && shippedBodies.length > 0) {
   let atBase = null;
   try {
@@ -472,22 +482,27 @@ if (specFiles.length > 0 && shippedBodies.length > 0) {
     );
     for (const { slug, body } of ours) {
       const rel = `specflow/archive/${slug}/spec.md`;
-      for (const unread of unreadDeltas(body)) problems.push(`${rel}: ${explainUnread(unread)}`);
+      const found = runSlug && slug !== runSlug ? earlier : problems;
+      for (const unread of unreadDeltas(body)) found.push(`${rel}: ${explainUnread(unread)}`);
       for (const { verb, id } of deltas(body)) {
         if (verb === 'ADDED' && !requirements.has(id) && !retired.has(id)) {
-          problems.push(
+          found.push(
             `${id} is ADDED by ${rel}, stamped SHIPPED, but no capability spec under ${CONFIG.trace.specs_dir}/ declares it — so no test is bound to it, and nothing proves it. ` +
               `The milestone that delivers it writes it into ${CONFIG.trace.specs_dir}/<capability>.md with the test that proves it; a change that did not deliver it is not SHIPPED as written.`,
           );
         }
         if (verb === 'REMOVED' && requirements.has(id)) {
-          problems.push(
+          found.push(
             `${id} is REMOVED by ${rel}, stamped SHIPPED, but ${requirements.get(id).spec} still declares it. Delete it there, and the test that reports it.`,
           );
         }
       }
     }
   }
+}
+
+for (const problem of earlier) {
+  console.log(`spec-trace: not this run's — a change this branch shipped before the run, which \`spec-flow check\` outside a run fails on: ${problem}`);
 }
 
 // ---- report -------------------------------------------------------------
@@ -573,8 +588,8 @@ if (problems.length > 0) {
 // tests ran, "every one proven" would be a claim over an unanswered question,
 // and it is reachable with a non-empty specs/ (a capability file holding no
 // `###` heading yet), which is where `graced` alone does not cover it.
-// `deltasUnchecked` too: a SHIPPED change's ADDED id may be bound to nothing.
-if (!graced && !unarmed && !deltasUnchecked) {
+// `deltasUnchecked` and `earlier` too: a SHIPPED change's ADDED id may be bound to nothing.
+if (!graced && !unarmed && !deltasUnchecked && earlier.length === 0) {
   console.log(
     `spec-trace: OK — ${requirements.size} requirement(s) across ${specFiles.length} capability spec(s), every one proven by a test; ` +
       `${archived.length} archived change(s), every one with a status.`,

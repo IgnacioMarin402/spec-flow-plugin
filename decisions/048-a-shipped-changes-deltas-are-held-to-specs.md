@@ -18,6 +18,12 @@ stood between them, while REFERENCE said an `ADDED` with no test fails.
   spec-trace fails an `ADDED` id no capability spec declares, unless a change
   of this branch `REMOVED` it, and a `REMOVED` id one still declares. The
   binding then requires a test that ran for every `ADDED`.
+- During a run, only the run's own change fails: the one its current
+  milestone names. A change the branch shipped before the run is printed and
+  does not fail; `spec-flow check` outside a run fails on it.
+- A delta line `deltas` does not read whole is refused in a live spec and in a
+  SHIPPED change of this branch: another spelling of the line, or a second id
+  before its text. Every check that binds a delta reads `deltas`.
 - A live change is not held: a milestone writes its delta when it delivers it.
 - Where no base resolves, spec-trace says the deltas were not checked, and why,
   and does not print that every requirement is proven.
@@ -32,8 +38,16 @@ stood between them, while REFERENCE said an `ADDED` with no test fails.
   milestones.
 - **Holding a live change's `ADDED` ids from its first gate.** A milestone early
   in the plan would be blocked over a later milestone's requirement.
+- **Failing a run over an earlier change of its branch.** The milestone gate
+  routes a lint/trace failure to the current implementer, whose work order does
+  not name the id.
+- **Reading more spellings of a delta line.** Each of the parsers that read the
+  section would have to learn them together, and a second id before the text
+  has no reading that is surely the author's.
 - **`CHANGED` ids.** The id exists before and after the edit (ADR-009).
 
 **Cost.** spec-trace asks git which archived changes the base holds, so it
 needs the base the gate already needs. A drift a branch inherits stays until
-someone fixes it on a branch of its own.
+someone fixes it on a branch of its own. A drift an earlier run of the branch
+left fails only outside a run, so a repository whose CI does not run
+`spec-flow check` merges it.

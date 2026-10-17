@@ -193,9 +193,10 @@ async function withRepo(files, assert) {
  * `withRepo` with git: `base` committed on `main`, then `branch` committed on
  * a branch off it, which is where spec-trace runs. The base resolves to
  * `main`, as it does for a run's own branch. `under` puts the project in that
- * folder of the repository instead of at its top.
+ * folder of the repository instead of at its top; `state` is written to
+ * `.claude/state/` after the commits, untracked, as a run leaves it.
  */
-async function withBranch(base, branch, assert, { under = '' } = {}) {
+async function withBranch(base, branch, assert, { under = '', state = {} } = {}) {
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-trace-branch-'));
   const projectDir = under ? join(repoDir, under) : repoDir;
   const git = (...args) => spawnSync('git', ['-c', 'user.email=f@example.com', '-c', 'user.name=fixture', ...args], { cwd: repoDir, encoding: 'utf8' });
@@ -216,6 +217,7 @@ async function withBranch(base, branch, assert, { under = '' } = {}) {
     write(branch);
     git('add', '-A');
     git('commit', '-q', '-m', 'branch');
+    write(Object.fromEntries(Object.entries(state).map(([name, text]) => [`.claude/state/${name}`, text])));
     const env = { ...process.env, CLAUDE_PROJECT_DIR: projectDir };
     const res = await run('node', [SPEC_TRACE], { cwd: tmpdir(), env });
     return await assert({ ...res, out: `${res.stdout}${res.stderr}` }, repoDir);
@@ -226,6 +228,12 @@ async function withBranch(base, branch, assert, { under = '' } = {}) {
 
 const shippedSpec = (...deltaLines) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${deltaLines.map((l) => `- ${l}\n`).join('')}`;
 const twoReqs = `${spec()}\n### REQ-USER-002 — the user can do another thing\n\nThe system does it.\n`;
+/** A branch that shipped run one's change and is running run two's. */
+const twoRuns = {
+  'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+  'specflow/run-two/spec.md': '# Spec — run two\n\n## Requirement deltas\n- ADDED REQ-USER-003 — the user can import data\n',
+  'specflow/run-two/proposal.md': '# Proposal\n\nWhy.\n',
+};
 
 await Promise.all([
   // ==== proof comes from what the runner REPORTED as executed (ADR-001) ======
@@ -574,6 +582,39 @@ await Promise.all([
         'specflow/archive/drop-export/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone'),
       },
       (r) => (r.status === 0 ? null : `a requirement added and then retired on one branch was reported missing: ${r.out}`),
+    ),
+  ),
+
+  // A run answers for its own change. One the branch shipped before it would
+  // fail every milestone gate, routed to an implementer that did not cause it.
+  check("during a run, a change the branch shipped before it is said, not failed", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      twoRuns,
+      (r) => {
+        if (r.status !== 0) return `run two's gate failed over run one's change: ${r.out}`;
+        if (!/not this run's.*REQ-USER-002/s.test(r.out)) return `run one's drift went unsaid: ${r.out}`;
+        return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
+      },
+      { state: { phase: 'implement', 'current-milestone': 'run-two M1 a-implementer' } },
+    ),
+  ),
+
+  check("during a run, the run's own SHIPPED change is held", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      twoRuns,
+      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/run-one/.test(r.out) ? null : `the run's own change was not held: ${r.out}`),
+      { state: { phase: 'implement', 'current-milestone': 'run-one M2 a-implementer' } },
+    ),
+  ),
+
+  check('a run that names no milestone is held to every change of its branch', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      twoRuns,
+      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED/.test(r.out) ? null : `with no milestone to tell runs apart, a change went unheld: ${r.out}`),
+      { state: { phase: 'implement' } },
     ),
   ),
 
