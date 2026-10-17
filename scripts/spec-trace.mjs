@@ -41,7 +41,7 @@ import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
 import { resolveBase, archivedAtBase } from './changed-files.mjs';
-import { readPhase, readFileOrDefault } from '../hooks/lib/io.mjs';
+import { readPhase } from '../hooks/lib/io.mjs';
 import {
   REQ_HEADING,
   REQ_TAG,
@@ -456,14 +456,13 @@ const shippedBodies = archived
   .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
   .filter(({ body }) => isShipped(body) && (deltas(body).next().done === false || unreadDeltas(body).next().done === false));
 let deltasUnchecked = false;
-// During a run the run answers for its own change, the one its milestones
-// name: a change the branch shipped before it is said, not failed, or every
-// milestone gate would route it to an implementer that did not cause it.
-// Outside a run, `spec-flow check` holds the whole branch (ADR-048).
+// A run's own change is live until its fold, so while one is, a SHIPPED change
+// of the branch is an earlier run's: said, not failed, or a milestone gate would
+// route it to an implementer whose work order does not name it. From the fold's
+// gate on, and at `done`, which allows no live change, the branch is held. Read
+// off the repository, never off state a hook wrote (ADR-048).
 const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
-const runSlug = RUN_PHASES.includes(readPhase(root))
-  ? readFileOrDefault(join(root, '.claude', 'state', 'current-milestone'), '').split(/\s+/)[0] || null
-  : null;
+const beforeFold = live.length > 0 && RUN_PHASES.includes(readPhase(root));
 const earlier = [];
 if (specFiles.length > 0 && shippedBodies.length > 0) {
   let atBase = null;
@@ -482,7 +481,7 @@ if (specFiles.length > 0 && shippedBodies.length > 0) {
     );
     for (const { slug, body } of ours) {
       const rel = `specflow/archive/${slug}/spec.md`;
-      const found = runSlug && slug !== runSlug ? earlier : problems;
+      const found = beforeFold ? earlier : problems;
       for (const unread of unreadDeltas(body)) found.push(`${rel}: ${explainUnread(unread)}`);
       for (const { verb, id } of deltas(body)) {
         if (verb === 'ADDED' && !requirements.has(id) && !retired.has(id)) {
@@ -502,7 +501,7 @@ if (specFiles.length > 0 && shippedBodies.length > 0) {
 }
 
 for (const problem of earlier) {
-  console.log(`spec-trace: not this run's — a change this branch shipped before the run, which \`spec-flow check\` outside a run fails on: ${problem}`);
+  console.log(`spec-trace: held from the fold's gate on, not before — a change this branch shipped earlier: ${problem}`);
 }
 
 // ---- report -------------------------------------------------------------

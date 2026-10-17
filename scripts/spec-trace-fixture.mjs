@@ -585,36 +585,46 @@ await Promise.all([
     ),
   ),
 
-  // A run answers for its own change. One the branch shipped before it would
-  // fail every milestone gate, routed to an implementer that did not cause it.
-  check("during a run, a change the branch shipped before it is said, not failed", () =>
+  // Until a run's fold, its own change is live, so a SHIPPED change of the
+  // branch is an earlier run's: failing on it would route it to an implementer
+  // whose work order does not name it. From the fold on, the branch is held.
+  check('before the fold, a change the branch shipped earlier is said, not failed', () =>
     withBranch(
       { 'specs/user.md': spec() },
       twoRuns,
       (r) => {
-        if (r.status !== 0) return `run two's gate failed over run one's change: ${r.out}`;
-        if (!/not this run's.*REQ-USER-002/s.test(r.out)) return `run one's drift went unsaid: ${r.out}`;
+        if (r.status !== 0) return `run two's milestone gate failed over run one's change: ${r.out}`;
+        if (!/held from the fold's gate on.*REQ-USER-002/s.test(r.out)) return `run one's drift went unsaid: ${r.out}`;
         return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
       },
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // The gate and `done` report nothing of a check that passed, so a drift said
+  // and not failed at the fold would reach no one.
+  check("from the fold on, an earlier run's change is held", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/archive/run-two/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer'),
+      },
+      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/run-one/.test(r.out) ? null : `the fold passed over run one's drift: ${r.out}`),
       { state: { phase: 'implement', 'current-milestone': 'run-two M1 a-implementer' } },
     ),
   ),
 
-  check("during a run, the run's own SHIPPED change is held", () =>
+  // current-milestone is written best-effort at a spawn and cleared by nothing.
+  check("a stale current-milestone does not exempt the run's own change", () =>
     withBranch(
       { 'specs/user.md': spec() },
-      twoRuns,
-      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/run-one/.test(r.out) ? null : `the run's own change was not held: ${r.out}`),
+      {
+        'specflow/archive/run-one/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer'),
+        'specflow/archive/run-two/spec.md': shippedSpec('ADDED REQ-USER-003 — the user can import data'),
+      },
+      (r) => (r.status !== 0 && /REQ-USER-003 is ADDED by specflow\/archive\/run-two/.test(r.out) ? null : `the run's own change escaped under a stale milestone: ${r.out}`),
       { state: { phase: 'implement', 'current-milestone': 'run-one M2 a-implementer' } },
-    ),
-  ),
-
-  check('a run that names no milestone is held to every change of its branch', () =>
-    withBranch(
-      { 'specs/user.md': spec() },
-      twoRuns,
-      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED/.test(r.out) ? null : `with no milestone to tell runs apart, a change went unheld: ${r.out}`),
-      { state: { phase: 'implement' } },
     ),
   ),
 
