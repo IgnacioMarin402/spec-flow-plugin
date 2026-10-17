@@ -6,14 +6,6 @@ the fix and green after.
 
 ## Open
 
-### B35 — the contract is editable mid-run
-
-`.spec-flow/config.json` decides what the gate runs, and nothing stops a
-milestone from changing it: `verify.lint` pointed at a no-op, an `extra_checks`
-entry removed. Dropping the reporter is now refused (`3c50f61`); the rest is
-not. **Needs a decision first:** who approves a contract change on a run's
-branch, and how the gate learns it was approved.
-
 ### B36 — test-first is not happening
 
 In the adopting repo, 18 of 18 measured requirements had no red test run before
@@ -58,7 +50,7 @@ The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
 one that needs a database or a running app fails wherever none is up, and is
 routed to the implementer as lint/trace. `spec-flow init` now offers the
 repo's `build` and `typecheck` scripts, which need neither; it offers nothing
-that needs either. B35 leaves any entry removable mid-run. **Needs a decision
+that needs either. ADR-046 leaves any entry removable mid-run. **Needs a decision
 first** for end-to-end checks, migrations and booting the app: where they run,
 if not at every gate.
 

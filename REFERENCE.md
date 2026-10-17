@@ -40,6 +40,11 @@ the contract as the engine reads it:
 node <plugin-or-clone>/scripts/spec-flow-config.mjs
 ```
 
+A run does not freeze it. A change to `.spec-flow/`, or to a script or config
+it runs through, made during a run changes what the gate judges with, and only
+the diff shows it
+([ADR-046](decisions/046-the-contract-is-not-frozen-during-a-run.md)).
+
 ### `verify`
 
 | key | required | what it is |
