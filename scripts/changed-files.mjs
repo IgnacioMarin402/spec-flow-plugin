@@ -204,6 +204,17 @@ export function changesAtBase(root, base) {
 }
 
 /**
+ * The change folders `base` already holds under `specflow/archive/`: changes
+ * shipped or dropped before this branch, so none of them is this branch's to
+ * answer for (ADR-032).
+ */
+export function archivedAtBase(root, base) {
+  const atBase = git(root, ['ls-tree', '-d', '--name-only', `${base}:specflow/archive`]);
+  if (atBase.status !== 0) return new Set(); // no archive at the base
+  return new Set(atBase.stdout.split('\n').map((s) => s.trim()).filter(Boolean));
+}
+
+/**
  * The union of three lists — committed + working-tree changes, staged
  * changes, untracked files — minus deletions, which have nothing left to
  * lint or test. `scopeGlobs` comes from the caller's loaded config.

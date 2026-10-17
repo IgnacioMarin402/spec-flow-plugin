@@ -1399,6 +1399,38 @@ t("phase-guard's done refusal says a change the base branch has is not this run'
   return r.stderr.includes("parked (the base branch has it: not this run's change)") ? null : `the refusal does not say the folder is not this run's, so it routes it to a FOLD: ${r.stderr}`;
 });
 
+// ---- a SHIPPED change's deltas landed in specs/ ----------------------------
+//
+// spec-trace binds only what specs/ declares, so an ADDED the milestone never
+// wrote there was bound to no test, and `done` went through over it.
+/** This branch ships `add-export`, ADDING REQ-USER-002; specs/ declares `ids`, and a test ran for each. */
+const shippedExport = (repo, ids) => {
+  gitIn(repo, 'checkout', '-q', '-b', 'feature');
+  const contract = JSON.parse(contractJson());
+  contract.trace.executed_tests = ['node', '-e', `console.log(${JSON.stringify(ids.map((id) => `tests/user.spec.ts::${id} x`).join('\n'))})`];
+  writeFileSync(join(repo, '.spec-flow/config.json'), JSON.stringify(contract));
+  mkdirSync(join(repo, 'specs'), { recursive: true });
+  writeFileSync(join(repo, 'specs/user.md'), `<!-- spec-scope: modules/user -->\n\n# User\n\n${ids.map((id) => `### ${id} — a thing\n`).join('\n')}`);
+  mkdirSync(join(repo, 'specflow/archive/add-export'), { recursive: true });
+  writeFileSync(
+    join(repo, 'specflow/archive/add-export/spec.md'),
+    '# Spec — add export\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — the user can export their data\n',
+  );
+  seedGateHistory(repo, 'pass');
+  return runHook('phase-guard.mjs', { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
+};
+
+t('phase-guard refuses done over a SHIPPED change of this branch whose ADDED id never reached specs/', (repo) => {
+  const r = shippedExport(repo, ['REQ-USER-001']);
+  if (r.status !== 2) return `done was allowed over a shipped requirement no spec declares and no test proves — exit ${r.status}`;
+  return r.stderr.includes('REQ-USER-002 is ADDED by specflow/archive/add-export/spec.md') ? null : `the refusal does not name the id and the change: ${r.stderr}`;
+});
+
+t('phase-guard allows done once the ADDED id is in specs/ with a test that ran', (repo) => {
+  const r = shippedExport(repo, ['REQ-USER-001', 'REQ-USER-002']);
+  return r.status === 0 ? null : `a run whose shipped requirement is declared and proven was refused — exit ${r.status}: ${r.stderr}`;
+});
+
 t('phase-guard leaves the phase file\'s siblings alone', (repo) => {
   const r = runHook(
     'phase-guard.mjs',

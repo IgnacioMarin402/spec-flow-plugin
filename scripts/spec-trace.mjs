@@ -40,6 +40,7 @@ import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
+import { resolveBase, archivedAtBase } from './changed-files.mjs';
 import {
   REQ_HEADING,
   REQ_TAG,
@@ -47,6 +48,7 @@ import {
   ARCHIVE_STATUS,
   liveSpecProblems,
   expectedPrefix,
+  deltas,
 } from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -423,6 +425,55 @@ for (const slug of live) {
       problems.push(
         `specflow/${slug}/milestones/${file} has no \`Skills:\` field, or has one with nothing after the colon. Every milestone says which skills it needs — \`none\` when the answer is none, which is what a project shipping no skills always writes. Neither absent nor empty is that answer: the implementer cannot tell either apart from a planner that never looked, and loads nothing in all three cases.`,
       );
+    }
+  }
+}
+
+// ---- a SHIPPED change's deltas landed in specs/ ----------------------------
+//
+// The stamp asserts it, and the binding above reads only `specs/`: an ADDED
+// that never reached it is bound to no test, so every gate and `done` would
+// pass over a requirement nothing proves. Only the changes this branch ships
+// (ADR-048). An empty `specs/` is the rule below's, which already fails a
+// SHIPPED claim. Ids are permanent, so an ADDED id that a change of this
+// branch REMOVED is retired, not missing.
+const isShipped = (body) => /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body);
+const shippedBodies = archived
+  .map((slug) => ({ slug, path: join(ARCHIVE_DIR, slug, 'spec.md') }))
+  .filter(({ path }) => existsSync(path))
+  .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
+  .filter(({ body }) => isShipped(body) && deltas(body).next().done === false);
+if (specFiles.length > 0 && shippedBodies.length > 0) {
+  let atBase = null;
+  try {
+    atBase = archivedAtBase(root, resolveBase(root, CONFIG));
+  } catch {
+    // No base, no way to tell this branch's changes from the ones it inherited.
+    console.log(
+      `spec-trace: the base branch could not be resolved, so whether the deltas of ${shippedBodies.length} SHIPPED change(s) reached ${CONFIG.trace.specs_dir}/ was not checked. Declare verify.base_ref in .spec-flow/config.json.`,
+    );
+  }
+  if (atBase) {
+    const ours = shippedBodies.filter(({ slug }) => !atBase.has(slug));
+    const liveBodies = live.map((slug) => join(SPECFLOW_DIR, slug, 'spec.md')).filter((path) => existsSync(path)).map((path) => readFileSync(path, 'utf8'));
+    const retired = new Set(
+      [...ours.map(({ body }) => body), ...liveBodies].flatMap((body) => [...deltas(body)].filter((d) => d.verb === 'REMOVED').map((d) => d.id)),
+    );
+    for (const { slug, body } of ours) {
+      const rel = `specflow/archive/${slug}/spec.md`;
+      for (const { verb, id } of deltas(body)) {
+        if (verb === 'ADDED' && !requirements.has(id) && !retired.has(id)) {
+          problems.push(
+            `${id} is ADDED by ${rel}, stamped SHIPPED, but no capability spec under ${CONFIG.trace.specs_dir}/ declares it — so no test is bound to it, and nothing proves it. ` +
+              `The milestone that delivers it writes it into ${CONFIG.trace.specs_dir}/<capability>.md with the test that proves it; a change that did not deliver it is not SHIPPED as written.`,
+          );
+        }
+        if (verb === 'REMOVED' && requirements.has(id)) {
+          problems.push(
+            `${id} is REMOVED by ${rel}, stamped SHIPPED, but ${requirements.get(id).spec} still declares it. Delete it there, and the test that reports it.`,
+          );
+        }
+      }
     }
   }
 }

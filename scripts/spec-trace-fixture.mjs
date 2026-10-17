@@ -13,16 +13,16 @@
  * Tested the same way as the gate: by RUNNING it. Each case builds a
  * throwaway repo, writes a file map into it, spawns the real script with
  * `CLAUDE_PROJECT_DIR` pointed at that repo, and asserts on the exit code
- * and the problems it named. No repo here has a `.git` — spec-trace never
- * shells out to git, so a fixture that created one would be testing
- * scaffolding rather than the script.
+ * and the problems it named. Most repos here have no `.git`: spec-trace asks
+ * git one thing, which archived changes the base branch already holds, and
+ * only the cases about that build one (`withBranch`).
  *
  * The contract each case is testing: a problem must be REPORTED (exit 1 and
  * named in the output), not merely survived. A parser that silently matches
  * nothing looks identical to a repo where everything is proven — which is
  * the failure mode this whole engine is built against.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -188,6 +188,42 @@ async function withRepo(files, assert) {
     rmSync(repoDir, { recursive: true, force: true });
   }
 }
+
+/**
+ * `withRepo` with git: `base` committed on `main`, then `branch` committed on
+ * a branch off it, which is where spec-trace runs. The base resolves to
+ * `main`, as it does for a run's own branch.
+ */
+async function withBranch(base, branch, assert) {
+  const repoDir = mkdtempSync(join(tmpdir(), 'spec-trace-branch-'));
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=f@example.com', '-c', 'user.name=fixture', ...args], { cwd: repoDir, encoding: 'utf8' });
+  const write = (files) => {
+    for (const [rel, contents] of Object.entries(files)) {
+      const full = join(repoDir, rel);
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, contents);
+    }
+  };
+  try {
+    git('init', '-q', '.');
+    git('symbolic-ref', 'HEAD', 'refs/heads/main');
+    write({ '.spec-flow/config.json': JSON.stringify(CONFIG, null, 2), ...base });
+    git('add', '-A');
+    git('commit', '-q', '-m', 'base');
+    git('checkout', '-q', '-b', 'feat');
+    write(branch);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'branch');
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: repoDir };
+    const res = await run('node', [SPEC_TRACE], { cwd: tmpdir(), env });
+    return await assert({ ...res, out: `${res.stdout}${res.stderr}` }, repoDir);
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+}
+
+const shippedSpec = (...deltaLines) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${deltaLines.map((l) => `- ${l}\n`).join('')}`;
+const twoReqs = `${spec()}\n### REQ-USER-002 — the user can do another thing\n\nThe system does it.\n`;
 
 await Promise.all([
   // ==== proof comes from what the runner REPORTED as executed (ADR-001) ======
@@ -483,6 +519,80 @@ await Promise.all([
         if (r.status === 0) return `a broken report command passed: ${r.out}`;
         if (/has no test/.test(r.out)) return `a broken report command read as an unproven requirement: ${r.out}`;
         return null;
+      },
+    ),
+  ),
+
+  // ---- a SHIPPED change's deltas landed in specs/ ----------------------------
+  //
+  // The binding reads only specs/, so an ADDED the milestone never wrote there
+  // is bound to nothing and proven by nothing, and every gate and `done`
+  // passed over it. The stamp is what asserts the deltas landed.
+  check("an ADDED id a SHIPPED change of this branch never wrote into specs/ is reported", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+      (r) => {
+        if (r.status === 0) return `a shipped requirement no spec declares and no test proves passed: ${r.out}`;
+        return /REQ-USER-002 is ADDED by specflow\/archive\/add-export\/spec\.md/.test(r.out) ? null : `the failure does not name the id and the change: ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a REMOVED id a SHIPPED change of this branch left in specs/ is reported", () =>
+    withBranch(
+      {
+        'specs/user.md': twoReqs,
+        '.spec-flow/config.json': contract('tests/user.test.ts::REQ-USER-001 a', 'tests/user.test.ts::REQ-USER-002 b'),
+      },
+      { 'specflow/archive/drop-export/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone') },
+      (r) => {
+        if (r.status === 0) return `a removal that never reached specs/ passed: ${r.out}`;
+        return /REQ-USER-002 is REMOVED by specflow\/archive\/drop-export\/spec\.md/.test(r.out) ? null : `the failure does not name the id and the change: ${r.out}`;
+      },
+    ),
+  ),
+
+  // ADR-032: a change the base already has was judged on its own branch, and a
+  // run here does not answer for it.
+  check('a SHIPPED change the base branch already has is not held here', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status === 0 ? null : `this branch was blocked over a change it inherited: ${r.out}`),
+    ),
+  ),
+
+  // Ids are permanent, so one a later change of the branch REMOVED is retired.
+  check('an ADDED id another change of this branch REMOVED is retired, not missing', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/archive/drop-export/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone'),
+      },
+      (r) => (r.status === 0 ? null : `a requirement added and then retired on one branch was reported missing: ${r.out}`),
+    ),
+  ),
+
+  // Mid-run, a milestone writes its delta when it delivers it; only the stamp claims all landed.
+  check('a live change is not held to its ADDED ids before it is SHIPPED', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/add-export/spec.md': '# Spec — add export\n\n## Requirement deltas\n- ADDED REQ-USER-002 — the user can export their data\n',
+        'specflow/add-export/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a milestone not yet delivered was blocked: ${r.out}`),
+    ),
+  ),
+
+  check('with no base to resolve, a SHIPPED change is said to be unchecked', () =>
+    withRepo(
+      { 'specs/user.md': spec(), 'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+      (r) => {
+        if (r.status !== 0) return `a repo with no base was blocked: ${r.out}`;
+        return /was not checked/.test(r.out) ? null : `the deltas went unchecked without a word: ${r.out}`;
       },
     ),
   ),
