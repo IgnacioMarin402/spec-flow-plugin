@@ -398,6 +398,14 @@ t('opus-budget denies an escalation while its cap is not a number of calls', (re
   return r.stderr.includes('max_opus_calls') ? null : `the denial does not name the key to fix: ${r.stderr}`;
 });
 
+t('opus-budget denies an architect spawn while its cap is not a number of calls, and charges nothing', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: 'three' }));
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'spec-flow:architect' } }, repo);
+  if (r.status !== 2) return `an architect spawn went through under a cap no count can reach — exit ${r.status}`;
+  if (existsSync(join(repo, '.claude/state/architect_calls'))) return 'a denied spawn was charged';
+  return r.stderr.includes('max_architect_calls') ? null : `the denial does not name the key to fix: ${r.stderr}`;
+});
+
 t('opus-budget reads a cap written as a numeric string', (repo) => {
   writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: '1' }));
   writeFileSync(join(repo, '.claude/state/architect_calls'), '1');
@@ -2220,6 +2228,13 @@ t('opus-budget charges a warm planner resume and not one stale-resume denies', (
   if (count() !== '0') return `a resume stale-resume denies was charged (${count()}): the fresh spawn replacing it bills the same consult twice`;
   runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
   return count() === '1' ? null : `a warm planner resume was charged ${count()}, want 1`;
+});
+
+t('opus-budget denies a warm planner resume while its cap is not a number of calls', (repo) => {
+  writeFileSync(join(repo, '.claude/state/agent-registry'), 'a0123456789abcdef planner\n');
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 'six' }));
+  const r = runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
+  return r.status === 2 && r.stderr.includes('max_opus_calls') ? null : `a resume went through under a cap no count can reach — exit ${r.status}: ${r.stderr}`;
 });
 
 // ---- the orchestrator routes, and a hook keeps it routing (ADR-034) ------
