@@ -283,6 +283,25 @@ export function* pairedProhibitions(body) {
 }
 
 /**
+ * The problem with naming a live change `slug`, or null. The fold moves it to
+ * specflow/archive/<slug>/; onto a folder that exists, in any case a
+ * case-insensitive filesystem folds together, it lands inside that change,
+ * where no archive check reads it.
+ *
+ * @param {string} slug
+ * @param {string[]} archivedSlugs the folder names under `specflow/archive/`
+ * @returns {string | null}
+ */
+export function archiveClash(slug, archivedSlugs) {
+  const taken = archivedSlugs.find((a) => a.toLowerCase() === slug.toLowerCase());
+  if (!taken) return null;
+  return (
+    `specflow/${slug}/ has the name of an archived change, specflow/archive/${taken}/. The fold moves a change to specflow/archive/<its name>/, ` +
+    `and onto a folder that exists it lands inside that change instead. Give this change a name of its own: rename specflow/${slug}/.`
+  );
+}
+
+/**
  * Why a live change spec cannot be built from, one message per problem: the
  * checks spec-trace makes of every live change at the gate. phase-guard makes
  * the same ones when a run leaves `spec`, so a spec that would fail its first
@@ -290,20 +309,16 @@ export function* pairedProhibitions(body) {
  *
  * `hasProposal` says whether `specflow/<slug>/proposal.md` exists;
  * `archivedBodies` are the archived change specs' texts, for the reuse check;
- * `archivedSlugs` the folder names under `specflow/archive/`.
+ * `archivedSlugs` the folder names under `specflow/archive/`, given only at
+ * spec time: a name the archive gains mid-run is caught at the fold instead,
+ * since renaming a live folder then breaks what names it.
  */
 export function liveSpecProblems(slug, body, { hasProposal, archivedBodies, archivedSlugs = [] }) {
   const problems = [];
   const isFixBrief = /^## Case\b/m.test(body);
 
-  // The fold moves this folder to specflow/archive/<slug>/; onto a folder that
-  // exists it lands inside that change, where no archive check reads it.
-  if (archivedSlugs.includes(slug)) {
-    problems.push(
-      `specflow/${slug}/ has the name of an archived change, specflow/archive/${slug}/. The fold moves a change to specflow/archive/<its name>/, ` +
-        `and onto a folder that exists it lands inside that change instead. Give this change a name of its own: rename specflow/${slug}/.`,
-    );
-  }
+  const clash = archiveClash(slug, archivedSlugs);
+  if (clash) problems.push(clash);
 
   // ---- a CHANGED delta says which kind it is ------------------------------
   //

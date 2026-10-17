@@ -28,8 +28,8 @@ import { fileURLToPath } from 'node:url';
 import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { handedBack } from './lib/handback.mjs';
 import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS } from '../scripts/agent-blocks.mjs';
-import { deltas, declaredIds, capabilityOf } from '../scripts/spec-shape.mjs';
-import { specTimeProblems } from '../scripts/spec-time.mjs';
+import { deltas, declaredIds, capabilityOf, archiveClash } from '../scripts/spec-shape.mjs';
+import { specTimeProblems, archivedSlugsIn } from '../scripts/spec-time.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -110,8 +110,13 @@ function specWriterProblems(ret, text, root, agentId, trace) {
   }
   if (!['SPEC_READY', 'TRIAGED'].includes(ret.status)) return { problems, skips };
   // Case 5 is not a fix: the orchestrator stamps the brief REJECTED and
-  // archives it, so nothing builds from it.
-  if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) return { problems, skips };
+  // archives it, so nothing builds from it, and its name must be free.
+  if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) {
+    const rejected = /^specflow\/([^/]+)\/spec\.md$/.exec(relative(root, resolve(root, pathIn(ret.fields.SPEC_PATH ?? ''))).split(sep).join('/'))?.[1];
+    const clash = rejected && rejected !== 'archive' && archiveClash(rejected, archivedSlugsIn(root));
+    if (clash) problems.push({ why: 'spec-shape', reason: clash });
+    return { problems, skips };
+  }
 
   // A fix has no planner, and the triage is the one who read the code: it
   // writes the work order, or the orchestrator would read that code again

@@ -713,6 +713,16 @@ t('agent-gate lets a case 5 brief through: it is rejected, not built', (repo) =>
   return blocked(r) ? `a case 5 brief was held to "ready to build": ${r.stdout}` : null;
 }, { phase: 'spec' });
 
+// A case 5 is archived too: under a name the archive has, inside that change.
+t('agent-gate sends back a case 5 brief named like an archived change', (repo) => {
+  writerRepo(repo);
+  writeChange(repo, '# Fix — my-change\n\n## Case\n5 NOT-A-FIX\n\n## Requirement deltas\n- none\n', { proposal: false });
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Fix — my-change\n\n**Status:** REJECTED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: 'STATUS: TRIAGED\nCASE: 5 NOT-A-FIX\nSPEC_PATH: specflow/my-change/spec.md' });
+  return blocked(r) && /has the name of an archived change/.test(r.stdout) ? null : `a case 5 the orchestrator would archive inside another change went through: ${r.stdout}`;
+}, { phase: 'spec' });
+
 t('agent-gate does not judge reads it cannot attribute, and says so', (repo) => {
   writerRepo(repo);
   writeFileSync(join(repo, '.claude/state/run-trace.log'), `2026-01-01T00:00:00Z phase=spec read file=${join(repo, 'specs/README.md')}\n`);
@@ -1751,6 +1761,16 @@ t('phase-guard denies plan from spec over a change named like an archived one', 
   writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Spec — my-change\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n');
   const r = writePhase(repo, 'plan');
   if (r.status !== 2) return `plan was allowed over a change the fold would move inside another (exit ${r.status})`;
+  return /has the name of an archived change/.test(r.stderr) ? null : `the denial does not name the clash: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
+// On a case-insensitive filesystem the fold moves My-Change into my-change.
+t('phase-guard denies plan from spec over a name the archive has in another case', (repo) => {
+  writeChange(repo, SIGNED_SPEC, { slug: 'My-Change' });
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Spec — my-change\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a name that differs from an archived one only in case (exit ${r.status})`;
   return /has the name of an archived change/.test(r.stderr) ? null : `the denial does not name the clash: ${r.stderr.slice(0, 300)}`;
 }, { phase: 'spec' });
 

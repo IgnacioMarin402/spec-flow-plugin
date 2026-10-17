@@ -807,7 +807,10 @@ await Promise.all([
   // The fold moves specflow/<slug>/ to specflow/archive/<slug>/. Onto a folder
   // the archive already has, it lands inside that change, where no archive
   // check reads it.
-  check('a live change named like an archived one is reported', () =>
+  // A name the archive gains mid-run (a merge from the base) cannot be fixed by
+  // renaming a live folder that state, resume and the telemetry name: it is
+  // refused at spec time, and a fold onto it is caught as a nested folder.
+  check('a live change named like an archived one is not failed at a milestone gate', () =>
     withRepo(
       {
         'specs/user.md': spec(),
@@ -815,10 +818,7 @@ await Promise.all([
         'specflow/fix-login/spec.md': '# Spec — fix login again\n\n## Requirement deltas\n- none\n',
         'specflow/fix-login/proposal.md': '# Proposal\n\nWhy.\n',
       },
-      (r) => {
-        if (r.status === 0) return `a change the fold would move inside another passed: ${r.out}`;
-        return /specflow\/fix-login\/ has the name of an archived change/.test(r.out) ? null : `the failure does not name the clash: ${r.out}`;
-      },
+      (r) => (r.status === 0 ? null : `a milestone gate failed over a clash its run cannot rename its way out of: ${r.out}`),
     ),
   ),
 
@@ -833,6 +833,26 @@ await Promise.all([
         if (r.status === 0) return `a change nested where no archive check reads it passed: ${r.out}`;
         return /specflow\/archive\/fix-login\/fix-login\/ holds a change spec inside another change's folder/.test(r.out) ? null : `the failure does not name the nested folder: ${r.out}`;
       },
+    ),
+  ),
+
+  check('a folder nested inside an archived change the base already had is not held here', () =>
+    withBranch(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/old/spec.md': '# Spec — old\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/archive/old/old/spec.md': '# Spec — old again\n\n**Status:** SHIPPED 2026-08-01\n\n## Requirement deltas\n- none\n',
+      },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status === 0 ? null : `this branch was blocked over a fold it inherited: ${r.out}`),
+    ),
+  ),
+
+  check('a folder this branch nested inside an archived change the base had is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n' },
+      { 'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- none\n' },
+      (r) => (r.status !== 0 && /fix-login\/fix-login\/ holds a change spec/.test(r.out) ? null : `a fold this branch made inside another change passed: ${r.out}`),
     ),
   ),
 

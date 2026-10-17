@@ -224,6 +224,23 @@ export function archivedAtBase(root, base) {
 }
 
 /**
+ * The change specs `base` holds nested one level inside an archived change, as
+ * `<slug>/<entry>`: a fold onto a name the archive had, made before this
+ * branch, so not this branch's to answer for (ADR-048).
+ */
+export function nestedAtBase(root, base) {
+  const listed = git(root, ['ls-tree', '--full-tree', '-r', '-z', '--name-only', `${base}:./specflow/archive`]);
+  if (listed.status !== 0) return new Set();
+  return new Set(
+    listed.stdout
+      .split('\0')
+      .map((path) => path.split('/'))
+      .filter((parts) => parts.length === 3 && parts[2] === 'spec.md')
+      .map(([slug, entry]) => `${slug}/${entry}`),
+  );
+}
+
+/**
  * The union of three lists — committed + working-tree changes, staged
  * changes, untracked files — minus deletions, which have nothing left to
  * lint or test. `scopeGlobs` comes from the caller's loaded config.

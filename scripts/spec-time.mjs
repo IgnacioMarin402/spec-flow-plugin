@@ -8,10 +8,16 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { assumptionsProblem, liveSpecProblems } from './spec-shape.mjs';
 
+/** The folder names under `specflow/archive/`. */
+export function archivedSlugsIn(root) {
+  const archive = join(root, 'specflow', 'archive');
+  return existsSync(archive) ? readdirSync(archive) : [];
+}
+
 /** One message per problem across `slugs`, each naming its spec. */
 export function specTimeProblems(root, slugs) {
   const archive = join(root, 'specflow', 'archive');
-  const archivedSlugs = existsSync(archive) ? readdirSync(archive) : [];
+  const archivedSlugs = archivedSlugsIn(root);
   const archivedBodies = archivedSlugs
     .map((slug) => join(archive, slug, 'spec.md'))
     .filter((path) => existsSync(path))

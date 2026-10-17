@@ -40,7 +40,7 @@ import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
-import { resolveBase, archivedAtBase } from './changed-files.mjs';
+import { resolveBase, archivedAtBase, nestedAtBase } from './changed-files.mjs';
 import { readPhase } from '../hooks/lib/io.mjs';
 import {
   REQ_HEADING,
@@ -330,6 +330,19 @@ for (const [id, files] of proofs) {
   }
 }
 
+// The base, asked of git once and only when a check needs it.
+let baseAnswer;
+const base = () => {
+  if (baseAnswer === undefined) {
+    try {
+      baseAnswer = { ref: resolveBase(root, CONFIG) };
+    } catch (err) {
+      baseAnswer = { err };
+    }
+  }
+  return baseAnswer;
+};
+
 // ---- the archive declares what became of each change -----------------------
 const archived = existsSync(ARCHIVE_DIR)
   ? readdirSync(ARCHIVE_DIR).filter((entry) => statSync(join(ARCHIVE_DIR, entry)).isDirectory())
@@ -339,9 +352,13 @@ for (const slug of archived) {
   const specPath = join(ARCHIVE_DIR, slug, 'spec.md');
   const rel = relative(root, specPath);
 
-  // A change folded onto a folder the archive already had lands inside it.
+  // A change folded onto a folder the archive already had lands inside it. One
+  // the base already holds was folded before this branch (ADR-048); with no
+  // base to ask, every one is reported, as the checks beside this one are.
   for (const entry of readdirSync(join(ARCHIVE_DIR, slug))) {
     if (existsSync(join(ARCHIVE_DIR, slug, entry, 'spec.md'))) {
+      const { ref } = base();
+      if (ref && nestedAtBase(root, ref).has(`${slug}/${entry}`)) continue;
       problems.push(
         `specflow/archive/${slug}/${entry}/ holds a change spec inside another change's folder: a fold moved a change onto a name the archive already had, where no archive check reads it. Move it to specflow/archive/<a name of its own>/.`,
       );
@@ -389,7 +406,7 @@ for (const slug of live) {
   const body = readFileSync(specPath, 'utf8');
   const isFixBrief = /^## Case\b/m.test(body);
 
-  problems.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(SPECFLOW_DIR, slug, 'proposal.md')), archivedBodies, archivedSlugs: archived }));
+  problems.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(SPECFLOW_DIR, slug, 'proposal.md')), archivedBodies }));
   if (isFixBrief) continue; // exempt from the split, by design — and so from the milestone check below
 
   // ---- every live milestone says what skills it needs ---------------------
@@ -465,10 +482,9 @@ const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 const beforeFold = live.length > 0 && RUN_PHASES.includes(readPhase(root));
 const earlier = [];
 if (specFiles.length > 0 && shippedBodies.length > 0) {
-  let atBase = null;
-  try {
-    atBase = archivedAtBase(root, resolveBase(root, CONFIG));
-  } catch (err) {
+  const { ref, err } = base();
+  const atBase = ref ? archivedAtBase(root, ref) : null;
+  if (err) {
     // No base, no way to tell this branch's changes from the ones it inherited.
     deltasUnchecked = true;
     console.log(`spec-trace: whether the deltas of ${shippedBodies.length} SHIPPED change(s) reached ${CONFIG.trace.specs_dir}/ was not checked: ${err.message}`);
