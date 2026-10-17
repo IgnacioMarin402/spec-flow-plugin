@@ -11,12 +11,11 @@ import { assumptionsProblem, liveSpecProblems } from './spec-shape.mjs';
 /** One message per problem across `slugs`, each naming its spec. */
 export function specTimeProblems(root, slugs) {
   const archive = join(root, 'specflow', 'archive');
-  const archivedBodies = existsSync(archive)
-    ? readdirSync(archive)
-        .map((slug) => join(archive, slug, 'spec.md'))
-        .filter((path) => existsSync(path))
-        .map((path) => readFileSync(path, 'utf8'))
-    : [];
+  const archivedSlugs = existsSync(archive) ? readdirSync(archive) : [];
+  const archivedBodies = archivedSlugs
+    .map((slug) => join(archive, slug, 'spec.md'))
+    .filter((path) => existsSync(path))
+    .map((path) => readFileSync(path, 'utf8'));
   const found = [];
   for (const slug of slugs) {
     const specPath = join(root, 'specflow', slug, 'spec.md');
@@ -24,7 +23,7 @@ export function specTimeProblems(root, slugs) {
     const body = readFileSync(specPath, 'utf8');
     const assumptions = assumptionsProblem(body);
     if (assumptions) found.push(`specflow/${slug}/spec.md ${assumptions}.`);
-    found.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(root, 'specflow', slug, 'proposal.md')), archivedBodies }));
+    found.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(root, 'specflow', slug, 'proposal.md')), archivedBodies, archivedSlugs }));
   }
   return found;
 }

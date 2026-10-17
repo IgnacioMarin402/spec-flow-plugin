@@ -657,6 +657,52 @@ await Promise.all([
     ),
   ),
 
+  // ---- a change has a folder of its own in the archive -----------------------
+  //
+  // The fold moves specflow/<slug>/ to specflow/archive/<slug>/. Onto a folder
+  // the archive already has, it lands inside that change, where no archive
+  // check reads it.
+  check('a live change named like an archived one is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/fix-login/spec.md': '# Spec — fix login again\n\n## Requirement deltas\n- none\n',
+        'specflow/fix-login/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a change the fold would move inside another passed: ${r.out}`;
+        return /specflow\/fix-login\/ has the name of an archived change/.test(r.out) ? null : `the failure does not name the clash: ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a change folded inside another change's archive folder is reported", () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — x\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a change nested where no archive check reads it passed: ${r.out}`;
+        return /specflow\/archive\/fix-login\/fix-login\/ holds a change spec inside another change's folder/.test(r.out) ? null : `the failure does not name the nested folder: ${r.out}`;
+      },
+    ),
+  ),
+
+  check("an archived change's own milestones and telemetry are not changes", () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/add-users/spec.md': '# Spec — add users\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/archive/add-users/milestones/M1.md': '# M1\n',
+        'specflow/archive/add-users/telemetry/run-trace.log': 'x\n',
+      },
+      (r) => (r.status === 0 ? null : `a change's own files were read as a nested change: ${r.out}`),
+    ),
+  ),
+
   // ---- an empty spec layer: grace while adopting, contradiction after a ship ----
   //
   // With no capability specs there are no requirements, so "every requirement

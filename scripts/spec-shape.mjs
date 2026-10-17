@@ -251,11 +251,21 @@ export function* pairedProhibitions(body) {
  * gate fails before a planner is spent on it.
  *
  * `hasProposal` says whether `specflow/<slug>/proposal.md` exists;
- * `archivedBodies` are the archived change specs' texts, for the reuse check.
+ * `archivedBodies` are the archived change specs' texts, for the reuse check;
+ * `archivedSlugs` the folder names under `specflow/archive/`.
  */
-export function liveSpecProblems(slug, body, { hasProposal, archivedBodies }) {
+export function liveSpecProblems(slug, body, { hasProposal, archivedBodies, archivedSlugs = [] }) {
   const problems = [];
   const isFixBrief = /^## Case\b/m.test(body);
+
+  // The fold moves this folder to specflow/archive/<slug>/; onto a folder that
+  // exists it lands inside that change, where no archive check reads it.
+  if (archivedSlugs.includes(slug)) {
+    problems.push(
+      `specflow/${slug}/ has the name of an archived change, specflow/archive/${slug}/. The fold moves a change to specflow/archive/<its name>/, ` +
+        `and onto a folder that exists it lands inside that change instead. Give this change a name of its own: rename specflow/${slug}/.`,
+    );
+  }
 
   // ---- a CHANGED delta says which kind it is ------------------------------
   //

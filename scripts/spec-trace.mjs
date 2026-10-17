@@ -336,6 +336,15 @@ for (const slug of archived) {
   const specPath = join(ARCHIVE_DIR, slug, 'spec.md');
   const rel = relative(root, specPath);
 
+  // A change folded onto a folder the archive already had lands inside it.
+  for (const entry of readdirSync(join(ARCHIVE_DIR, slug))) {
+    if (existsSync(join(ARCHIVE_DIR, slug, entry, 'spec.md'))) {
+      problems.push(
+        `specflow/archive/${slug}/${entry}/ holds a change spec inside another change's folder: a fold moved a change onto a name the archive already had, where no archive check reads it. Move it to specflow/archive/<a name of its own>/.`,
+      );
+    }
+  }
+
   if (!existsSync(specPath)) {
     problems.push(`specflow/archive/${slug}/ has no spec.md. An archived change with no spec is a folder nobody can interpret.`);
     continue;
@@ -377,7 +386,7 @@ for (const slug of live) {
   const body = readFileSync(specPath, 'utf8');
   const isFixBrief = /^## Case\b/m.test(body);
 
-  problems.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(SPECFLOW_DIR, slug, 'proposal.md')), archivedBodies }));
+  problems.push(...liveSpecProblems(slug, body, { hasProposal: existsSync(join(SPECFLOW_DIR, slug, 'proposal.md')), archivedBodies, archivedSlugs: archived }));
   if (isFixBrief) continue; // exempt from the split, by design — and so from the milestone check below
 
   // ---- every live milestone says what skills it needs ---------------------

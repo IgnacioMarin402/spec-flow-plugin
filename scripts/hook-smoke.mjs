@@ -1738,6 +1738,15 @@ t('phase-guard denies plan from spec over an ADDED that pairs a prohibition with
   return null;
 }, { phase: 'spec' });
 
+t('phase-guard denies plan from spec over a change named like an archived one', (repo) => {
+  writeChange(repo, SIGNED_SPEC);
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Spec — my-change\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a change the fold would move inside another (exit ${r.status})`;
+  return /has the name of an archived change/.test(r.stderr) ? null : `the denial does not name the clash: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
 t('phase-guard allows leaving spec with each prohibition on its own id', (repo) => {
   writeChange(repo, SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', '- ADDED REQ-USER-001 — filters by A and B\n- ADDED REQ-USER-002 — never filters by C'));
   const r = writePhase(repo, 'plan');
