@@ -1738,6 +1738,13 @@ t('phase-guard denies plan from spec over an ADDED that pairs a prohibition with
   return null;
 }, { phase: 'spec' });
 
+t('phase-guard denies plan from spec over a delta line the engine does not read', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', '- **ADDED** REQ-USER-001 — a thing'));
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a delta no check reads (exit ${r.status})`;
+  return /reads as a delta/.test(r.stderr) ? null : `the denial does not quote the line: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
 t('phase-guard denies plan from spec over a change named like an archived one', (repo) => {
   writeChange(repo, SIGNED_SPEC);
   mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });

@@ -49,6 +49,8 @@ import {
   liveSpecProblems,
   expectedPrefix,
   deltas,
+  unreadDeltas,
+  explainUnread,
 } from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -451,7 +453,7 @@ const shippedBodies = archived
   .map((slug) => ({ slug, path: join(ARCHIVE_DIR, slug, 'spec.md') }))
   .filter(({ path }) => existsSync(path))
   .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
-  .filter(({ body }) => isShipped(body) && deltas(body).next().done === false);
+  .filter(({ body }) => isShipped(body) && (deltas(body).next().done === false || unreadDeltas(body).next().done === false));
 let deltasUnchecked = false;
 if (specFiles.length > 0 && shippedBodies.length > 0) {
   let atBase = null;
@@ -470,6 +472,7 @@ if (specFiles.length > 0 && shippedBodies.length > 0) {
     );
     for (const { slug, body } of ours) {
       const rel = `specflow/archive/${slug}/spec.md`;
+      for (const unread of unreadDeltas(body)) problems.push(`${rel}: ${explainUnread(unread)}`);
       for (const { verb, id } of deltas(body)) {
         if (verb === 'ADDED' && !requirements.has(id) && !retired.has(id)) {
           problems.push(

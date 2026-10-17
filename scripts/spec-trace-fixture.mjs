@@ -657,6 +657,58 @@ await Promise.all([
     ),
   ),
 
+  // ---- every delta line is one the engine reads ------------------------------
+  //
+  // `deltas` reads `- VERB REQ-id` at the start of a line. A delta spelled any
+  // other way is read by a person and skipped by every check that binds it.
+  check('a delta line the engine does not read is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/add/spec.md':
+          '# Spec — add\n\n## Requirement deltas\n' +
+          '  - ADDED REQ-USER-002 — indented\n- **ADDED** REQ-USER-003 — bold\n- ADDED: REQ-USER-004 — colon\n- ADDED `REQ-USER-005` — backticks\n',
+        'specflow/add/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        if (r.status === 0) return `deltas no check reads passed: ${r.out}`;
+        const missed = ['indented', 'bold', 'colon', 'backticks'].filter((w) => !new RegExp(`${w}" reads as a delta`).test(r.out));
+        return missed.length ? `not reported: ${missed.join(', ')}. ${r.out}` : null;
+      },
+    ),
+  ),
+
+  check('a delta line naming two ids before its text is reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/add/spec.md': '# Spec — add\n\n## Requirement deltas\n- ADDED REQ-USER-002, REQ-USER-003 — export and import\n',
+        'specflow/add/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status !== 0 && /more than one id before its text/.test(r.out) ? null : `a second id no check reads passed: ${r.out}`),
+    ),
+  ),
+
+  check("an id in a delta's text is not a second delta", () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/swap/spec.md':
+          '# Spec — swap\n\n## Requirement deltas\n- REMOVED REQ-USER-001 — replaced by REQ-USER-002\n- ADDED REQ-USER-002 — the new flow, unlike REQ-USER-001\n',
+        'specflow/swap/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a delta that names another id in its text was refused: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED change of this branch whose delta the engine does not read is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add-export/spec.md': shippedSpec('**ADDED** REQ-USER-002 — the user can export their data') },
+      (r) => (r.status !== 0 && /reads as a delta/.test(r.out) ? null : `a shipped delta no check reads passed: ${r.out}`),
+    ),
+  ),
+
   // ---- a change has a folder of its own in the archive -----------------------
   //
   // The fold moves specflow/<slug>/ to specflow/archive/<slug>/. Onto a folder

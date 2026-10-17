@@ -139,6 +139,34 @@ export function* deltas(body) {
   for (const m of deltasSection(body).matchAll(DELTA)) yield { verb: m[1], id: m[2] };
 }
 
+// One line as `deltas` reads it, with what follows its id.
+const DELTA_LINE = /^[-*]\s*(ADDED|CHANGED|REMOVED)\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)(.*)$/;
+// After the id and a CHANGED's kind, another id before the text: `REQ-A-001, REQ-A-002 — ...`.
+const SECOND_ID = /^[ \t]*(?:\([a-z]+\)[ \t]*)?(?:[,/&+]|and\s|REQ-)/;
+
+/**
+ * Lines of the deltas section a person reads as a delta, a verb and an id,
+ * that `deltas` does not read whole: another spelling of the line, or a
+ * second id before its text. Every check that binds a delta reads `deltas`,
+ * so such a line is checked by none of them.
+ */
+export function* unreadDeltas(body) {
+  for (const line of deltasSection(body).split(/\r?\n/)) {
+    if (!/\b(?:ADDED|CHANGED|REMOVED)\b/.test(line) || !new RegExp(REQ_TAG.source).test(line)) continue;
+    const m = DELTA_LINE.exec(line);
+    if (!m) yield { line, why: 'unread' };
+    else if (SECOND_ID.test(m[3])) yield { line, why: 'two-ids' };
+  }
+}
+
+/** Why one line `unreadDeltas` found is refused, in the failure's own voice. */
+export function explainUnread({ line, why }) {
+  return why === 'two-ids'
+    ? `"${line.trim()}" names more than one id before its text, and the engine reads the first alone. One delta per line, so each id is checked.`
+    : `"${line.trim()}" reads as a delta, and the engine does not read it as one, so no check binds it. ` +
+        'Write it as `- ADDED REQ-<CAP>-0NN — <text>`: a dash at the start of the line, the verb, then the id.';
+}
+
 /**
  * ADDED ids that are not new: removed by the same spec, or by a change already
  * SHIPPED. Ids are permanent so that retiring one is safe — an old record, an
@@ -324,6 +352,8 @@ export function liveSpecProblems(slug, body, { hasProposal, archivedBodies, arch
         `requirement is claimed by the spec layer and proven by nobody.`,
     );
   }
+
+  for (const unread of unreadDeltas(body)) problems.push(`specflow/${slug}/spec.md: ${explainUnread(unread)}`);
 
   // ---- an ADDED id is new ---------------------------------------------------
   const reused = reusedIds(body, archivedBodies);
