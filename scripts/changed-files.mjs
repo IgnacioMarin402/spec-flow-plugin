@@ -197,21 +197,30 @@ export function resolveBase(root, config = undefined) {
 export function changesAtBase(root, base) {
   const dir = join(root, 'specflow');
   if (!existsSync(dir)) return [];
-  const atBase = git(root, ['ls-tree', '-d', '--name-only', `${base}:specflow`]);
+  // -z: names unquoted, as readdirSync spells them; git quotes a non-ASCII one.
+  const atBase = git(root, ['ls-tree', '-d', '-z', '--name-only', `${base}:specflow`]);
   if (atBase.status !== 0) return []; // no specflow/ at the base
-  const there = new Set(atBase.stdout.split('\n').map((s) => s.trim()));
+  const there = new Set(atBase.stdout.split('\0'));
   return readdirSync(dir).filter((e) => e !== 'archive' && there.has(e) && statSync(join(dir, e)).isDirectory());
 }
 
 /**
- * The change folders `base` already holds under `specflow/archive/`: changes
- * shipped or dropped before this branch, so none of them is this branch's to
- * answer for (ADR-032).
+ * The archived changes `base` already holds, as it holds them: shipped or
+ * dropped before this branch, so none is this branch's to answer for
+ * (ADR-032, ADR-048). A folder whose `spec.md` this branch rewrote holds
+ * another change under the same name, and is not among them.
  */
 export function archivedAtBase(root, base) {
-  const atBase = git(root, ['ls-tree', '-d', '--name-only', `${base}:specflow/archive`]);
+  // `./` with --full-tree reads the path from `root`, which spec-trace does not
+  // require to be the repository's top; -z leaves names unquoted.
+  const atBase = git(root, ['ls-tree', '--full-tree', '-d', '-z', '--name-only', `${base}:./specflow/archive`]);
   if (atBase.status !== 0) return new Set(); // no archive at the base
-  return new Set(atBase.stdout.split('\n').map((s) => s.trim()).filter(Boolean));
+  const held = new Set(atBase.stdout.split('\0').filter(Boolean));
+  const rewritten = git(root, ['diff', '--name-only', '-z', '--relative', base, '--', 'specflow/archive']);
+  if (rewritten.status === 0) {
+    for (const path of rewritten.stdout.split('\0')) if (path.endsWith('/spec.md')) held.delete(path.split('/')[2]);
+  }
+  return held;
 }
 
 /**

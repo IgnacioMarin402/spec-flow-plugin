@@ -1380,6 +1380,17 @@ t(
   { phase: '' },
 );
 
+// git quotes a non-ASCII name; read quoted, the base's folder matches nothing here.
+t(
+  'phase-guard refuses to start a run over a change the base branch has under a non-ASCII name',
+  (repo) => {
+    parkedOnBase(repo, 'añadir-exportación');
+    const r = startRun(repo);
+    return r.status === 2 ? null : `a run started over specflow/añadir-exportación/ inherited from the base — exit ${r.status}`;
+  },
+  { phase: '' },
+);
+
 t(
   'preflight refuses a spawn while a change the base branch has is live — the start it backstops',
   (repo) => {
@@ -1401,8 +1412,8 @@ t("phase-guard's done refusal says a change the base branch has is not this run'
 
 // ---- a SHIPPED change's deltas landed in specs/ ----------------------------
 //
-// spec-trace binds only what specs/ declares, so an ADDED the milestone never
-// wrote there was bound to no test, and `done` went through over it.
+// spec-trace binds only what specs/ declares, so an ADDED never written there is
+// bound to no test unless the SHIPPED stamp is held to it (ADR-048).
 /** This branch ships `add-export`, ADDING REQ-USER-002; specs/ declares `ids`, and a test ran for each. */
 const shippedExport = (repo, ids) => {
   gitIn(repo, 'checkout', '-q', '-b', 'feature');

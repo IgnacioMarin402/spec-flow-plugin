@@ -192,14 +192,16 @@ async function withRepo(files, assert) {
 /**
  * `withRepo` with git: `base` committed on `main`, then `branch` committed on
  * a branch off it, which is where spec-trace runs. The base resolves to
- * `main`, as it does for a run's own branch.
+ * `main`, as it does for a run's own branch. `under` puts the project in that
+ * folder of the repository instead of at its top.
  */
-async function withBranch(base, branch, assert) {
+async function withBranch(base, branch, assert, { under = '' } = {}) {
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-trace-branch-'));
+  const projectDir = under ? join(repoDir, under) : repoDir;
   const git = (...args) => spawnSync('git', ['-c', 'user.email=f@example.com', '-c', 'user.name=fixture', ...args], { cwd: repoDir, encoding: 'utf8' });
   const write = (files) => {
     for (const [rel, contents] of Object.entries(files)) {
-      const full = join(repoDir, rel);
+      const full = join(projectDir, rel);
       mkdirSync(dirname(full), { recursive: true });
       writeFileSync(full, contents);
     }
@@ -214,7 +216,7 @@ async function withBranch(base, branch, assert) {
     write(branch);
     git('add', '-A');
     git('commit', '-q', '-m', 'branch');
-    const env = { ...process.env, CLAUDE_PROJECT_DIR: repoDir };
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: projectDir };
     const res = await run('node', [SPEC_TRACE], { cwd: tmpdir(), env });
     return await assert({ ...res, out: `${res.stdout}${res.stderr}` }, repoDir);
   } finally {
@@ -587,13 +589,71 @@ await Promise.all([
     ),
   ),
 
-  check('with no base to resolve, a SHIPPED change is said to be unchecked', () =>
+  check('with no base to resolve, a SHIPPED change is said to be unchecked, and why', () =>
     withRepo(
       { 'specs/user.md': spec(), 'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
       (r) => {
         if (r.status !== 0) return `a repo with no base was blocked: ${r.out}`;
-        return /was not checked/.test(r.out) ? null : `the deltas went unchecked without a word: ${r.out}`;
+        if (!/was not checked: no base branch could be resolved/.test(r.out)) return `the deltas went unchecked without a word, or without the reason: ${r.out}`;
+        return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
       },
+    ),
+  ),
+
+  // Only the stamp claims the deltas landed: a change turned down or replaced asserts nothing.
+  check('a REJECTED or SUPERSEDED change of this branch is not held to its deltas', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/turned-down/spec.md': '# Spec — x\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — export\n',
+        'specflow/archive/replaced/spec.md': '# Spec — y\n\n**Status:** SUPERSEDED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-003 — import\n',
+      },
+      (r) => (r.status === 0 ? null : `a change that asserts nothing landed was held to its deltas: ${r.out}`),
+    ),
+  ),
+
+  check('an ADDED id a live change of this branch REMOVES is retired, not missing', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/drop-export/spec.md': '# Spec — drop export\n\n## Requirement deltas\n- REMOVED REQ-USER-002 — export is gone\n',
+        'specflow/drop-export/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a requirement this branch is removing was reported missing: ${r.out}`),
+    ),
+  ),
+
+  // git quotes a name with a non-ASCII letter; read quoted, it matches no folder.
+  check('a SHIPPED change the base holds under a non-ASCII name is not held here', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/añadir-exportación/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status === 0 ? null : `this branch was blocked over a change it inherited: ${r.out}`),
+    ),
+  ),
+
+  // The folder name is the base's; the change in it is this branch's.
+  check('a SHIPPED change written over a folder the base archived is held here', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/fix-login/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer') },
+      { 'specflow/archive/fix-login/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can log in again') },
+      (r) => {
+        if (r.status === 0) return `a change this branch shipped escaped under a reused name: ${r.out}`;
+        return /REQ-USER-002 is ADDED by specflow\/archive\/fix-login\/spec\.md/.test(r.out) ? null : `the failure does not name the id: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a project below the repository top tells inherited changes from its own', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'specflow/archive/add-import/spec.md': shippedSpec('ADDED REQ-USER-003 — the user can import data') },
+      (r) => {
+        if (/REQ-USER-002/.test(r.out)) return `an inherited change was held: ${r.out}`;
+        return /REQ-USER-003 is ADDED/.test(r.out) ? null : `this branch's change was not held: ${r.out}`;
+      },
+      { under: 'pkg' },
     ),
   ),
 

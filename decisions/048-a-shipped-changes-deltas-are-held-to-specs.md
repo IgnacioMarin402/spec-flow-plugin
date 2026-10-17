@@ -19,15 +19,17 @@ stood between them, while REFERENCE said an `ADDED` with no test fails.
   of this branch `REMOVED` it, and a `REMOVED` id one still declares. The
   binding then requires a test that ran for every `ADDED`.
 - A live change is not held: a milestone writes its delta when it delivers it.
-- Where no base resolves, spec-trace says the deltas were not checked.
+- Where no base resolves, spec-trace says the deltas were not checked, and why,
+  and does not print that every requirement is proven.
 
 **Refused.**
 
 - **Every SHIPPED change in the archive.** History a run inherited is not its
   to answer for (ADR-032). A repository with an old drift would go red mid-run,
   routed to an implementer whose milestone did not cause it.
-- **Gating red-first instead** (BACKLOG B36). It measures whether a test can
-  fail, not whether a requirement has one, and it blocks correct milestones.
+- **A red-first check instead** (BACKLOG B36). It measures whether a test can
+  fail, not whether a requirement has one, and as a gate it blocks correct
+  milestones.
 - **Holding a live change's `ADDED` ids from its first gate.** A milestone early
   in the plan would be blocked over a later milestone's requirement.
 - **`CHANGED` ids.** The id exists before and after the edit (ADR-009).

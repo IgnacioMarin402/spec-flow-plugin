@@ -443,15 +443,15 @@ const shippedBodies = archived
   .filter(({ path }) => existsSync(path))
   .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
   .filter(({ body }) => isShipped(body) && deltas(body).next().done === false);
+let deltasUnchecked = false;
 if (specFiles.length > 0 && shippedBodies.length > 0) {
   let atBase = null;
   try {
     atBase = archivedAtBase(root, resolveBase(root, CONFIG));
-  } catch {
+  } catch (err) {
     // No base, no way to tell this branch's changes from the ones it inherited.
-    console.log(
-      `spec-trace: the base branch could not be resolved, so whether the deltas of ${shippedBodies.length} SHIPPED change(s) reached ${CONFIG.trace.specs_dir}/ was not checked. Declare verify.base_ref in .spec-flow/config.json.`,
-    );
+    deltasUnchecked = true;
+    console.log(`spec-trace: whether the deltas of ${shippedBodies.length} SHIPPED change(s) reached ${CONFIG.trace.specs_dir}/ was not checked: ${err.message}`);
   }
   if (atBase) {
     const ours = shippedBodies.filter(({ slug }) => !atBase.has(slug));
@@ -561,7 +561,8 @@ if (problems.length > 0) {
 // tests ran, "every one proven" would be a claim over an unanswered question,
 // and it is reachable with a non-empty specs/ (a capability file holding no
 // `###` heading yet), which is where `graced` alone does not cover it.
-if (!graced && !unarmed) {
+// `deltasUnchecked` too: a SHIPPED change's ADDED id may be bound to nothing.
+if (!graced && !unarmed && !deltasUnchecked) {
   console.log(
     `spec-trace: OK — ${requirements.size} requirement(s) across ${specFiles.length} capability spec(s), every one proven by a test; ` +
       `${archived.length} archived change(s), every one with a status.`,
