@@ -40,6 +40,11 @@ the contract as the engine reads it:
 node <plugin-or-clone>/scripts/spec-flow-config.mjs
 ```
 
+A run does not freeze it. A change to `.spec-flow/`, or to a script or config
+it runs through, made during a run changes what the gate judges with, and only
+the diff shows it
+([ADR-046](decisions/046-the-contract-is-not-frozen-during-a-run.md)).
+
 ### `verify`
 
 | key | required | what it is |
@@ -228,8 +233,8 @@ could not be named, `files=0` means it resolved to HEAD.
 
 - **`max_opus_calls`** (default 6) caps planner calls per run, and
   **`max_architect_calls`** (default 3) caps architect calls, each by role,
-  whatever tier it runs on. Past a cap the spawn is denied and the orchestrator
-  summarises for a human. Counters: `.claude/state/opus_calls` and
+  whatever tier it runs on. Past a cap, or under one that is not a number of
+  calls, the spawn is denied and the orchestrator summarises for a human. Counters: `.claude/state/opus_calls` and
   `.claude/state/architect_calls`
   ([ADR-038](decisions/038-the-architect-answers-the-implementer-and-a-re-plan-needs-a-wrong-plan.md)).
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
@@ -427,9 +432,13 @@ It shows a pane with one box per spec-flow agent while the agent works: model,
 effort, time, requests, how many tools and skills it called, the advisor's
 consultations and their time, its tokens split into cache read, fresh and
 output, and the last tool. When the agent finishes, its box shows the
-`STATUS:` it handed back. The orchestrator, the phase and the last gate sit
-above the boxes, the run line totals them with what the session cost as
-`/cost` counts it, and the status line names the phase and who is running.
+`STATUS:` it handed back, and a box the agent gate sent back says how often
+and why. Above the boxes sit the orchestrator, the phase, the last gate with the
+checks it failed, the planner's and the architect's calls against their caps,
+and any check whose own log says it stood down during this run
+([ADR-047](decisions/047-an-observer-stays-a-command-hook-and-the-live-view-shows-its-record.md)).
+The run line totals them with what the session cost as `/cost` counts it, and
+the status line names the phase and who is running.
 
 - `/spec-flow-live` opens the pane, even mid-turn. The pane also opens by
   itself at the first spawn, if there is room beside the transcript.

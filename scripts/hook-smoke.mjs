@@ -389,6 +389,30 @@ t('opus-budget reads max_architect_calls from the config', (repo) => {
   return r.status === 2 ? null : `max_architect_calls 1 let a second call through (exit ${r.status})`;
 });
 
+// A cap that is not a number compared false against every count, so the
+// budget never denied. A wrong value in this file denies, as `agents` does.
+t('opus-budget denies an escalation while its cap is not a number of calls', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 'six' }));
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'planner' } }, repo);
+  if (r.status !== 2) return `a planner spawn went through under a cap no count can reach — exit ${r.status}`;
+  return r.stderr.includes('max_opus_calls') ? null : `the denial does not name the key to fix: ${r.stderr}`;
+});
+
+t('opus-budget denies an architect spawn while its cap is not a number of calls, and charges nothing', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: 'three' }));
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'spec-flow:architect' } }, repo);
+  if (r.status !== 2) return `an architect spawn went through under a cap no count can reach — exit ${r.status}`;
+  if (existsSync(join(repo, '.claude/state/architect_calls'))) return 'a denied spawn was charged';
+  return r.stderr.includes('max_architect_calls') ? null : `the denial does not name the key to fix: ${r.stderr}`;
+});
+
+t('opus-budget reads a cap written as a numeric string', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: '1' }));
+  writeFileSync(join(repo, '.claude/state/architect_calls'), '1');
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'architect' } }, repo);
+  return r.status === 2 && r.stderr.includes('budget exhausted') ? null : `a cap of "1" did not stop a second call (exit ${r.status}): ${r.stderr}`;
+});
+
 t('register-agent records an Opus session id', (repo) => {
   const r = runHook(
     'register-agent.mjs',
@@ -2204,6 +2228,13 @@ t('opus-budget charges a warm planner resume and not one stale-resume denies', (
   if (count() !== '0') return `a resume stale-resume denies was charged (${count()}): the fresh spawn replacing it bills the same consult twice`;
   runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
   return count() === '1' ? null : `a warm planner resume was charged ${count()}, want 1`;
+});
+
+t('opus-budget denies a warm planner resume while its cap is not a number of calls', (repo) => {
+  writeFileSync(join(repo, '.claude/state/agent-registry'), 'a0123456789abcdef planner\n');
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 'six' }));
+  const r = runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
+  return r.status === 2 && r.stderr.includes('max_opus_calls') ? null : `a resume went through under a cap no count can reach — exit ${r.status}: ${r.stderr}`;
 });
 
 // ---- the orchestrator routes, and a hook keeps it routing (ADR-034) ------
