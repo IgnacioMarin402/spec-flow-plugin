@@ -752,6 +752,48 @@ await Promise.all([
     ),
   ),
 
+  // A line written as a delta starts with its verb; a verb later in a line is
+  // prose about one, and a separator alone starts the text.
+  check('prose, wrapped lines, quotes and fences in the deltas section are not deltas', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/tidy/spec.md':
+          '# Spec — tidy\n\n## Requirement deltas\n' +
+          '- REMOVED REQ-USER-001, replaced by REQ-USER-004\n' +
+          '- CHANGED REQ-USER-005 (wording), tense fixed\n' +
+          '- ADDED REQ-USER-002 / export works offline\n' +
+          '- ADDED REQ-USER-003 & import works offline\n' +
+          '- ADDED REQ-USER-004 — the new flow\n' +
+          '  which replaces what the REMOVED REQ-USER-001 did\n' +
+          '> Note: the ADDED REQ-USER-002 is behind a flag.\n' +
+          '```\n- ADDED REQ-USER-099 — an example, not a delta\n```\n',
+        'specflow/tidy/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (/reads as a delta|more than one id/.test(r.out) ? `a line that is not a second delta was refused: ${r.out}` : null),
+    ),
+  ),
+
+  check('a second id after and, a semicolon or "to", a lowercase verb and a grouped heading are reported', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/add/spec.md':
+          '# Spec — add\n\n## Requirement deltas\n' +
+          '- ADDED REQ-USER-002 and REQ-USER-003 — export and import\n' +
+          '- ADDED REQ-USER-004; REQ-USER-005 — sync\n' +
+          '- ADDED REQ-USER-006 to REQ-USER-008 — reports\n' +
+          '- Added REQ-USER-009 — audit\n' +
+          '### ADDED\n- REQ-USER-010 — archive\n',
+        'specflow/add/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => {
+        const missed = ['REQ-USER-002 and', 'REQ-USER-004;', 'REQ-USER-006 to', 'Added REQ-USER-009', '### ADDED'].filter((l) => !r.out.includes(l));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
   check('a SHIPPED change of this branch whose delta the engine does not read is reported', () =>
     withBranch(
       { 'specs/user.md': spec() },

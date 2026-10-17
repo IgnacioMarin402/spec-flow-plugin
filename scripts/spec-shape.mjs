@@ -141,18 +141,28 @@ export function* deltas(body) {
 
 // One line as `deltas` reads it, with what follows its id.
 const DELTA_LINE = /^[-*]\s*(ADDED|CHANGED|REMOVED)\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)(.*)$/;
-// After the id and a CHANGED's kind, another id before the text: `REQ-A-001, REQ-A-002 — ...`.
-const SECOND_ID = /^[ \t]*(?:\([a-z]+\)[ \t]*)?(?:[,/&+]|and\s|REQ-)/;
+// A line written AS a delta: the verb is its first word, after a list marker or
+// a heading's hashes and any emphasis. A verb later in a line is prose about a
+// delta, and an indented line with no marker continues the one above.
+const DECLARES = /^(?:[ \t]*(?:[-*+]|\d+[.)]|#{1,6})[ \t]*)?[*_`]*(?:ADDED|CHANGED|REMOVED)\b/i;
+// After the id and a CHANGED's kind, another id: `REQ-A-001, REQ-A-002`. A
+// separator with no id after it starts the text: `REQ-A-001, replaced by ...`.
+const SECOND_ID = /^[ \t]*(?:\([a-z]+\)[ \t]*)?(?:(?:[,/&+;(]|and\s|or\s|to\s|through\s)[ \t]*)?REQ-/i;
 
 /**
- * Lines of the deltas section a person reads as a delta, a verb and an id,
- * that `deltas` does not read whole: another spelling of the line, or a
- * second id before its text. Every check that binds a delta reads `deltas`,
- * so such a line is checked by none of them.
+ * Lines of the deltas section written as a delta that `deltas` does not read
+ * whole: another spelling of the line, a heading grouping deltas, or a second
+ * id before its text. Every check that binds a delta reads `deltas`, so such
+ * a line is checked by none of them. Code fences are not read.
  */
 export function* unreadDeltas(body) {
+  let fenced = false;
   for (const line of deltasSection(body).split(/\r?\n/)) {
-    if (!/\b(?:ADDED|CHANGED|REMOVED)\b/.test(line) || !new RegExp(REQ_TAG.source).test(line)) continue;
+    if (/^[ \t]*(?:```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced || !DECLARES.test(line)) continue;
     const m = DELTA_LINE.exec(line);
     if (!m) yield { line, why: 'unread' };
     else if (SECOND_ID.test(m[3])) yield { line, why: 'two-ids' };
