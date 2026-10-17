@@ -300,7 +300,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     files['spec-flow.config.json'] = '{"max_opus_calls": 4, "max_architect_calls": "three"}'
     await clock.advance(2_000)
-    expect(await ui.find({ text: ' architect 2, cap unreadable: never denied' }), 'a cap the hook cannot compare against').toBeDefined()
+    expect(await ui.find({ text: ' architect 2, cap unreadable: every call denied' }), 'a cap the hook denies at').toBeDefined()
 
     files.phase = 'done'
     await clock.advance(2_000)

@@ -550,7 +550,7 @@ export const register: Register = (on, options) => {
     // Named by the checks the gate line records; their output stays in gate-failure.log.
     const failed = r.failed.length > 0 && <Text color="error" wrap="truncate-end">{`  failed: ${r.failed.join(' · ')}`}</Text>
 
-    // A cap that is not a number is one opus-budget never denies at.
+    // A cap that is not a number of calls is one opus-budget denies every call at.
     const budget = r.budgets.length > 0 && (
       <Text wrap="truncate-end">
         <Text dimColor>budget:</Text>
@@ -558,7 +558,7 @@ export const register: Register = (on, options) => {
           Number.isFinite(b.cap) ? (
             <Text color={b.used >= b.cap ? 'error' : b.used === b.cap - 1 ? 'warning' : undefined}>{` ${b.role} ${b.used}/${b.cap}`}</Text>
           ) : (
-            <Text color="error">{` ${b.role} ${b.used}, cap unreadable: never denied`}</Text>
+            <Text color="error">{` ${b.role} ${b.used}, cap unreadable: every call denied`}</Text>
           ),
         )}
       </Text>

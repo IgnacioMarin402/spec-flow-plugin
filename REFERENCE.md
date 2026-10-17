@@ -233,8 +233,8 @@ could not be named, `files=0` means it resolved to HEAD.
 
 - **`max_opus_calls`** (default 6) caps planner calls per run, and
   **`max_architect_calls`** (default 3) caps architect calls, each by role,
-  whatever tier it runs on. Past a cap the spawn is denied and the orchestrator
-  summarises for a human. Counters: `.claude/state/opus_calls` and
+  whatever tier it runs on. Past a cap, or under one that is not a number of
+  calls, the spawn is denied and the orchestrator summarises for a human. Counters: `.claude/state/opus_calls` and
   `.claude/state/architect_calls`
   ([ADR-038](decisions/038-the-architect-answers-the-implementer-and-a-re-plan-needs-a-wrong-plan.md)).
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or

@@ -132,6 +132,13 @@ await run(async () => {
   const budget = BUDGETS[agent];
   const countFile = join(state, budget.counter);
   const max = budgetCap(readFileOrDefault(configPath, ''), agent);
+  if (Number.isNaN(max)) {
+    process.stderr.write(
+      `[spec-flow] ${budget.key} in .claude/spec-flow.config.json is not a number of calls, so no count of ${agent} calls can be held to it. ` +
+        `Do not spawn or message the ${agent}. Tell the human: they set ${budget.key} to a whole number (${budget.fallback} by default) or remove it.\n`,
+    );
+    process.exit(2); // PreToolUse denial protocol
+  }
 
   const used = Number(readFileOrDefault(countFile, '0')) || 0;
 
