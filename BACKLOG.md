@@ -22,12 +22,29 @@ mirrors it, which is the gap ADR-020 leaves to a model's reading.
 that passes there proves nothing. Report, not gate — it runs the suite twice
 and flaky tests exist.
 
-### B39 — the model-routing surface is ahead of its use
+### B39 — model routing: decide by use, effort with it
 
 Overrides, version pins and effort take about 1,200 lines with fixtures, next to
-agent frontmatter that already names each tier. `max_opus_calls` is the part
-with a demonstrated job (cost control). **Decide by use:** keep what a real
-project has set.
+agent frontmatter that already names each tier, and no real run has re-routed
+an agent. `max_opus_calls` is the part with a demonstrated job (cost control).
+Decided together:
+
+- **What stays.** Keep what a real project has set.
+- **Effort.** `model-route` rewrites a re-routed spawn's `model` and nothing
+  else, so a planner routed to `sonnet` keeps the frontmatter's `effort: high`.
+  ADR-014 and ADR-015 still say a hook's `effort` is stripped (2.1.241);
+  `f554b76` measured on 2.1.294 that it applies and that
+  `CLAUDE_CODE_EFFORT_LEVEL` beats it. **Needs a decision first:** an ADR
+  superseding ADR-015's measurement, saying whether a project routes effort and
+  from what. **Done, if it does:** a hook-smoke case whose re-routed spawn
+  carries the effort, red on `620901d`, and `spec-flow models` showing it.
+- **The spec-writer on `haiku`.** ADR-030 and ADR-031 hold the two risks a
+  cheaper tier brings. On one real run it cost US$0.18 of US$2.07, so the case
+  is the questions it asks, not the price. Routing is per agent, not per mode:
+  its fold, the one reading of whether a test proves its requirement (ADR-020),
+  moves with it. **Done:** `haiku` at `high` over three real runs, compared with
+  `sonnet` on question rounds, agent-gate blocks, fold `GAPS` and rejected
+  sign-offs, which nothing records yet. Needs the effort question answered.
 
 ### B40 — what the orchestrator costs a run
 
@@ -54,19 +71,6 @@ that needs either. ADR-046 leaves any entry removable mid-run. **Needs a decisio
 first** for end-to-end checks, migrations and booting the app: where they run,
 if not at every gate.
 
-### B52 — the spec-writer on the cheapest tier
-
-ADR-030 shows the human what the spec-writer assumed, and ADR-031 holds its
-return to its contract: the two risks each names for a cheaper tier. On one
-real run the spec-writer cost US$0.18 of US$2.07 (US$0.09 for the spec,
-US$0.08 for the fold), so the case is about the questions it asks, not the
-price. Routing is per agent, not per mode: its fold, the one reading of whether
-a test proves its requirement (ADR-020), moves with it. **Done:** the
-spec-writer on `haiku` at `high` over three real runs, compared with `sonnet`
-on question rounds, agent-gate blocks, fold `GAPS` and rejected sign-offs,
-which nothing records yet. Needs B54: a project route keeps the declared
-`medium`.
-
 ### B53 — a repository that states no anatomy
 
 ADR-026 has the planner read how a repo builds a module from what the repo
@@ -77,19 +81,6 @@ the run and the human approves it at sign-off. During a run ADR-034 lets the
 session write only `.claude/state/` and `specflow/`, so `CLAUDE.md` or a skill
 would be written by an agent, or after `done`. **Needs a decision first:**
 whether a run writes the statement at all, and which agent does.
-
-### B54 — a re-route keeps the effort its role declares
-
-`model-route` rewrites a re-routed spawn's `model` and nothing else, so a
-project routing the planner to `sonnet` keeps the frontmatter's `effort: high`.
-ADR-014 and ADR-015 still say a hook's `effort` is stripped (2.1.241);
-`f554b76` measured on 2.1.294 that it applies and that
-`CLAUDE_CODE_EFFORT_LEVEL` beats it, and left routing effort to a decision of
-its own. Neither real run re-routed an agent (B39). **Needs a decision
-first:** an ADR superseding ADR-015's measurement, saying whether a project
-routes effort and from what. **Done, if it does:** a hook-smoke case whose
-re-routed spawn carries the effort, red on `620901d`, and `spec-flow models`
-showing it.
 
 ### B55 — the implementer on the cheapest tier
 
