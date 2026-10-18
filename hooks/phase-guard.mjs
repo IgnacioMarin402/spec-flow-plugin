@@ -50,7 +50,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd, RUN_PHASES } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanRun } from './lib/can-run.mjs';
@@ -89,10 +89,7 @@ function deny(message) {
  * The whole vocabulary. Kept here as the one executable copy — the tables in
  * README, REFERENCE and both commands describe it, and descriptions drift.
  */
-const PHASES = ['spec', 'plan', 'review', 'implement', 'blocked', 'done', 'idle'];
-
-/** The phases a run is IN — the ones that arm a hook. */
-const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
+const PHASES = [...RUN_PHASES, 'done', 'idle'];
 
 /** The phases a tool may write to START a run; `blocked` is the gate's alone. */
 const STARTS_A_RUN = ['spec', 'plan', 'review', 'implement'];

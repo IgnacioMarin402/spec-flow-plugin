@@ -25,7 +25,7 @@
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join, dirname, isAbsolute, resolve, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, RUN_PHASES } from './lib/io.mjs';
 import { handedBack } from './lib/handback.mjs';
 import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS } from '../scripts/agent-blocks.mjs';
 import { deltas, declaredIds, capabilityOf, archiveClash } from '../scripts/spec-shape.mjs';
@@ -37,7 +37,6 @@ const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
 /** Blocks per agent before its return goes through as it is. */
 const MAX_BLOCKS = 2;
 
-const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 
 /** The statuses `name`'s contract declares, its modes included; [] when it ships none. */
 function contractStatuses(name) {

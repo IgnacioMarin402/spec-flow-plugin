@@ -204,40 +204,50 @@ export function changesAtBase(root, base) {
   return readdirSync(dir).filter((e) => e !== 'archive' && there.has(e) && statSync(join(dir, e)).isDirectory());
 }
 
+// Every change spec under `specflow/`, live, archived or nested in an archived
+// change: `:(glob)` so `**` alone crosses `/`.
+const CHANGE_SPECS = ':(glob)specflow/**/spec.md';
+
 /**
- * The archived changes `base` already holds, as it holds them: shipped or
- * dropped before this branch, so none is this branch's to answer for
- * (ADR-032, ADR-048). A folder whose `spec.md` this branch rewrote holds
- * another change under the same name, and is not among them.
+ * The change specs `base` holds, as paths from `specflow/`: `<slug>/spec.md`,
+ * `archive/<slug>/spec.md`, `archive/<slug>/<entry>/spec.md`. What was there
+ * before this branch was written by no run of it (ADR-032, ADR-048).
  */
-export function archivedAtBase(root, base) {
+export function specsAtBase(root, base) {
   // `./` with --full-tree reads the path from `root`, which spec-trace does not
   // require to be the repository's top; -z leaves names unquoted.
-  const atBase = git(root, ['ls-tree', '--full-tree', '-d', '-z', '--name-only', `${base}:./specflow/archive`]);
-  if (atBase.status !== 0) return new Set(); // no archive at the base
-  const held = new Set(atBase.stdout.split('\0').filter(Boolean));
-  const rewritten = git(root, ['diff', '--name-only', '-z', '--relative', base, '--', 'specflow/archive']);
-  if (rewritten.status === 0) {
-    for (const path of rewritten.stdout.split('\0')) if (path.endsWith('/spec.md')) held.delete(path.split('/')[2]);
-  }
-  return held;
+  const listed = git(root, ['ls-tree', '--full-tree', '-r', '-z', '--name-only', `${base}:./specflow`], { maxBuffer: 64 << 20 });
+  if (listed.status !== 0) return new Set(); // no specflow/ at the base
+  return new Set(listed.stdout.split('\0').filter((p) => p === 'spec.md' || p.endsWith('/spec.md')));
 }
 
 /**
- * The change specs `base` holds nested one level inside an archived change, as
- * `<slug>/<entry>`: a fold onto a name the archive had, made before this
- * branch, so not this branch's to answer for (ADR-048).
+ * The change specs this branch wrote since `base`, as paths from `root`, each
+ * with the place of the first commit that did, oldest 0 — a spec written and
+ * not yet committed, `Infinity`: the newest. One `git log`, read in commit
+ * order, for which run a change is: one archived before a live change was
+ * created belongs to an earlier run (ADR-048).
  */
-export function nestedAtBase(root, base) {
-  const listed = git(root, ['ls-tree', '--full-tree', '-r', '-z', '--name-only', `${base}:./specflow/archive`]);
-  if (listed.status !== 0) return new Set();
-  return new Set(
-    listed.stdout
-      .split('\0')
-      .map((path) => path.split('/'))
-      .filter((parts) => parts.length === 3 && parts[2] === 'spec.md')
-      .map(([slug, entry]) => `${slug}/${entry}`),
+export function branchWrites(root, base) {
+  const written = new Map();
+  const log = git(
+    root,
+    ['log', '--reverse', '--topo-order', '--no-renames', '--diff-filter=AM', '--format=%x00%H', '--name-only', '-z', '--relative', `${base}..HEAD`, '--', CHANGE_SPECS],
+    { maxBuffer: 64 << 20 },
   );
+  if (log.status === 0) {
+    let commit = -1;
+    let previous = '';
+    for (const token of log.stdout.split('\0')) {
+      const path = token.replace(/^\n/, '');
+      if (previous === '' && /^[0-9a-f]{40,64}$/.test(token)) commit++;
+      else if (path && !written.has(path)) written.set(path, commit);
+      previous = token;
+    }
+  }
+  const uncommitted = git(root, ['diff', '--name-only', '-z', '--relative', '--no-renames', '--diff-filter=AM', 'HEAD', '--', CHANGE_SPECS]);
+  if (uncommitted.status === 0) for (const path of uncommitted.stdout.split('\0')) if (path && !written.has(path)) written.set(path, Infinity);
+  return written;
 }
 
 /**

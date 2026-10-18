@@ -23,7 +23,7 @@
  * the failure mode this whole engine is built against.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -196,7 +196,12 @@ async function withRepo(files, assert) {
  * folder of the repository instead of at its top; `state` is written to
  * `.claude/state/` after the commits, untracked, as a run leaves it.
  */
-async function withBranch(base, branch, assert, { under = '', state = {} } = {}) {
+/**
+ * A repository on branch `feat` off `main`: `base` committed on main, then each
+ * file map of `branch` committed in turn — one map is one commit — and `state`
+ * written under `.claude/state/`, `dirs` left as empty folders, uncommitted.
+ */
+async function withBranch(base, branch, assert, { under = '', state = {}, dirs = [] } = {}) {
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-trace-branch-'));
   const projectDir = under ? join(repoDir, under) : repoDir;
   const git = (...args) => spawnSync('git', ['-c', 'user.email=f@example.com', '-c', 'user.name=fixture', ...args], { cwd: repoDir, encoding: 'utf8' });
@@ -214,9 +219,13 @@ async function withBranch(base, branch, assert, { under = '', state = {} } = {})
     git('add', '-A');
     git('commit', '-q', '-m', 'base');
     git('checkout', '-q', '-b', 'feat');
-    write(branch);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'branch');
+    for (const [i, commit] of (Array.isArray(branch) ? branch : [branch]).entries()) {
+      for (const [rel, contents] of Object.entries(commit)) if (contents === null) rmSync(join(projectDir, rel), { force: true });
+      write(Object.fromEntries(Object.entries(commit).filter(([, contents]) => contents !== null)));
+      git('add', '-A');
+      git('commit', '-q', '-m', `branch ${i}`);
+    }
+    for (const dir of dirs) mkdirSync(join(projectDir, dir), { recursive: true });
     write(Object.fromEntries(Object.entries(state).map(([name, text]) => [`.claude/state/${name}`, text])));
     const env = { ...process.env, CLAUDE_PROJECT_DIR: projectDir };
     const res = await run('node', [SPEC_TRACE], { cwd: tmpdir(), env });
@@ -230,12 +239,31 @@ const shippedSpec = (...deltaLines) => `# Spec — x\n\n**Status:** SHIPPED 2026
 /** A SHIPPED change spec whose deltas section is `section`, as written. */
 const shippedWith = (section) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${section}`;
 const twoReqs = `${spec()}\n### REQ-USER-002 — the user can do another thing\n\nThe system does it.\n`;
-/** A branch that shipped run one's change and is running run two's. */
-const twoRuns = {
-  'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
-  'specflow/run-two/spec.md': '# Spec — run two\n\n## Requirement deltas\n- ADDED REQ-USER-003 — the user can import data\n',
-  'specflow/run-two/proposal.md': '# Proposal\n\nWhy.\n',
-};
+/** A branch that shipped run one's change, then started run two's: one commit each. */
+const twoRuns = [
+  { 'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+  {
+    'specflow/run-two/spec.md': '# Spec — run two\n\n## Requirement deltas\n- ADDED REQ-USER-003 — the user can import data\n',
+    'specflow/run-two/proposal.md': '# Proposal\n\nWhy.\n',
+  },
+];
+/** Run one's change, then its fold: a SHIPPED change whose ADDED id never reached specs/. */
+const ownFold = [
+  {
+    'specflow/run-one/spec.md': '# Spec — run one\n\n## Requirement deltas\n- ADDED REQ-USER-002 — the user can export their data\n',
+    'specflow/run-one/proposal.md': '# Proposal\n\nWhy.\n',
+  },
+  {
+    'specflow/run-one/spec.md': null,
+    'specflow/run-one/proposal.md': null,
+    'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+    'specflow/archive/run-one/proposal.md': '# Proposal\n\nWhy.\n',
+  },
+];
+const holdsOwnFold = (r) =>
+  r.status !== 0 && /^ {2}- REQ-USER-002 is ADDED by specflow\/archive\/run-one/m.test(r.out) && !/held from the fold's gate on/.test(r.out)
+    ? null
+    : `the fold's gate passed over the run's own drift: ${r.out}`;
 
 await Promise.all([
   // ==== proof comes from what the runner REPORTED as executed (ADR-001) ======
@@ -630,6 +658,30 @@ await Promise.all([
     ),
   ),
 
+  // What makes a change an earlier run's is a live change created after it was
+  // archived. A folder is live with a spec in it, and only one the base lacks.
+  check("an empty folder its fold left does not make the run's own change an earlier run's", () =>
+    withBranch({ 'specs/user.md': spec() }, ownFold, holdsOwnFold, { state: { phase: 'implement' }, dirs: ['specflow/run-one'] }),
+  ),
+
+  check("a plan parked on the base does not make the run's own change an earlier run's", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/parked/spec.md': '# Spec — parked\n\n## Requirement deltas\n- none\n', 'specflow/parked/proposal.md': '# Proposal\n\nWhy.\n' },
+      ownFold,
+      holdsOwnFold,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  check("a live change created before the fold does not make the run's own change an earlier run's", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      [{ 'specflow/other/spec.md': '# Spec — other\n\n## Requirement deltas\n- none\n', 'specflow/other/proposal.md': '# Proposal\n\nWhy.\n' }, ...ownFold],
+      holdsOwnFold,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
   // Mid-run, a milestone writes its delta when it delivers it; only the stamp claims all landed.
   check('a live change is not held to its ADDED ids before it is SHIPPED', () =>
     withBranch(
@@ -642,12 +694,19 @@ await Promise.all([
     ),
   ),
 
-  check('with no base to resolve, a SHIPPED change is said to be unchecked, and why', () =>
+  // `check` and the gate fail with no base; the checks that need one here fail with them.
+  check('with no base to resolve, a SHIPPED change and a nested spec fail alike, with the reason', () =>
     withRepo(
-      { 'specs/user.md': spec(), 'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/archive/old/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer'),
+        'specflow/archive/old/old/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer still'),
+      },
       (r) => {
-        if (r.status !== 0) return `a repo with no base was blocked: ${r.out}`;
-        if (!/was not checked: no base branch could be resolved/.test(r.out)) return `the deltas went unchecked without a word, or without the reason: ${r.out}`;
+        if (r.status === 0) return `a repo with no base passed: ${r.out}`;
+        const said = /- (.*): whether these are this branch's or inherited needs the base, and no base branch could be resolved/.exec(r.out)?.[1] ?? '';
+        if (!said.includes('archive/add-export/spec.md') || !said.includes('archive/old/old/spec.md')) return `not both named, or not the reason: ${r.out}`;
         return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
       },
     ),
@@ -868,9 +927,9 @@ await Promise.all([
   ),
 
   check("a change folded inside another change's archive folder is reported", () =>
-    withRepo(
+    withBranch(
+      { 'specs/user.md': spec() },
       {
-        'specs/user.md': spec(),
         'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
         'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — x\n',
       },
@@ -900,6 +959,49 @@ await Promise.all([
       (r) => (r.status !== 0 && /fix-login\/fix-login\/ holds a change spec/.test(r.out) ? null : `a fold this branch made inside another change passed: ${r.out}`),
     ),
   ),
+
+  // A fold an earlier run nested is that run's: said until this run's fold.
+  check("before the fold, a fold an earlier run of this branch nested is said, not failed", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n' },
+      [{ 'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- none\n' }, twoRuns[1]],
+      (r) => {
+        if (r.status !== 0) return `run two's milestone gate failed over run one's fold: ${r.out}`;
+        return /held from the fold's gate on.*fix-login\/fix-login\/ holds a change spec/s.test(r.out) ? null : `the nested fold went unsaid: ${r.out}`;
+      },
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // The base's own change is still the base's when this branch nests a fold in it.
+  check("a fold nested inside the base's change does not make that change this branch's", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/foo/spec.md': shippedSpec('ADDED REQ-USER-005 — drift from before') },
+      { 'specflow/archive/foo/foo/spec.md': '# Spec — foo again\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- none\n' },
+      (r) => {
+        if (/REQ-USER-005/.test(r.out)) return `the base's change was blamed on this branch: ${r.out}`;
+        return /foo\/foo\/ holds a change spec/.test(r.out) ? null : `the nested fold was not reported: ${r.out}`;
+      },
+    ),
+  ),
+
+  // Only where a filesystem tells the two apart can both be written to test it.
+  check('two archived folders a case apart are reported, unless both are the base\'s', () => {
+    const probe = mkdtempSync(join(tmpdir(), 'spec-trace-case-'));
+    writeFileSync(join(probe, 'Aa'), '');
+    const folds = existsSync(join(probe, 'aA'));
+    rmSync(probe, { recursive: true, force: true });
+    if (folds) return null;
+    const archivedAs = (name) => ({ [`specflow/archive/${name}/spec.md`]: `# Fix — ${name}\n\n**Status:** REJECTED 2026-07-30\n\n## Requirement deltas\n- none\n` });
+    return Promise.all([
+      withBranch({ 'specs/user.md': spec(), ...archivedAs('Fix-Login') }, archivedAs('fix-login'), (r) =>
+        r.status !== 0 && /specflow\/archive\/Fix-Login\/ and specflow\/archive\/fix-login\/ differ only in case/.test(r.out) ? null : `a case-variant fold of this branch passed: ${r.out}`,
+      ),
+      withBranch({ 'specs/user.md': spec(), ...archivedAs('Fix-Login'), ...archivedAs('fix-login') }, { 'README.md': 'unrelated\n' }, (r) =>
+        r.status === 0 ? null : `this branch was blocked over a pair it inherited: ${r.out}`,
+      ),
+    ]).then((found) => found.filter(Boolean).join('\n') || null);
+  }),
 
   check("an archived change's own milestones and telemetry are not changes", () =>
     withRepo(
@@ -1588,9 +1690,9 @@ await Promise.all([
   // rule. Re-stamping history to satisfy a check written later would rewrite
   // the record this engine keeps in order to be able to read it.
   check('an archived change keeps its bare CHANGED', () =>
-    withRepo(
+    withBranch(
+      { 'specs/user.md': spec() },
       {
-        'specs/user.md': spec(),
         'specflow/archive/old/spec.md':
           '# Spec — old\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — from before this rule\n',
         'specflow/archive/old/proposal.md': '# Proposal\n\nWhy.\n',
