@@ -233,7 +233,7 @@ await run(async () => {
       deny(
         `starting a run by writing '${written}' into .claude/state/phase, and this engine cannot run in this repository: ${err.message}\n\n` +
           `Nothing has started and nothing is armed. Fix that first, then start the run again` +
-          (err.kind === 'foreign-change' ? '.' : ` — \`spec-flow init\`, run from the repository root, writes the contract.`),
+          (['foreign-change', 'settings'].includes(err.kind) ? '.' : ` — \`spec-flow init\`, run from the repository root, writes the contract.`),
       );
     }
     claimPhase(root, payload.session_id);

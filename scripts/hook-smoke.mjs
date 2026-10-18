@@ -413,6 +413,15 @@ t('opus-budget reads a cap written as a numeric string', (repo) => {
   return r.status === 2 && r.stderr.includes('budget exhausted') ? null : `a cap of "1" did not stop a second call (exit ${r.status}): ${r.stderr}`;
 });
 
+// Some editors open a JSON file with a byte-order mark. Every reader of this
+// file drops it the same way, so the pane shows the cap this hook denies at.
+t('opus-budget reads a cap written after a byte-order mark', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), `\uFEFF${JSON.stringify({ max_architect_calls: 1 })}`);
+  writeFileSync(join(repo, '.claude/state/architect_calls'), '1');
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'architect' } }, repo);
+  return r.status === 2 && r.stderr.includes('budget exhausted') ? null : `a cap of 1 behind a byte-order mark let a second call through (exit ${r.status}): ${r.stderr}`;
+});
+
 t('register-agent records an Opus session id', (repo) => {
   const r = runHook(
     'register-agent.mjs',
@@ -1404,6 +1413,49 @@ t(
   { phase: '' },
 );
 
+// A setting a hook would refuse mid-run is refused before anything is armed:
+// a cap that is no number of calls otherwise waits for the architect's first
+// consult, mid-implement, to deny anything.
+for (const [what, text, says] of [
+  ['a cap that is not a whole number of calls', JSON.stringify({ max_architect_calls: 'three' }), 'max_architect_calls'],
+  ['a file that does not parse', '{ "max_opus_calls": 2, }', 'does not parse as JSON'],
+  ['a route to an agent this plugin does not ship', JSON.stringify({ agents: { plannr: 'sonnet' } }), 'plannr'],
+]) {
+  t(
+    `phase-guard refuses to start a run over ${what} in .claude/spec-flow.config.json`,
+    (repo) => {
+      writeFileSync(join(repo, '.claude/spec-flow.config.json'), text);
+      const r = startRun(repo);
+      if (r.status !== 2) return `a run started over ${what} — exit ${r.status}`;
+      if (!r.stderr.includes(says)) return `the refusal does not name what to fix: ${r.stderr}`;
+      if (r.stderr.includes('spec-flow init')) return `the refusal sends the human to init, which does not write this file: ${r.stderr}`;
+      return existsSync(join(repo, '.claude/state/phase.session')) ? 'a refused start sealed the phase anyway' : null;
+    },
+    { phase: '' },
+  );
+}
+
+t(
+  'preflight refuses a spawn while a cap in .claude/spec-flow.config.json is not a whole number of calls',
+  (repo) => {
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 2.5 }));
+    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'spec-writer' } }, repo);
+    if (r.status !== 2) return `a spawn went through under a cap opus-budget denies every planner call at — exit ${r.status}`;
+    return r.stderr.includes('max_opus_calls') ? null : `the refusal does not name the key to fix: ${r.stderr}`;
+  },
+  { phase: 'spec' },
+);
+
+t(
+  'phase-guard lets a run start with caps and a routing every hook can apply',
+  (repo) => {
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), `\uFEFF${JSON.stringify({ max_opus_calls: '4', max_architect_calls: 0, agents: { architect: 'fable' } })}`);
+    const r = startRun(repo);
+    return r.status === 0 ? null : `a run was refused over settings every hook applies — exit ${r.status}: ${r.stderr}`;
+  },
+  { phase: '' },
+);
+
 t(
   'preflight refuses a spawn while a change the base branch has is live — the start it backstops',
   (repo) => {
@@ -2120,6 +2172,23 @@ t('model-route denies a full model id, where the tool call would have', (repo) =
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
   if (r.status !== 2) {
     return `exit ${r.status}, expected 2 — a pinned id fails the spawn's own schema, a long way from the file that caused it`;
+  }
+  return null;
+});
+
+t('model-route reads a routing written after a byte-order mark, and denies the entry that is wrong', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), `\uFEFF${JSON.stringify({ agents: { reviwer: 'sonnet' } })}`);
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+  if (r.status !== 2) return `exit ${r.status}, expected 2 — behind a byte-order mark the routing was never read, so the typo routed nothing, silently`;
+  return r.stderr.includes('reviwer') ? null : 'denied without naming the entry that is wrong';
+});
+
+t('model-route reads a file that is not a JSON object as no routing, and does not crash on it', (repo) => {
+  for (const text of ['null', '[]', '6']) {
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), text);
+    const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+    if (r.status !== 0) return `${text}: exit ${r.status}, expected 0`;
+    if (r.stderr.includes('hook error')) return `${text}: the hook crashed, and a crash allows the spawn with nothing applied: ${r.stderr.slice(0, 200)}`;
   }
   return null;
 });

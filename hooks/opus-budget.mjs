@@ -30,10 +30,10 @@
  * not in `.spec-flow/config.json`: they are run-scoped numbers, not an
  * architectural fact about the repo. Counted only while a run is in progress,
  * so a one-off question to the architect outside the flow is never charged.
- * `max_opus_calls` keeps its name for one reason: nothing validates that
- * file, so a rename would read a repo's configured cap as absent and hand it
- * the default instead — a silent change to the one number a human set
- * deliberately.
+ * `max_opus_calls` keeps its name for one reason: nothing refuses a key that
+ * file does not know, so a rename would read a repo's configured cap as absent
+ * and hand it the default instead — a silent change to the one number a human
+ * set deliberately.
  *
  * Two inaccuracies are accepted rather than fixed, because both err small
  * against the default budgets and neither can silently disarm them:

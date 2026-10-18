@@ -233,9 +233,9 @@ could not be named, `files=0` means it resolved to HEAD.
 
 - **`max_opus_calls`** (default 6) caps planner calls per run, and
   **`max_architect_calls`** (default 3) caps architect calls, each by role,
-  whatever tier it runs on. Past a cap, or under one that is not a number of
-  calls, the spawn is denied and the orchestrator summarises for a human. Counters: `.claude/state/opus_calls` and
-  `.claude/state/architect_calls`
+  whatever tier it runs on. Past a cap the spawn is denied and the
+  orchestrator summarises for a human. Counters: `.claude/state/opus_calls`
+  and `.claude/state/architect_calls`
   ([ADR-038](decisions/038-the-architect-answers-the-implementer-and-a-re-plan-needs-a-wrong-plan.md)).
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
   `fable`. The architect advisor runs on Opus unless routed;
@@ -251,6 +251,11 @@ could not be named, `files=0` means it resolved to HEAD.
 - **A concrete model version** is session-wide, set in the project's
   `.claude/settings.json` as `{"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "<id>"}}`
   ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
+- **A run does not start** over a file that does not parse, a cap that is not
+  a whole number of calls, or a route to an unknown agent or tier: the hooks
+  would deny each during the run
+  ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)).
+  Mid-run, a file that does not parse gives the defaults.
 
 `spec-flow models` prints what each agent will run on and which layer decided
 it, through the same code the spawn hook uses. None of this resets between
@@ -395,7 +400,7 @@ Without it, run the same scripts by path, from your repo's root:
 |---|---|---|---|
 | `session-start` | `SessionStart` | — | Resets a run phase untouched for 6h+ to `idle` |
 | `human-turn` | `UserPromptSubmit`, `Stop`, `PostToolUse` | `AskUserQuestion` (`PostToolUse`) | Records when the session's turn ends and when a person answers — never what they said — for the case 3 check ([ADR-036](decisions/036-a-case-3-waits-for-a-persons-answer.md)). Enforces nothing |
-| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, that has a live change folder the base already has, or whose Node is below the floor |
+| `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose `.claude/spec-flow.config.json` a hook would deny over, whose base does not resolve, that has a live change folder the base already has, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
 | `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from, or a case 3 brief has no person's answer since it was written |
 | `orchestrator-scope` | `PreToolUse` | `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` | During a run, denies the session itself — not a subagent — reading a repository file outside `specflow/`, `specs/`, `.spec-flow/`, `.claude/` and the root's `*.md`, or writing, moving or deleting one outside `.claude/state/` and `specflow/`, or a log under `.claude/state/` ([ADR-034](decisions/034-the-orchestrator-routes-and-a-hook-keeps-it-routing.md)) |

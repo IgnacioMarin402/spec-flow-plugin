@@ -23,6 +23,8 @@
  *      can be fine on one machine and unusable on another.
  *   3. No change folder the base branch already holds is live: a run here
  *      could never be marked done (ADR-032).
+ *   4. `.claude/spec-flow.config.json` applies: no cap `opus-budget` would
+ *      deny every call at, no route `model-route` would deny every spawn over.
  *
  * It is NOT a general policy hook. An empty `specs/`, a missing skill, an
  * unwise test command — none stop a run from starting, so none belong here.
@@ -42,6 +44,7 @@ const HEADINGS = {
   'no-repository': 'this directory is in no git repository.',
   'not-root': 'this directory is not the root of its repository.',
   contract: 'the contract could not be read.',
+  settings: 'a setting in .claude/spec-flow.config.json cannot be applied.',
   base: 'the base branch could not be resolved.',
   'foreign-change': 'a change the base branch already has is live in specflow/.',
 };

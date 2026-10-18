@@ -374,6 +374,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /planner/ }), 'outside a run').toBeUndefined()
   })
 
+  test(`${surface}: a cap written after a byte-order mark shows as opus-budget reads it`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME, 'spec-flow.config.json': '\uFEFF{"max_opus_calls": 2, "max_architect_calls": "three"}' })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^ planner 0\/2$/ }), 'the cap set, not the default').toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ architect 0, cap unreadable: every call denied$/ }), 'a cap the hook denies every call at').toBeDefined()
+  })
+
   test(`${surface}: a check that stood down during this run says so, and one before it does not`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const files: Record<string, string> = {

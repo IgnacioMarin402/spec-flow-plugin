@@ -6,6 +6,8 @@
  * no Node (ADR-037).
  */
 
+import { projectConfig } from './project-config.mjs';
+
 /** Each escalation role's cap, its default and its counter (ADR-038). */
 export const BUDGETS = {
   planner: { key: 'max_opus_calls', fallback: 6, counter: 'opus_calls' },
@@ -24,13 +26,9 @@ export const BUDGETS = {
  */
 export function budgetCap(configText, role) {
   const budget = BUDGETS[role];
-  let value;
-  try {
-    value = JSON.parse(configText)[budget.key];
-  } catch {
-    return budget.fallback;
-  }
+  const value = projectConfig(configText).settings[budget.key];
   if (value === undefined || value === null) return budget.fallback;
-  const cap = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN;
+  // Digits only, in a string: `Number()` also reads "0x10" as 16 and "1e1" as 10.
+  const cap = typeof value === 'number' ? value : typeof value === 'string' && /^\s*\d+\s*$/.test(value) ? Number(value) : NaN;
   return Number.isInteger(cap) && cap >= 0 ? cap : NaN;
 }
