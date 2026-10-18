@@ -1,6 +1,6 @@
 # ADR-047 — an observer stays a command hook, and the live view shows its record
 
-**Date:** 2026-10-17 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/lib/budgets.mjs`, `scripts/agent-blocks.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-037 (what a mod may read) · **Related:** ADR-029, ADR-031, ADR-034, ADR-036, ADR-038
+**Date:** 2026-10-17 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/lib/budgets.mjs`, `hooks/lib/log-lines.mjs`, `scripts/agent-blocks.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-037 (what a mod may read) · **Related:** ADR-029, ADR-031, ADR-034, ADR-036, ADR-038
 
 **Question.** A mod may only show (ADR-029, ADR-037). Five hooks only observe:
 `human-turn`, `register-agent`, `run-trace`, `dispatch-guard` and `token-trace`.
@@ -45,7 +45,10 @@ On 2.1.246 a module is not loaded, and nothing says so (ADR-037).
 - **The other `*-unmatched.log` files.** They keep one line per shape, with no
   time, so a line cannot be placed in this run.
 
-**Cost.** The view reads `run-trace.log` whole whenever it changes, and the
-file is never truncated: past what one read takes (4 MiB), send-backs are not
-shown. The agent gate's line and the two logs' timestamps are now read by the
+**Cost.** The view reads a log again whenever it changes, and `run-trace.log`
+and `gate-history.log` are never truncated. Past what one read takes (4 MiB),
+node streams the log and hands back how many lines count and the last 10000 of
+them (`hooks/lib/log-lines.mjs`): the count stays exact, and an agent more than
+10000 send-backs back goes unshown. Where node cannot run, the log is said
+unread. The agent gate's line and the two logs' timestamps are now read by the
 view as well as by the engine.

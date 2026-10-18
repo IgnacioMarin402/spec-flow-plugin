@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Args, HookStream, On, TurnStepChunk, TurnStepInput, TurnStepResult, TurnStepServerToolUse } from 'claude-code'
+// What node hands back for a log one read cannot take; test/log-lines.test.mjs holds the script to it.
+import { linesOf } from './lib/log-lines.mjs'
 
 const ROOT = '/repo'
 const ME = 'session-me'
@@ -43,8 +45,9 @@ const stateFile = (path: string) => /[\\/]\.claude[\\/](?:state[\\/])?(.+)$/.exe
  * The world beneath the mod: `.claude/state/` as `files` (mutable), git's
  * answer, the model's, and what the session has cost (`usd`, absent: no ledger).
  * `server` holds the server tool calls of the next steps, one entry per step.
- * `mtimes` sets a file's modification time; a file in `unreadable` is there and
- * refuses a read, as one over 4 MiB does.
+ * `mtimes` sets a file's modification time (mutable); a file in `unreadable` is
+ * there and refuses a read, as one over 4 MiB does, and node reads it unless
+ * `node` is false. `hold` is awaited inside a read, with the file's name.
  */
 function world(
   on: On,
@@ -55,12 +58,23 @@ function world(
     server = [],
     mtimes = {},
     unreadable = [],
-  }: { tracked?: boolean; usd?: number; server?: TurnStepServerToolUse[][]; mtimes?: Record<string, number>; unreadable?: string[] } = {},
+    node = true,
+    hold,
+  }: {
+    tracked?: boolean
+    usd?: number
+    server?: TurnStepServerToolUse[][]
+    mtimes?: Record<string, number>
+    unreadable?: string[]
+    node?: boolean
+    hold?: (file: string) => Promise<void>
+  } = {},
 ) {
-  on('fs.read', (_, e) => {
+  on('fs.read', async (_, e) => {
     const text = files[stateFile(e.path)]
     if (text === undefined) throw new Error('ENOENT')
     if (unreadable.includes(stateFile(e.path))) throw new Error('EFBIG')
+    await hold?.(stateFile(e.path))
     return { value: text }
   })
   on('fs.stat', (_, e) => {
@@ -68,7 +82,13 @@ function world(
     if (text === undefined) throw new Error('ENOENT')
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[stateFile(e.path)] ?? text.length, isLink: false } }
   })
-  on('process.run', () => ({ value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '' } as never }))
+  on('process.run', (_, e) => {
+    if (e.argv[0] !== 'node') return { value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (!node) throw new Error('ENOENT: node')
+    const [path = '', since = '', needle = ''] = e.argv.slice(e.argv.indexOf('--') + 1)
+    const { n, last } = linesOf(files[stateFile(path)] ?? '', needle, Number(since))
+    return { value: { exitCode: 0, stdout: [n, ...last].join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('session.id', () => ({ value: ME }))
   on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...(usd === undefined ? {} : { cost: { usd } }) } as never }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -105,6 +125,36 @@ async function step($: Stepper, agentId?: string) {
 
 /** The end of one of the orchestrator's turns: where token-trace's Stop would charge it. */
 const mainTurnEnds = { answer: '', durationMs: 1, isAborted: false, turnId: 't-main', reason: 'answer' } as const
+
+/**
+ * Holds the next read of `file` until `release`: `next()` resolves once a read
+ * is held. The reads after it pass.
+ */
+function held(file: string) {
+  let arm = false
+  let reached = () => {}
+  let release = () => {}
+  const released = new Promise<void>(r => (release = r))
+  return {
+    next: () => ((arm = true), new Promise<void>(r => (reached = r))),
+    release: () => release(),
+    hold: async (name: string) => {
+      if (name !== file || !arm) return
+      arm = false
+      reached()
+      await released
+    },
+  }
+}
+
+/** What `$.state` still holds after a reload: `liveRun` as an earlier version wrote it, until this one writes. */
+function kept(on: On, value: unknown) {
+  const ref = { plugin: 'spec-flow', key: 'liveRun' } as const
+  on('state.get', ref, async (_, e, next) => {
+    const r = await next(e)
+    return r.value?.value === undefined ? { value: { value: value as never, version: 0 } } : r
+  })
+}
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: a role shows when spawned, counts only its own work live, and closes with its STATUS`, async ($, on) => {
@@ -272,10 +322,21 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ text: '  failed: lint · typecheck' }), 'the non-zero checks, by their field').toBeDefined()
 
-    // A refusal ran no check: its result already says why.
-    files['gate-history.log'] += `${at} result=fail:base lint=- test=- spec=- typecheck=- files=-\n`
+    files['gate-history.log'] += `${at} result=fail:behaviour lint=0 test=1 spec=0 typecheck=0 files=3\n`
     await clock.advance(2_000)
-    expect(await ui.find({ text: /failed:/ }), 'nothing listed for a refusal').toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^  failed: test$/ }), 'a red test').toBeDefined()
+
+    // `-` is a check that did not run: lint, with no file of its own to lint.
+    files['gate-history.log'] += `${at} result=fail:lint/trace lint=- test=0 spec=1 typecheck=0 files=0\n`
+    await clock.advance(2_000)
+    expect(await ui.find({ type: 'Text', text: /^  failed: spec$/ }), 'a check that did not run is not one that failed').toBeDefined()
+
+    // A refusal ran no check: its result already says why.
+    for (const refused of ['fail:base lint=- test=- spec=- typecheck=-', 'fail:contract lint=- test=- unscoped=missing', 'fail:hook-error lint=- test=- unscoped=missing']) {
+      files['gate-history.log'] += `${at} result=${refused} files=-\n`
+      await clock.advance(2_000)
+      expect(await ui.find({ text: /failed:/ }), `nothing listed for ${refused}`).toBeUndefined()
+    }
 
     files['gate-history.log'] += `${at} result=pass lint=0 test=0 spec=0 typecheck=0 files=3\n`
     await clock.advance(2_000)
@@ -287,20 +348,26 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const files: Record<string, string> = {
       phase: 'implement',
       'phase.session': ME,
-      opus_calls: '3',
-      architect_calls: '2',
+      opus_calls: '4',
+      architect_calls: '1',
       'spec-flow.config.json': '{"max_opus_calls": 4}',
     }
     world(on, files)
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
     await clock.advance(2_000)
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ text: ' planner 3/4' }), 'the configured cap').toBeDefined()
-    expect(await ui.find({ text: ' architect 2/3' }), 'the default cap').toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /^ planner 4\/4$/ }))?.props.color, 'the configured cap, reached').toBe('error')
+    expect((await ui.find({ type: 'Text', text: /^ architect 1\/3$/ }))?.props.color, 'the default cap, with room').toBeUndefined()
+
+    files.architect_calls = '2'
+    await clock.advance(2_000)
+    expect((await ui.find({ type: 'Text', text: /^ architect 2\/3$/ }))?.props.color, 'one call from the cap').toBe('warning')
 
     files['spec-flow.config.json'] = '{"max_opus_calls": 4, "max_architect_calls": "three"}'
     await clock.advance(2_000)
     expect(await ui.find({ text: ' architect 2, cap unreadable: every call denied' }), 'a cap the hook denies at').toBeDefined()
+    // What a narrow pane would cut off is what says why: the line wraps.
+    expect((await ui.findAll({ type: 'Text', text: /budget:/ })).map(t => t.props.wrap), 'never cut').toContain('wrap')
 
     files.phase = 'done'
     await clock.advance(2_000)
@@ -350,16 +417,181 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     files['run-trace.log'] += line('a-implementer', 'block', 'unknown-status') + line('a-implementer', 'cap', 'missing-path')
     await clock.advance(2_000)
-    expect(await ui.find({ text: 'sent back 2/2, then let through · missing-path' }), 'past the cap').toBeDefined()
+    const capped = await ui.find({ type: 'Text', text: /^sent back 2\/2, then let through · missing-path$/ })
+    expect(capped, 'past the cap').toBeDefined()
+    // 34 columns before the reason, in a card with 34 to draw in: it wraps, never cut.
+    expect(capped?.props.wrap).toBe('wrap')
   })
 
-  test(`${surface}: a run trace too large to read is said, never shown as nothing sent back`, async ($, on) => {
+  test(`${surface}: a check that stood down in an earlier run of this session is not this run's`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
-    world(on, { phase: 'implement', 'phase.session': ME, 'run-trace.log': 'x' }, { unreadable: ['run-trace.log'] })
+    const mtimes = { 'run-offset': Date.parse('2026-10-17T03:30:00Z') }
+    const files: Record<string, string> = {
+      phase: 'spec',
+      'phase.session': ME,
+      'run-offset': '{"run-trace.log":0,"gate-history.log":0}',
+      'orchestrator-scope-unmatched.log': '2026-10-17T04:00:00.000Z phase=spec tool=Read unattributed\n',
+    }
+    world(on, files, { mtimes })
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
     await clock.advance(2_000)
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ text: /send-backs are not shown/ })).toBeDefined()
+    expect(await ui.find({ text: /^⚠ orchestrator-scope stood down/ }), 'the first run').toBeDefined()
+
+    // The next run sets its mark, and nothing has stood down since.
+    mtimes['run-offset'] = Date.parse('2026-10-17T05:00:00Z')
+    await clock.advance(2_000)
+    expect(await ui.find({ text: /^⚠ orchestrator-scope stood down/ }), 'the second run').toBeUndefined()
+  })
+
+  test(`${surface}: what stood down and what was sent back are this session's run only`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files: Record<string, string> = {
+      phase: 'implement',
+      'phase.session': ME,
+      'orchestrator-scope-unmatched.log': '2026-10-17T04:00:00.000Z phase=implement tool=Read unattributed\n',
+      'run-trace.log': `2026-10-17T04:00:00.000Z phase=implement session=${ME} agent-check agent=spec-flow:implementer result=block why=no-status agent_id=a-implementer\n`,
+    }
+    world(on, files)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /^⚠ orchestrator-scope stood down/ }), 'while the run is ours').toBeDefined()
+    expect(await ui.find({ text: 'sent back 1/2 · no-status' })).toBeDefined()
+
+    files['phase.session'] = 'session-other'
+    await clock.advance(2_000)
+    expect(await ui.find({ text: /stood down/ }), 'a run another session owns').toBeUndefined()
+    expect(await ui.find({ text: /^sent back/ })).toBeUndefined()
+  })
+
+  test(`${surface}: a log over what one read takes is read by node`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files: Record<string, string> = {
+      phase: 'implement',
+      'phase.session': ME,
+      'gate-history.log': '2026-10-17T04:05:00Z faa2688 cc=? engine=abc1234 phase=implement attempt=1 result=fail:behaviour lint=0 test=1 files=3\n',
+      'run-trace.log':
+        `2026-10-17T04:00:00.000Z phase=implement session=${ME} tool=Read agent_id=a-implementer\n` +
+        `2026-10-17T04:00:01.000Z phase=implement session=${ME} agent-check agent=spec-flow:implementer result=block why=no-status agent_id=a-implementer\n`,
+      'run-offset': '{"run-trace.log":0,"gate-history.log":0}',
+      'orchestrator-scope-unmatched.log': '2026-10-17T04:00:00.000Z phase=implement tool=Read unattributed\n',
+    }
+    world(on, files, { unreadable: ['gate-history.log', 'run-trace.log', 'orchestrator-scope-unmatched.log'], mtimes: { 'run-offset': Date.parse('2026-10-17T03:30:00Z') } })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: 'fail:behaviour faa2688' }), 'the gate').toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^  failed: test$/ })).toBeDefined()
+    expect(await ui.find({ text: 'sent back 1/2 · no-status' }), 'the send-backs').toBeDefined()
+    expect(await ui.find({ text: '⚠ orchestrator-scope stood down: no tool call attributed to an agent yet (1×)' }), 'a stand-down').toBeDefined()
+    expect(await ui.find({ text: /could not be read/ })).toBeUndefined()
+  })
+
+  test(`${surface}: a log that neither the view nor node can read is said, never drawn as nothing in it`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files: Record<string, string> = {
+      phase: 'implement',
+      'phase.session': ME,
+      'gate-history.log': '2026-10-17T04:05:00Z faa2688 cc=? engine=abc1234 phase=implement attempt=1 result=pass lint=0 test=0 files=3\n',
+      'run-trace.log': 'x\n',
+      'orchestrator-scope-unmatched.log': '2026-10-17T04:00:00.000Z phase=implement tool=Read unattributed\n',
+      'human-turn-unmatched.log': '2026-10-17T04:10:00.000Z case-3 check stood down: no answer recorded — fix-login\n',
+    }
+    world(on, files, { unreadable: Object.keys(files).filter(f => f.endsWith('.log')), node: false })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.findAll({ type: 'Text', text: /could not be read/ })).map(t => t.text)).toEqual([
+      'gate-history.log could not be read: the last gate is not shown',
+      'orchestrator-scope-unmatched.log could not be read: whether orchestrator-scope stood down is not shown',
+      'human-turn-unmatched.log could not be read: whether the case 3 check stood down is not shown',
+      "run-trace.log could not be read: the agent gate's send-backs are not shown",
+    ])
+  })
+
+  test(`${surface}: two polls at once count a stand-down once`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const LOG = 'orchestrator-scope-unmatched.log'
+    const files: Record<string, string> = {
+      phase: 'spec',
+      'phase.session': ME,
+      'run-offset': '{"run-trace.log":0,"gate-history.log":0}',
+      [LOG]: '2026-10-17T04:00:00.000Z phase=spec tool=Read unattributed\n',
+    }
+    const read = held(LOG)
+    world(on, files, { mtimes: { 'run-offset': Date.parse('2026-10-17T03:30:00Z') }, hold: read.hold })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+
+    // The timer's poll stops on the log; a line lands, and a turn's end polls too.
+    files[LOG] += '2026-10-17T04:00:01.000Z phase=spec tool=Bash unattributed\n'
+    const tick = read.next()
+    const timer = clock.advance(2_000)
+    await tick
+    files[LOG] += '2026-10-17T04:00:02.000Z phase=spec tool=Bash unattributed\n'
+    const turnEnd = $.turn.complete(mainTurnEnds)
+    await clock.settle()
+    read.release()
+    await Promise.all([timer, turnEnd])
+    await clock.advance(2_000)
+
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.findAll({ type: 'Text', text: /^⚠ orchestrator-scope/ })).map(t => t.text)).toEqual([
+      '⚠ orchestrator-scope stood down: no tool call attributed to an agent yet (3×)',
+    ])
+  })
+
+  test(`${surface}: two polls at once, what is drawn is the later read`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const line = (why: string) =>
+      `2026-10-17T04:00:00.000Z phase=implement session=${ME} agent-check agent=spec-flow:implementer result=block why=${why} agent_id=a-implementer\n`
+    const files: Record<string, string> = { phase: 'implement', 'phase.session': ME, 'run-trace.log': line('no-status') }
+    const read = held('run-trace.log')
+    world(on, files, { hold: read.hold })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+
+    // The timer's poll stops on the trace; a send-back lands, and a turn's end polls too.
+    const tick = read.next()
+    const timer = clock.advance(2_000)
+    await tick
+    files['run-trace.log'] += line('unknown-status')
+    const turnEnd = $.turn.complete(mainTurnEnds)
+    await clock.settle()
+    read.release()
+    await Promise.all([timer, turnEnd])
+    await clock.advance(2_000)
+
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.findAll({ type: 'Text', text: /^sent back/ })).map(t => t.text)).toEqual(['sent back 2/2 · unknown-status'])
+  })
+
+  test(`${surface}: a run an earlier version of the view kept is read as none, not drawn`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME })
+    kept(on, { phase: 'implement', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    // Drawn before the first poll writes this version's run.
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /No spec-flow agent has been spawned/ })).toBeDefined()
+    await clock.advance(2_000)
+    expect(await ui.find({ text: '[implement]' })).toBeDefined()
+  })
+
+  test(`${surface}: an earlier version's run, with no phase left to poll, is read as none`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, {})
+    kept(on, { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(10_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /No spec-flow agent has been spawned/ })).toBeDefined()
   })
 
   test(`${surface}: the run line shows what the session cost, as /cost totals it`, async ($, on) => {

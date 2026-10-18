@@ -65,8 +65,8 @@ export type LiveRun = {
   stoodDown: string[]
   // by agent id: the agent gate's send-backs, the last one's reasons, and whether it then let the return through
   sentBack: Record<string, { n: number; why: string; cap: boolean }>
-  // run-trace.log is there and could not be read whole, so send-backs are unknown
-  traceUnread: boolean
+  // a log that is there and could not be read, and what that leaves unshown
+  unread: string[]
 }
 
 declare module 'claude-code' {
@@ -75,7 +75,7 @@ declare module 'claude-code' {
       liveAgents: LiveAgent[]
       liveOrchestrator: LiveOrchestrator
       liveTurn: LiveTurn
-      liveRun: LiveRun
+      liveRun: Shaped<LiveRun>
       liveClock: number
     }
   }

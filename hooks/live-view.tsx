@@ -24,6 +24,8 @@ import type { EngineInterface, Register, TurnStepInput, TurnStepResult } from 'c
 import { MAX_BLOCKS, parseReturn } from '../scripts/agent-blocks.mjs'
 // The caps opus-budget denies at: one copy.
 import { BUDGETS, budgetCap } from './lib/budgets.mjs'
+// Which log lines count, read here or by node past 4 MiB: one filter.
+import { LINES, linesOf } from './lib/log-lines.mjs'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
 
 const PANE = 'spec-flow-live'
@@ -37,20 +39,19 @@ const CARD = 38 // 34 columns of text, its padding and its border
 const ZERO: LiveTokens = { in: 0, cacheRead: 0, cacheWrite: 0, out: 0 }
 const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, byTool: {}, advisor: 0, advisorMs: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', effort: '', tokens: ZERO }
 const TURN0: LiveTurn = { steps: 0, tokens: ZERO, advisor: 0, advisorMs: 0 }
-const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null, failed: [], budgets: [], stoodDown: [], sentBack: {}, traceUnread: false }
+const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null, failed: [], budgets: [], stoodDown: [], sentBack: {}, unread: [] }
 
 // The checks whose own log says they stood down, each line stamped when it did.
 const STOOD_DOWN = [
-  { file: 'orchestrator-scope-unmatched.log', what: 'orchestrator-scope stood down: no tool call attributed to an agent yet' },
-  { file: 'human-turn-unmatched.log', what: 'the case 3 check stood down: no answer ever recorded' },
+  { file: 'orchestrator-scope-unmatched.log', check: 'orchestrator-scope', what: 'stood down: no tool call attributed to an agent yet' },
+  { file: 'human-turn-unmatched.log', check: 'the case 3 check', what: 'stood down: no answer ever recorded' },
 ]
-// The gate line's fields that are not a check.
-const NOT_A_CHECK = ['cc', 'engine', 'phase', 'attempt', 'result', 'files']
 
 const agents = atom({ plugin: 'spec-flow', key: 'liveAgents' } as const, [])
 const orchestrator = atom({ plugin: 'spec-flow', key: 'liveOrchestrator' } as const, ORCH0)
 const turn = atom({ plugin: 'spec-flow', key: 'liveTurn' } as const, TURN0)
-const run = atom({ plugin: 'spec-flow', key: 'liveRun' } as const, RUN0)
+// Tagged: a reload keeps `$.state`, and a run an earlier version wrote lacks fields this one draws.
+const run = atom({ plugin: 'spec-flow', key: 'liveRun' } as const, RUN0, { shape: 'live-run-2' })
 const clock = atom({ plugin: 'spec-flow', key: 'liveClock' } as const, 0)
 
 // ---- what the engine wrote -------------------------------------------------
@@ -68,25 +69,40 @@ let root = ''
 let session = ''
 let phaseSeen = ''
 let phaseTracked = false
+// Each log is read again only when its stat moved; what it said, and whether it was read, until then.
 let gateSeen = ''
 let gateLine = ''
-let traceSeen = ''
+let gateUnread = false
 let stoodSeen = ''
 let stood: string[] = []
+let stoodUnread: string[] = []
+let traceSeen = ''
 let backs: LiveRun['sentBack'] = {}
 let traceUnread = false
 
-/** The checks a failing gate line names with a non-zero code: `lint`, `test`, an unscoped check's field. */
-const failedChecks = (line: string): string[] =>
-  /\bresult=fail:(behaviour|lint\/trace)\b/.test(line)
-    ? [...line.matchAll(/ ([\w-]+)=(\S+)/g)].filter(([, k, v]) => !NOT_A_CHECK.includes(k) && v !== '0' && v !== '-').map(([, k]) => k)
-    : []
+/**
+ * The checks a failing gate line names with a non-zero code: the fields gate.mjs
+ * writes after `result=` and ahead of `files=` — `lint`, `test`, and each
+ * unscoped check's own, whatever the contract named it.
+ */
+function failedChecks(line: string): string[] {
+  const fields = line.split(' ')
+  const at = fields.findIndex(f => f.startsWith('result='))
+  if (!/^result=fail:(behaviour|lint\/trace)$/.test(fields[at] ?? '')) return []
+  const checks = fields.slice(at + 1)
+  if (checks.at(-1)?.startsWith('files=')) checks.pop()
+  return checks
+    .map(f => f.split('='))
+    .filter(([, v]) => v !== '0' && v !== '-')
+    .map(([key]) => key)
+}
 
 /** The agent gate's send-backs per agent, from its own `agent-check` lines (ADR-031). */
-function sendBacks(trace: string, ids: Set<string>): LiveRun['sentBack'] {
+function sendBacks(lines: string[], ids: Set<string>): LiveRun['sentBack'] {
   const out: LiveRun['sentBack'] = {}
-  for (const [, result, why, id] of trace.matchAll(/ agent-check agent=\S+ result=(block|cap) why=(\S+) agent_id=([\w-]+)$/gm)) {
-    if (!ids.has(id)) continue
+  for (const line of lines) {
+    const [, result, why, id] = / agent-check agent=\S+ result=(block|cap) why=(\S+) agent_id=([\w-]+)$/.exec(line) ?? []
+    if (!id || !ids.has(id)) continue
     const was = out[id] ?? { n: 0, why: '', cap: false }
     out[id] = { n: was.n + (result === 'block' ? 1 : 0), why, cap: was.cap || result === 'cap' }
   }
@@ -103,10 +119,34 @@ async function statKey($: EngineInterface, path: string): Promise<string> {
 }
 
 /**
+ * A log's lines that count (lib/log-lines.mjs): none when there is no log, and
+ * null when it is there and could not be read. Past what one read takes, node
+ * streams it.
+ */
+async function logLines($: EngineInterface, file: string, needle: string, since: number): Promise<{ n: number; last: string[] } | null> {
+  const path = `${root}/.claude/state/${file}`
+  try {
+    return linesOf(await $.fs.read(path), needle, since)
+  } catch {
+    /* over what one read takes, or not there */
+  }
+  if ((await statKey($, path)) === '') return { n: 0, last: [] }
+  try {
+    const out = await $.process.run(['node', '-e', LINES, '--', path, String(since), needle], { cwd: root, timeoutMs: 5_000 })
+    const [head = '', ...last] = out.stdout.split('\n')
+    return out.exitCode === 0 && !out.isStdoutTruncated && /^\d+$/.test(head) ? { n: Number(head), last: last.filter(Boolean) } : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * This session's run, as `readOwnedPhase` reads it (ADR-017): a phase another
  * session owns, or one git tracks, is not a run here and shows as none. The
  * milestone and the gate are this run's only: the milestone an implementer
  * this session spawned wrote, and the gate lines after the run's telemetry mark.
+ *
+ * A log it cannot read is said, never drawn as nothing in it (ADR-047).
  */
 async function poll($: EngineInterface): Promise<void> {
   const before = await read($, run)
@@ -131,21 +171,19 @@ async function poll($: EngineInterface): Promise<void> {
   const [slug = '', mk = '', implementer = ''] = (await stateText($, root, 'current-milestone')).split(/\s+/)
   const ours = (await read($, agents)).some(a => a.agentId === implementer)
 
+  // The gate line after the run's mark: the mark counts the lines already there.
   let mark = 0
   try {
     mark = Number(JSON.parse(await stateText($, root, 'run-offset'))['gate-history.log']) || 0
   } catch {
     /* no mark: every line counts, as the snapshot reads it */
   }
-  try {
-    const st = await $.fs.stat(`${root}/.claude/state/gate-history.log`)
-    const seen = `${st.size}:${st.mtimeMs}:${mark}`
-    if (seen !== gateSeen) {
-      gateSeen = seen
-      gateLine = (await stateText($, root, 'gate-history.log')).split('\n').slice(mark).filter(Boolean).at(-1) ?? ''
-    }
-  } catch {
-    gateLine = ''
+  const gateKey = `${await statKey($, `${root}/.claude/state/gate-history.log`)}:${mark}`
+  if (phase && gateKey !== gateSeen) {
+    const got = await logLines($, 'gate-history.log', '', 0)
+    gateLine = got && got.n > mark ? (got.last.at(-1) ?? '') : ''
+    gateUnread = got === null
+    gateSeen = gateKey
   }
   const result = /\bresult=(\S+)/.exec(gateLine)?.[1] ?? ''
   let usd: number | null = null
@@ -157,31 +195,28 @@ async function poll($: EngineInterface): Promise<void> {
 
   // The run starts where its telemetry mark was set; no mark, every line counts, as above.
   const offsetKey = await statKey($, `${root}/.claude/state/run-offset`)
-  const stoodKeys = [offsetKey, ...(await Promise.all(STOOD_DOWN.map(d => statKey($, `${root}/.claude/state/${d.file}`))))].join('|')
-  if (phase && stoodKeys !== stoodSeen) {
-    stoodSeen = stoodKeys
+  const stoodKey = [offsetKey, ...(await Promise.all(STOOD_DOWN.map(d => statKey($, `${root}/.claude/state/${d.file}`))))].join('|')
+  if (phase && stoodKey !== stoodSeen) {
     const startedAt = Number(offsetKey.split(':')[1]) || 0
-    stood = []
+    const lines: string[] = []
+    const unread: string[] = []
     for (const d of STOOD_DOWN) {
-      const n = (await stateText($, root, d.file)).split('\n').filter(l => Date.parse(l.split(' ')[0] ?? '') >= startedAt).length
-      if (n > 0) stood.push(`${d.what} (${n}×)`)
+      const got = await logLines($, d.file, '', startedAt)
+      if (got === null) unread.push(`${d.file} could not be read: whether ${d.check} stood down is not shown`)
+      else if (got.n > 0) lines.push(`${d.check} ${d.what} (${got.n}×)`)
     }
+    stood = lines
+    stoodUnread = unread
+    stoodSeen = stoodKey
   }
 
-  const traceKey = await statKey($, `${root}/.claude/state/run-trace.log`)
   const ids = (await read($, agents)).map(a => a.agentId)
-  if (phase && `${traceKey}|${ids.join(',')}` !== traceSeen) {
-    traceSeen = `${traceKey}|${ids.join(',')}`
-    backs = {}
-    traceUnread = false
-    if (traceKey !== '') {
-      try {
-        backs = sendBacks(await $.fs.read(`${root}/.claude/state/run-trace.log`), new Set(ids))
-      } catch {
-        // There and unread — over what one read takes — is said, never shown as nothing sent back.
-        traceUnread = true
-      }
-    }
+  const traceKey = `${await statKey($, `${root}/.claude/state/run-trace.log`)}|${ids.join(',')}`
+  if (phase && traceKey !== traceSeen) {
+    const got = await logLines($, 'run-trace.log', ' agent-check ', 0)
+    backs = got ? sendBacks(got.last, new Set(ids)) : {}
+    traceUnread = got === null
+    traceSeen = traceKey
   }
 
   // While a run can still spend them: at `done` or `idle` no spawn is charged.
@@ -209,9 +244,30 @@ async function poll($: EngineInterface): Promise<void> {
     budgets,
     stoodDown: phase ? stood : [],
     sentBack: phase ? backs : {},
-    traceUnread: phase !== '' && traceUnread,
+    unread: phase
+      ? [
+          ...(gateUnread ? ['gate-history.log could not be read: the last gate is not shown'] : []),
+          ...stoodUnread,
+          ...(traceUnread ? ["run-trace.log could not be read: the agent gate's send-backs are not shown"] : []),
+        ]
+      : [],
   }
   if (JSON.stringify(after) !== JSON.stringify(before)) await update($, run, () => after)
+}
+
+// One poll at a time: two at once share the caches above, and the later write
+// could carry the older read. A tick that finds one waiting skips; a turn's end
+// queues behind it, so what it reads is what the turn left.
+let polls: Promise<void> = Promise.resolve()
+let waiting = 0
+function pollNow($: EngineInterface, tick = false): Promise<void> {
+  if (tick && waiting > 0) return polls
+  waiting++
+  polls = polls
+    .then(() => poll($))
+    .catch(() => undefined)
+    .finally(() => void waiting--)
+  return polls
 }
 
 // ---- what the session's own events say ------------------------------------
@@ -334,7 +390,7 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
  */
 async function closeTurn($: EngineInterface) {
   const before = (await read($, run)).phase
-  await poll($)
+  await pollNow($)
   const open = await read($, turn)
   const closing = (await read($, run)).phase === 'done' && ARMED.includes(before)
   if (open.steps > 0 && ((await armed($)) || closing)) {
@@ -384,13 +440,13 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     root = e.cwd
-    traceSeen = stoodSeen = ''
+    gateSeen = traceSeen = stoodSeen = ''
     try {
       session = await $.session.id()
     } catch {
       /* unknown: the phase owner then cannot be compared, as in readOwnedPhase */
     }
-    $.clock.every(2000, () => poll($).catch(() => undefined))
+    $.clock.every(2000, () => pollNow($, true))
     // A running agent's clock ticks once a second; nothing redraws while none runs.
     let shown: string | undefined
     $.clock.every(1000, async () => {
@@ -548,11 +604,12 @@ export const register: Register = (on, options) => {
         </Text>
       )
     // Named by the checks the gate line records; their output stays in gate-failure.log.
-    const failed = r.failed.length > 0 && <Text color="error" wrap="truncate-end">{`  failed: ${r.failed.join(' · ')}`}</Text>
+    const failed = r.failed.length > 0 && <Text color="error" wrap="wrap">{`  failed: ${r.failed.join(' · ')}`}</Text>
 
     // A cap that is not a number of calls is one opus-budget denies every call at.
+    // Wrapped, never cut: what is cut off here is what says why.
     const budget = r.budgets.length > 0 && (
-      <Text wrap="truncate-end">
+      <Text wrap="wrap">
         <Text dimColor>budget:</Text>
         {r.budgets.map(b =>
           Number.isFinite(b.cap) ? (
@@ -587,7 +644,7 @@ export const register: Register = (on, options) => {
       const b = r.sentBack[a.agentId]
       if (!b) return null
       return (
-        <Text color={b.cap ? 'error' : 'warning'} wrap="truncate-end">
+        <Text color={b.cap ? 'error' : 'warning'} wrap="wrap">
           {b.cap ? `sent back ${b.n}/${MAX_BLOCKS}, then let through · ${b.why}` : `sent back ${b.n}/${MAX_BLOCKS} · ${b.why}`}
         </Text>
       )
@@ -662,7 +719,9 @@ export const register: Register = (on, options) => {
         {r.stoodDown.map(line => (
           <Text color="warning" wrap="wrap">{`⚠ ${line}`}</Text>
         ))}
-        {r.traceUnread && <Text dimColor wrap="wrap">run-trace.log is over what one read takes: the agent gate's send-backs are not shown</Text>}
+        {r.unread.map(line => (
+          <Text dimColor wrap="wrap">{line}</Text>
+        ))}
         {orchestratorBox}
         {list.length === 0 ? (
           <Text dimColor>No spec-flow agent has been spawned in this session yet.</Text>
