@@ -1270,6 +1270,22 @@ t('register-agent records the milestone and session an implementer was given', (
   return null;
 });
 
+// The spawn names the milestone however the session spells a path, and names
+// it whether or not the response carries an id: a position left at the last
+// milestone sends a resume back to work already done.
+t('register-agent records the milestone from a Windows path, and with no id in the response', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'implement');
+  const at = join(repo, '.claude/state/current-milestone');
+  writeFileSync(at, 'add-users M1 abc123def4567890a');
+  const spawn = (prompt, tool_response) => runHook('register-agent.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer', prompt }, tool_response }, repo);
+  spawn('implement C:\\repo\\specflow\\add-users\\milestones\\M2.md per the plan', { session_id: 'abc123def4567890b' });
+  const windows = readFileSync(at, 'utf8').trim();
+  if (windows !== 'add-users M2 abc123def4567890b') return `a backslashed path left "${windows}"`;
+  spawn('implement specflow/add-users/milestones/M3.md per the plan', {});
+  const unnamed = readFileSync(at, 'utf8').trim();
+  return unnamed === 'add-users M3' ? null : `a response with no id left "${unnamed}"`;
+});
+
 t('a stale-phase reset disarms the run without forgetting where it was', (repo) => {
   const pf = join(repo, '.claude/state/phase');
   writeFileSync(pf, 'implement');
