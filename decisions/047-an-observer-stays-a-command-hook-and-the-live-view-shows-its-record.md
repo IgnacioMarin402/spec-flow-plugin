@@ -1,10 +1,10 @@
 # ADR-047 — an observer stays a command hook, and the live view shows its record
 
-**Date:** 2026-10-17 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/lib/budgets.mjs`, `hooks/lib/log-lines.mjs`, `scripts/agent-blocks.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-037 (what a mod may read) · **Related:** ADR-029, ADR-031, ADR-034, ADR-036, ADR-038
+**Date:** 2026-10-17 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/lib/budgets.mjs`, `hooks/lib/project-config.mjs`, `hooks/lib/log-lines.mjs`, `hooks/opus-budget.mjs`, `hooks/agent-gate.mjs`, `hooks/gate.mjs`, `scripts/agent-blocks.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-037 (what a mod may read) · **Related:** ADR-029, ADR-031, ADR-034, ADR-036, ADR-038
 
 **Question.** A mod may only show (ADR-029, ADR-037). Five hooks only observe:
-`human-turn`, `register-agent`, `run-trace`, `dispatch-guard` and `token-trace`.
-Could any of them be a mod, and what would a mod add?
+`human-turn`, `register-agent`, `run-trace`, `dispatch-guard` and `token-trace`;
+so do five scripts. Could any of them be a mod, and what would a mod add?
 
 **Measured.** What each writes, and who decides with it:
 
@@ -15,6 +15,16 @@ Could any of them be a mod, and what would a mod add?
 | `run-trace` | `run-trace.log` | `agent-gate`, whether a return is owed and its blocks so far; `orchestrator-scope`, which arms once the trace attributes a tool call; `token-trace`, the turn that closed the run |
 | `dispatch-guard` | `dispatch` lines | `stats`, and the evidence ADR-035 asks for before a rule denies |
 | `token-trace` | `tokens` lines | `status`, `stats` and the snapshot; no hook |
+
+What each script reads, and what a mod would add:
+
+| script | reads | a mod would add |
+|---|---|---|
+| `status` | `.claude/state/` | nothing the live view lacks; it answers from a terminal, outside any session |
+| `resume` | `.claude/state/` and `specflow/` | nothing: `/spec-flow:resume` acts on its `NEXT:`, and a mod does not read `specflow/` |
+| `stats` | each archived run's telemetry | nothing: it compares runs, not one session |
+| `telemetry` | `run-trace.log`, `gate-history.log` | nothing: its job is the snapshot the fold commits, and a mod writes nothing |
+| `models` | the agents, the second config file, the environment | nothing: the view names the model each box ran on |
 
 On 2.1.246 a module is not loaded, and nothing says so (ADR-037).
 
@@ -34,7 +44,7 @@ On 2.1.246 a module is not loaded, and nothing says so (ADR-037).
   `opus-budget` denies with. That file is the one it reads outside
   `.claude/state/`: a cap it showed by any other reading could differ from the
   one that denies.
-- A record it cannot read whole is said, never shown as empty.
+- A record it cannot read is said, never shown as empty.
 
 **Refused.**
 
@@ -48,7 +58,6 @@ On 2.1.246 a module is not loaded, and nothing says so (ADR-037).
 **Cost.** The view reads a log again whenever it changes, and `run-trace.log`
 and `gate-history.log` are never truncated. Past what one read takes (4 MiB),
 node streams the log and hands back how many lines count and the last 10000 of
-them (`hooks/lib/log-lines.mjs`): the count stays exact, and an agent more than
-10000 send-backs back goes unshown. Where node cannot run, the log is said
-unread. The agent gate's line and the two logs' timestamps are now read by the
+them (`hooks/lib/log-lines.mjs`): the count stays exact, and a send-back more
+than 10000 back goes unshown. Where node cannot run, the log is said unread. The agent gate's line and the two logs' timestamps are now read by the
 view as well as by the engine.

@@ -9,17 +9,23 @@ entry removed. Should a run freeze it, and roll back a change?
 **Measured.**
 
 - No real run has recorded an agent changing the contract.
-- The orchestrator cannot: during a run it writes only `.claude/state/` and
-  `specflow/` (ADR-034). The implementer can. Nothing guards `.spec-flow/`.
+- During a run `orchestrator-scope` lets the orchestrator write only
+  `.claude/state/` and `specflow/` (ADR-034), as far as it reads a command:
+  `node -e` writing the file gets past it, and it stands down while no tool
+  call is attributed to an agent. The implementer can write it. Nothing else
+  guards `.spec-flow/`.
 - The gate asks a person to edit the contract mid-run: when it does not load,
   when the base does not resolve (`base_ref`), when `scope_globs` matches
   nothing.
 - The contract is the first of the files the gate runs through. `verify.test`
   is often a package script, and the linter and the test runner read configs of
   their own, which the implementer edits as part of its work.
-- Two defenses hold for the suite whatever the contract says: the gate removes
-  the previous report before each suite, so a suite that stops writing one is
-  refused; and a requirement is proven only by a test that ran under its id.
+- What proves a requirement is in the contract too. The gate removes the
+  previous report before each suite, so a suite that stops writing one is
+  refused, and a requirement is proven only by a test the report says ran
+  under its id. But `trace` names that report: pointed at a command that
+  prints the ids, `trace.executed_tests` proved a requirement with no test
+  file at all (spec-trace exit 0, "every one proven").
 
 **Decision.** A run does not freeze the contract. A change to `.spec-flow/`, or
 to a file it runs through, made during a run changes what the gate judges with,
@@ -39,6 +45,6 @@ and only the diff a person reviews shows it. REFERENCE states the risk.
   recording before denying. The diff already records a committed change, and
   the gate judges only committed work.
 
-**Cost.** A milestone that weakens a check passes the gates that follow, and is
-caught only by a person reading the diff or by the reviewer, who reads the plan,
-not the code.
+**Cost.** A milestone that weakens a check, or turns proof off, passes the
+gates that follow, and is caught only by a person reading the diff: the
+reviewer runs once, on the plan, before any milestone.

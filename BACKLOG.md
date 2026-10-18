@@ -13,8 +13,10 @@ their code — but that trace could not see a red run at all: a test command tha
 exits non-zero arrives as `PostToolUseFailure`, which run-trace did not hear
 until this item was restated. Two real runs since, counted by target: of 6
 sources paired with a test, 1 had its test run red first, 1 had it run piped
-and 4 had no run of it. A third milestone wrote its test, then a source with
-another name, with no run, and stats lists nothing: it pairs by basename.
+and 4 had no run of it, which is what stats reads now that it credits a run
+only to the tests its target names. A third milestone wrote its test, then a
+source with another name, with no run, and stats lists nothing: it pairs by
+basename.
 
 What a red-first check can claim, measured on 8 tests (`node --test`, JUnit):
 that a test's result depends on the milestone's code, not that it asserts its
@@ -26,8 +28,8 @@ red, so stats prints "red-first" for an empty test today. Whether a requirement
 has a test at all is spec-trace's binding, not this item.
 
 **Candidate:** red-first as a report in both flows, never a gate: record before
-denying (ADR-035), and a test's worth is read, not measured (ADR-020). It needs
-first:
+denying (ADR-035), a test's worth is read, not measured (ADR-020), and a run
+against the base runs the suite twice, where flaky tests exist. It needs first:
 
 - a verdict per test from the report — pass, fail, absent (did not load) or
   unknown; `test-report.mjs` reads names and skips only;
@@ -40,13 +42,14 @@ first:
 A gate is refused for now in `/spec-fix` too: a case 2 raised from the fold's
 `GAPS` strengthens a test over correct code, so it is green before the fix, and
 the docs disagree on whether a case 3 changes the code. Gating `/spec-flow`
-would need an `ADDED … (existing)` kind a person approves at sign-off. Decide by
-what the report records over real runs.
+would need an `ADDED … (existing)` kind a person approves at sign-off.
+**Done:** the report, with those four in place, read over three real runs
+before any gate on it is proposed.
 
 ### B39 — model routing: decide by use, effort with it
 
 Overrides, version pins and effort take about 1,200 lines with fixtures, next to
-agent frontmatter that already names each tier, and no real run has re-routed
+agent frontmatter that already names each tier, and neither real run re-routed
 an agent. `max_opus_calls` is the part with a demonstrated job (cost control).
 Decided together:
 
@@ -60,12 +63,14 @@ Decided together:
   from what. **Done, if it does:** a hook-smoke case whose re-routed spawn
   carries the effort, red on `620901d`, and `spec-flow models` showing it.
 - **The spec-writer on `haiku`.** ADR-030 and ADR-031 hold the two risks a
-  cheaper tier brings. On one real run it cost US$0.18 of US$2.07, so the case
-  is the questions it asks, not the price. Routing is per agent, not per mode:
-  its fold, the one reading of whether a test proves its requirement (ADR-020),
-  moves with it. **Done:** `haiku` at `high` over three real runs, compared with
-  `sonnet` on question rounds, agent-gate blocks, fold `GAPS` and rejected
-  sign-offs, which nothing records yet. Needs the effort question answered.
+  cheaper tier brings. On one real run it cost US$0.18 of US$2.07 (US$0.09 for
+  the spec, US$0.08 for the fold), so the case is the questions it asks, not
+  the price. Routing is per agent, not per mode: its fold, the one reading of
+  whether a test proves its requirement (ADR-020), moves with it. **Done:**
+  `haiku` at `high` over three real runs, compared with `sonnet` on question
+  rounds, agent-gate blocks, fold `GAPS` and rejected sign-offs, which nothing
+  records yet. Needs the effort question answered: a route keeps the `medium`
+  its frontmatter declares.
 
 ### B40 — what the orchestrator costs a run
 
@@ -88,9 +93,9 @@ The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
 one that needs a database or a running app fails wherever none is up, and is
 routed to the implementer as lint/trace. `spec-flow init` now offers the
 repo's `build` and `typecheck` scripts, which need neither; it offers nothing
-that needs either. ADR-046 leaves any entry removable mid-run. **Needs a decision
-first** for end-to-end checks, migrations and booting the app: where they run,
-if not at every gate.
+that needs either. ADR-046 leaves any entry removable mid-run. **Needs a
+decision first** for end-to-end checks, migrations and booting the app: where
+they run, if not at every gate.
 
 ### B53 — a repository that states no anatomy
 

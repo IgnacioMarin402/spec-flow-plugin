@@ -208,7 +208,8 @@ await run(
       // change this file will ever see.
       //
       // The live view names a failure's checks as the fields between
-      // `result=` and `files=`: a field that is not a check goes elsewhere.
+      // `result=` and `files=`: a field that is not a check goes elsewhere
+      // (ADR-047).
       `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${cc} engine=${engineRevision(ENGINE_ROOT)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
     /**

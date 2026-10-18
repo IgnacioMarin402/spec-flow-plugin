@@ -2,7 +2,7 @@
  * `.claude/spec-flow.config.json`, read the one way every reader reads it: the
  * caps (`budgets.mjs`), the routing (`routing.mjs`), the run-start check
  * (`can-run.mjs`) and the live view. Two readings of one file can disagree,
- * and then the pane shows a cap the hook does not deny at.
+ * and then the pane shows a cap the hook does not deny at (ADR-047).
  *
  * Pure — no Node import — because the live view loads it, and a mod runs with
  * no Node (ADR-037).
