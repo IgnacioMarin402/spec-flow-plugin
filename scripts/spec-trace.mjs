@@ -22,9 +22,12 @@
 //                                   declares, or a requirement was renamed
 //                                   and its test left behind.
 //
-// Plus one archive rule: every change parked under `specflow/archive/`
+// Plus the archive's rules: every change parked under `specflow/archive/`
 // declares what became of it (SHIPPED / REJECTED / SUPERSEDED), since an
-// archived change with no status cannot be told from an abandoned one.
+// archived change with no status cannot be told from an abandoned one; each has
+// a folder of its own; and one this branch stamped SHIPPED has its deltas in
+// `specs/` (ADR-048). Which archived changes are this branch's, and which run's,
+// it asks of git: the base, and the branch's history since it.
 //
 //   node scripts/spec-trace.mjs          # check, exit 1 on drift
 //   node scripts/spec-trace.mjs --list   # also print the requirement -> test matrix

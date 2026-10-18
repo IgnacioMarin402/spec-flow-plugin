@@ -14,8 +14,8 @@
  * throwaway repo, writes a file map into it, spawns the real script with
  * `CLAUDE_PROJECT_DIR` pointed at that repo, and asserts on the exit code
  * and the problems it named. Most repos here have no `.git`: spec-trace asks
- * git one thing, which archived changes the base branch already holds, and
- * only the cases about that build one (`withBranch`).
+ * git only about the archive — which change specs the base holds, and when the
+ * branch wrote each since — and the cases about that build one (`withBranch`).
  *
  * The contract each case is testing: a problem must be REPORTED (exit 1 and
  * named in the output), not merely survived. A parser that silently matches

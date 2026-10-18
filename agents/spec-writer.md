@@ -32,7 +32,10 @@ The requirement arrives as free text, inline, like a chat message. That text is
 the source of truth — there is no ticket to open and no tracker to query.
 
 Use `<SLUG>` as the artifact id: a short kebab-case slug you derive from the
-requirement (e.g. `add-refund-endpoint`).
+requirement (e.g. `add-refund-endpoint`), and not one a folder under
+`specflow/archive/` already has, in any case: the fold moves the change to
+`specflow/archive/<SLUG>/`, and onto a folder that exists it lands inside that
+change. The agent gate sends back a spec named so.
 
 ## Steps
 1. Ingest the requirement.
@@ -181,6 +184,8 @@ There is deliberately **no milestone map** in the spec: slicing the work into
 milestones is the planner's job, done once, with the codebase in front of it.
 The human signs off on scope and behaviour — user stories, deltas, decision —
 not on an implementation roadmap that a second agent would then redo.
+
+**A delta is one line under `## Requirement deltas`, spelled so:** a dash, the verb in capitals, one id, then its text — `- ADDED REQ-<CAP>-0NN — <text>`. Every check that binds a delta reads that line and nothing else, so a table row, a bracketed or lowercase verb, a range, a second id before the text, or deltas under another heading are bound by no check; leaving `spec` is refused over them, and the agent gate sends the spec back. A note in the section that is not a delta neither opens with a verb in capitals nor puts a verb beside an id.
 
 Rules for the deltas: every user story maps to at least one delta, and every delta is behaviour that a test under the contract's proof surface (`trace.proof_dir` in `.spec-flow/config.json`) can prove. If you cannot state a requirement as something a test could check, it is not a requirement yet — sharpen it or drop it. A change that only touches wiring or bootstrap code outside that surface legitimately has **no deltas**; say so explicitly (`- none — infrastructure only`) rather than inventing one.
 

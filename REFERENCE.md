@@ -135,12 +135,18 @@ The system sends a single-use link, valid for one hour.
 A change spec declares what it does to `specs/`. `ADDED` fails when the new id
 has no test that ran; `REMOVED` fails when a test still reports an id no spec
 declares. Once a change of this branch is stamped SHIPPED, an `ADDED` id it
-never wrote into `specs/` fails, and so does a `REMOVED` id still there; during
-a run, from its fold on
-([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)). A
-delta is one line, `- VERB REQ-<CAP>-0NN — <text>`: one spelled otherwise, or
-naming two ids before its text, fails. A claim that appears, disappears or
-changes is `REMOVED` + `ADDED` on a new id. `CHANGED` is only for edits that move no proof, and names which
+never wrote into `specs/` fails unless a change `REMOVED` it, and so does a
+`REMOVED` id still there; during a run, from its fold on. Each archived change
+has a folder of its own: one folded inside another, or beside one a case apart,
+fails ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)).
+
+A delta is one line under `## Requirement deltas`, `- VERB REQ-<CAP>-0NN —
+<text>`, its verb in capitals and one id. A line written as a delta any other
+way — a table row, a bracketed or lowercase verb, a range, a second id before
+the text — and deltas under another heading are refused when the spec leaves
+`spec` and in a SHIPPED change of this branch, never at a milestone gate. A
+claim that appears, disappears or changes is `REMOVED` + `ADDED` on a new id.
+`CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 
 ```markdown
@@ -213,9 +219,11 @@ Resolved in order: `verify.base_ref`, `refs/remotes/origin/HEAD`, then
 `origin/main`, `main`, `origin/master`, `master`, `origin/develop`, `develop`,
 `origin/trunk`, `trunk`.
 
-None resolves → `preflight` refuses the run, and the gate blocks one already
-underway. Resolves to **HEAD itself** → only the gate blocks (a fresh feature
-branch sits at its base until its first commit, so `preflight` cannot tell).
+None resolves → `preflight` refuses the run, the gate blocks one already
+underway, and `spec-trace` fails over an archived change it cannot tell as
+this branch's or inherited. Resolves to **HEAD itself** → only the gate blocks
+(a fresh feature branch sits at its base until its first commit, so
+`preflight` cannot tell).
 There is no fallback: comparing HEAD with itself is indistinguishable from
 "nothing changed". Declare `base_ref` for a release branch, a fork, or a
 shallow CI checkout. Both refusals write `fail:base`; `files=-` means the base
@@ -478,8 +486,10 @@ armed.
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
   `plan`, `review` or `implement` written from `spec` is denied while a live
   spec with no plan yet has no `## Assumptions` (a `/spec-fix` brief needs
-  none) or fails a check spec-trace makes of live changes. `arm-gate` holds
-  the implementer spawn that would leave `spec` to the same check
+  none), writes a delta no check reads, has the name of an archived change in
+  any case — its fold would land inside that change — or fails a check
+  spec-trace makes of live changes. `arm-gate` holds the implementer spawn
+  that would leave `spec` to the same check
   ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)).
 - **A case 3 waits for a person's answer**
   ([ADR-036](decisions/036-a-case-3-waits-for-a-persons-answer.md)). While a
