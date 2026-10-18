@@ -47,9 +47,12 @@ import {
   REQ_TAG,
   idsIn,
   ARCHIVE_STATUS,
+  isShipped,
   liveSpecProblems,
   expectedPrefix,
   deltas,
+  deltasSectionProblem,
+  retiredIds,
   unreadDeltas,
   explainUnread,
 } from './spec-shape.mjs';
@@ -466,12 +469,11 @@ for (const slug of live) {
 // (ADR-048). An empty `specs/` is the rule below's, which already fails a
 // SHIPPED claim. Ids are permanent, so an ADDED id that a change of this
 // branch REMOVED is retired, not missing.
-const isShipped = (body) => /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body);
 const shippedBodies = archived
   .map((slug) => ({ slug, path: join(ARCHIVE_DIR, slug, 'spec.md') }))
   .filter(({ path }) => existsSync(path))
   .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
-  .filter(({ body }) => isShipped(body) && (deltas(body).next().done === false || unreadDeltas(body).next().done === false));
+  .filter(({ body }) => isShipped(body) && new RegExp(REQ_TAG.source).test(body));
 let deltasUnchecked = false;
 // A run's own change is live until its fold, so while one is, a SHIPPED change
 // of the branch is an earlier run's: said, not failed, or a milestone gate would
@@ -492,12 +494,13 @@ if (specFiles.length > 0 && shippedBodies.length > 0) {
   if (atBase) {
     const ours = shippedBodies.filter(({ slug }) => !atBase.has(slug));
     const liveBodies = live.map((slug) => join(SPECFLOW_DIR, slug, 'spec.md')).filter((path) => existsSync(path)).map((path) => readFileSync(path, 'utf8'));
-    const retired = new Set(
-      [...ours.map(({ body }) => body), ...liveBodies].flatMap((body) => [...deltas(body)].filter((d) => d.verb === 'REMOVED').map((d) => d.id)),
-    );
+    // Retired by any change, inherited ones too: what a later change removed is not missing.
+    const retired = new Set([...shippedBodies.map(({ body }) => body), ...liveBodies].flatMap(retiredIds));
     for (const { slug, body } of ours) {
       const rel = `specflow/archive/${slug}/spec.md`;
       const found = beforeFold ? earlier : problems;
+      const section = deltasSectionProblem(body, { needed: true });
+      if (section) found.push(`${rel} ${section}`);
       for (const unread of unreadDeltas(body)) found.push(`${rel}: ${explainUnread(unread)}`);
       for (const { verb, id } of deltas(body)) {
         if (verb === 'ADDED' && !requirements.has(id) && !retired.has(id)) {
@@ -550,7 +553,7 @@ const shipped = archived.filter((slug) => {
   // the `g` flag, which makes `.test()` stateful through `lastIndex` — across
   // this filter's iterations it would answer about where the previous slug's
   // match ended rather than about this file.
-  return /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body) && new RegExp(REQ_TAG.source).test(body);
+  return isShipped(body) && new RegExp(REQ_TAG.source).test(body);
 });
 
 // The grace covers the REQUIREMENT BINDING and nothing else, and must NOT

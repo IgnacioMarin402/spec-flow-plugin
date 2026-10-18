@@ -90,11 +90,13 @@ function samePath(root, path) {
  * its spec-time checks, changes or removes only ids `specs/` declares, and —
  * for SPEC_READY — was written after reading `specs/README.md` and every
  * capability spec its deltas touch. The read check sees the Read tool only.
+ * Its name is held to the archive's in `spec` only: a re-triage mid-run
+ * works on a folder the run's milestone already names.
  *
  * `skips` name what could not be judged: no contract, or a trace whose reads
  * carry no agent id.
  */
-function specWriterProblems(ret, text, root, agentId, trace) {
+function specWriterProblems(ret, text, root, agentId, trace, phase) {
   const problems = [];
   const skips = [];
   if (ret.status === 'NEEDS_INPUT') {
@@ -138,7 +140,7 @@ function specWriterProblems(ret, text, root, agentId, trace) {
     return { problems, skips };
   }
 
-  const shape = specTimeProblems(root, [slug]);
+  const shape = specTimeProblems(root, [slug], { clash: phase === 'spec' });
   if (shape.length > 0) problems.push({ why: 'spec-shape', reason: `The spec is not ready to build from:\n${shape.map((p) => `- ${p}`).join('\n')}` });
 
   let config;
@@ -237,7 +239,7 @@ await run(async () => {
   } else {
     const found = problemWith(ret, statuses, root);
     if (found) problems.push(found);
-    else if (name === 'spec-writer') ({ problems, skips } = specWriterProblems(ret, text, root, agentId, trace));
+    else if (name === 'spec-writer') ({ problems, skips } = specWriterProblems(ret, text, root, agentId, trace, phase));
   }
 
   // `agent=`, not run-trace's `type=`: stats reads a `type=` line with an

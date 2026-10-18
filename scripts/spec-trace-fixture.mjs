@@ -227,6 +227,8 @@ async function withBranch(base, branch, assert, { under = '', state = {} } = {})
 }
 
 const shippedSpec = (...deltaLines) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${deltaLines.map((l) => `- ${l}\n`).join('')}`;
+/** A SHIPPED change spec whose deltas section is `section`, as written. */
+const shippedWith = (section) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${section}`;
 const twoReqs = `${spec()}\n### REQ-USER-002 — the user can do another thing\n\nThe system does it.\n`;
 /** A branch that shipped run one's change and is running run two's. */
 const twoRuns = {
@@ -711,94 +713,137 @@ await Promise.all([
   // ---- every delta line is one the engine reads ------------------------------
   //
   // `deltas` reads `- VERB REQ-id` at the start of a line. A delta spelled any
-  // other way is read by a person and skipped by every check that binds it.
-  check('a delta line the engine does not read is reported', () =>
-    withRepo(
+  // other way is read by a person and skipped by every check that binds it. A
+  // SHIPPED change of this branch is held to the spelling at the gate, since its
+  // deltas bind from its fold on; a live spec is held to it at spec time
+  // (spec-time.mjs), never at a milestone gate.
+  check('a SHIPPED change of this branch with a delta the engine does not read is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
       {
-        'specs/user.md': spec(),
-        'specflow/add/spec.md':
-          '# Spec — add\n\n## Requirement deltas\n' +
-          '  - ADDED REQ-USER-002 — indented\n- **ADDED** REQ-USER-003 — bold\n- ADDED: REQ-USER-004 — colon\n- ADDED `REQ-USER-005` — backticks\n',
-        'specflow/add/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/archive/add/spec.md': shippedWith(
+          '  - ADDED REQ-USER-002 — indented\n- **ADDED** REQ-USER-003 — bold\n- ADDED: REQ-USER-004 — colon\n- ADDED `REQ-USER-005` — backticks\n' +
+            '| ADDED | REQ-USER-006 | table |\n- [ADDED] REQ-USER-007 — bracketed\n- REQ-USER-008 (ADDED) — after\n- [x] ADDED REQ-USER-009 — checkbox\n' +
+            '- added REQ-USER-010 — lowercase\n### ADDED\n- ADDED\n  REQ-USER-011 — wrapped\n',
+        ),
       },
       (r) => {
         if (r.status === 0) return `deltas no check reads passed: ${r.out}`;
-        const missed = ['indented', 'bold', 'colon', 'backticks'].filter((w) => !new RegExp(`${w}" reads as a delta`).test(r.out));
+        const missed = ['indented', 'bold', 'colon', 'backticks', 'table |', 'bracketed', 'after', 'checkbox', 'lowercase', '### ADDED', '- ADDED'].filter(
+          (w) => !r.out.includes(`${w}" reads as a delta`),
+        );
         return missed.length ? `not reported: ${missed.join(', ')}. ${r.out}` : null;
       },
     ),
   ),
 
-  check('a delta line naming two ids before its text is reported', () =>
-    withRepo(
+  check('a SHIPPED change of this branch naming two ids, or a range, in one delta is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
       {
-        'specs/user.md': spec(),
-        'specflow/add/spec.md': '# Spec — add\n\n## Requirement deltas\n- ADDED REQ-USER-002, REQ-USER-003 — export and import\n',
-        'specflow/add/proposal.md': '# Proposal\n\nWhy.\n',
-      },
-      (r) => (r.status !== 0 && /more than one id before its text/.test(r.out) ? null : `a second id no check reads passed: ${r.out}`),
-    ),
-  ),
-
-  check("an id in a delta's text is not a second delta", () =>
-    withRepo(
-      {
-        'specs/user.md': spec(),
-        'specflow/swap/spec.md':
-          '# Spec — swap\n\n## Requirement deltas\n- REMOVED REQ-USER-001 — replaced by REQ-USER-002\n- ADDED REQ-USER-002 — the new flow, unlike REQ-USER-001\n',
-        'specflow/swap/proposal.md': '# Proposal\n\nWhy.\n',
-      },
-      (r) => (r.status === 0 ? null : `a delta that names another id in its text was refused: ${r.out}`),
-    ),
-  ),
-
-  // A line written as a delta starts with its verb; a verb later in a line is
-  // prose about one, and a separator alone starts the text.
-  check('prose, wrapped lines, quotes and fences in the deltas section are not deltas', () =>
-    withRepo(
-      {
-        'specs/user.md': spec(),
-        'specflow/tidy/spec.md':
-          '# Spec — tidy\n\n## Requirement deltas\n' +
-          '- REMOVED REQ-USER-001, replaced by REQ-USER-004\n' +
-          '- CHANGED REQ-USER-005 (wording), tense fixed\n' +
-          '- ADDED REQ-USER-002 / export works offline\n' +
-          '- ADDED REQ-USER-003 & import works offline\n' +
-          '- ADDED REQ-USER-004 — the new flow\n' +
-          '  which replaces what the REMOVED REQ-USER-001 did\n' +
-          '> Note: the ADDED REQ-USER-002 is behind a flag.\n' +
-          '```\n- ADDED REQ-USER-099 — an example, not a delta\n```\n',
-        'specflow/tidy/proposal.md': '# Proposal\n\nWhy.\n',
-      },
-      (r) => (/reads as a delta|more than one id/.test(r.out) ? `a line that is not a second delta was refused: ${r.out}` : null),
-    ),
-  ),
-
-  check('a second id after and, a semicolon or "to", a lowercase verb and a grouped heading are reported', () =>
-    withRepo(
-      {
-        'specs/user.md': spec(),
-        'specflow/add/spec.md':
-          '# Spec — add\n\n## Requirement deltas\n' +
-          '- ADDED REQ-USER-002 and REQ-USER-003 — export and import\n' +
-          '- ADDED REQ-USER-004; REQ-USER-005 — sync\n' +
-          '- ADDED REQ-USER-006 to REQ-USER-008 — reports\n' +
-          '- Added REQ-USER-009 — audit\n' +
-          '### ADDED\n- REQ-USER-010 — archive\n',
-        'specflow/add/proposal.md': '# Proposal\n\nWhy.\n',
+        'specflow/archive/add/spec.md': shippedWith(
+          '- ADDED REQ-USER-002, REQ-USER-003 — export and import\n- ADDED REQ-USER-004 and REQ-USER-005 — sync\n- ADDED REQ-USER-006; REQ-USER-007 — reports\n' +
+            '- ADDED REQ-USER-008 to REQ-USER-009 — audit\n- ADDED REQ-USER-010–012 — archive\n- ADDED REQ-USER-013..REQ-USER-014 — restore\n- ADDED REQ-USER-015 - REQ-USER-016 purge\n',
+        ),
       },
       (r) => {
-        const missed = ['REQ-USER-002 and', 'REQ-USER-004;', 'REQ-USER-006 to', 'Added REQ-USER-009', '### ADDED'].filter((l) => !r.out.includes(l));
+        const missed = ['REQ-USER-002,', 'REQ-USER-004 and', 'REQ-USER-006;', 'REQ-USER-008 to', 'REQ-USER-010–012', 'REQ-USER-013..', 'REQ-USER-015 -'].filter(
+          (l) => !new RegExp(`"- ADDED ${l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*" names more than one id`).test(r.out),
+        );
         return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
       },
     ),
   ),
 
-  check('a SHIPPED change of this branch whose delta the engine does not read is reported', () =>
+  // A line written as a delta starts with its verb; a verb later in a line is
+  // prose about one, a note need not be a delta, and a separator alone starts
+  // the text. Held as a SHIPPED change, so the check that refuses runs.
+  check('in a SHIPPED change, prose, notes, quotes, fences and an id in the text are not deltas', () =>
+    withBranch(
+      { 'specs/user.md': twoReqs },
+      {
+        'specflow/archive/tidy/spec.md': shippedWith(
+          '> What this change does to `specs/`.\n' +
+            '- CHANGED REQ-USER-001 (wording), tense fixed\n' +
+            '- CHANGED REQ-USER-002 (wording) — REQ-USER-001 says the rest\n' +
+            '  - Changed from the old phrasing, which read as two claims\n' +
+            '- ADDED REQ-USER-004 — the new flow\n' +
+            '  which replaces what the REMOVED REQ-USER-001 did\n' +
+            '- Added a note to the README\n' +
+            '- Changed: none\n' +
+            '> Note: the ADDED REQ-USER-002 is behind a flag.\n' +
+            '```\n- ADDED REQ-USER-099 — an example, not a delta\n| ADDED | REQ-USER-098 |\n```\n',
+        ),
+      },
+      (r) => {
+        if (/reads as a delta|more than one id|REQ-USER-09[89]/.test(r.out)) return `a line that is not a delta was refused: ${r.out}`;
+        return /REQ-USER-004 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch with its deltas under another heading, or outside the section, is reported', () =>
     withBranch(
       { 'specs/user.md': spec() },
-      { 'specflow/archive/add-export/spec.md': shippedSpec('**ADDED** REQ-USER-002 — the user can export their data') },
-      (r) => (r.status !== 0 && /reads as a delta/.test(r.out) ? null : `a shipped delta no check reads passed: ${r.out}`),
+      {
+        'specflow/archive/capital/spec.md': '# Spec — a\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement Deltas\n- ADDED REQ-USER-002 — export\n',
+        'specflow/archive/deeper/spec.md': '# Spec — b\n\n**Status:** SHIPPED 2026-10-17\n\n### Requirement deltas\n- ADDED REQ-USER-003 — import\n',
+        'specflow/archive/openspec/spec.md': '# Spec — c\n\n**Status:** SHIPPED 2026-10-17\n\n## ADDED Requirements\n### REQ-USER-004 — sync\n',
+        'specflow/archive/elsewhere/spec.md': '# Spec — d\n\n**Status:** SHIPPED 2026-10-17\n\n## Deltas\n- ADDED REQ-USER-005 — audit\n',
+      },
+      (r) => {
+        const missed = [
+          ['capital', 'has "## Requirement Deltas"'],
+          ['deeper', 'has "### Requirement deltas"'],
+          ['openspec', 'declares a delta outside `## Requirement deltas` ("## ADDED Requirements")'],
+          ['elsewhere', 'declares a delta outside `## Requirement deltas` ("- ADDED REQ-USER-005'],
+        ].filter(([slug, said]) => !r.out.includes(`specflow/archive/${slug}/spec.md ${said}`));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.map(([s]) => s).join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a SHIPPED change's example in a code fence declares nothing", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/infra/spec.md': shippedWith('- none — infrastructure only\n```\n- ADDED REQ-USER-099 — an example, not a delta\n```\n') },
+      (r) => (r.status === 0 ? null : `an example in a fence was held as a delta: ${r.out}`),
+    ),
+  ),
+
+  // A run signed off before a spelling was refused builds on; its fold is held to it.
+  check('a live spec with a delta the engine does not read does not fail a milestone gate', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/add-io/spec.md': '# Spec — add io\n\n## Requirement deltas\n- ADDED REQ-USER-002, REQ-USER-003 — export and import\n- **ADDED** REQ-USER-004 — sync\n',
+        'specflow/add-io/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a milestone gate failed over a spelling its run was signed off with: ${r.out}`),
+    ),
+  ),
+
+  // Ids are permanent: what a later change removed stays removed, inherited or not.
+  check('an id an inherited change REMOVED later is retired, not missing', () =>
+    withBranch(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export'),
+        'specflow/archive/drop/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone'),
+      },
+      { 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+      (r) => (r.status === 0 ? null : `a requirement a shipped change removed was reported missing: ${r.out}`),
+    ),
+  ),
+
+  check('an ADDED id an archived change retired in another spelling is a reused id', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedWith('- REMOVED REQ-USER-003, REQ-USER-004 — both gone\n') },
+      {
+        'specflow/again/spec.md': '# Spec — again\n\n## Requirement deltas\n- ADDED REQ-USER-004 — back again\n',
+        'specflow/again/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status !== 0 && /ADDs REQ-USER-004, which this spec or a shipped change REMOVED/.test(r.out) ? null : `a retired id was given to a new requirement: ${r.out}`),
     ),
   ),
 

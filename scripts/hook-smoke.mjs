@@ -723,6 +723,33 @@ t('agent-gate sends back a case 5 brief named like an archived change', (repo) =
   return blocked(r) && /has the name of an archived change/.test(r.stdout) ? null : `a case 5 the orchestrator would archive inside another change went through: ${r.stdout}`;
 }, { phase: 'spec' });
 
+// A re-triage mid-run works on the folder the run's milestone names: a rename
+// would strand current-milestone, resume and the snapshot.
+const retriage = (repo) => {
+  writerRepo(repo);
+  writeChange(repo, '# Fix — my-change\n\n## Case\n2 WEAK-TEST\n\n## Requirement deltas\n- none — the test was incomplete\n', { proposal: false });
+  mkdirSync(join(repo, 'specflow', 'my-change', 'milestones'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan\n\none milestone: M1\n');
+  writeFileSync(join(repo, 'specflow', 'my-change', 'milestones', 'M1.md'), '# M1\n');
+  mkdirSync(join(repo, 'specflow', 'archive', 'My-Change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'My-Change', 'spec.md'), '# Fix — My-Change\n\n**Status:** REJECTED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  return gateReturn(repo, {
+    agent_type: 'spec-flow:spec-writer',
+    last_assistant_message:
+      'STATUS: TRIAGED\nCASE: 2 WEAK-TEST\nSPEC_PATH: specflow/my-change/spec.md\nPLAN_PATH: specflow/my-change/plan.md\nWORK_ORDER_PATH: specflow/my-change/milestones/M1.md',
+  });
+};
+
+t('agent-gate does not send a re-triage mid-run to rename the folder its milestone names', (repo) => {
+  const r = retriage(repo);
+  return blocked(r) ? `a re-triage during implement was sent back: ${r.stdout}` : null;
+}, { phase: 'implement' });
+
+t('agent-gate sends back a triage in spec named like an archived change', (repo) => {
+  const r = retriage(repo);
+  return blocked(r) && /has the name of an archived change/.test(r.stdout) ? null : `a brief the fold would move inside another change went through: ${r.stdout}`;
+}, { phase: 'spec' });
+
 t('agent-gate does not judge reads it cannot attribute, and says so', (repo) => {
   writerRepo(repo);
   writeFileSync(join(repo, '.claude/state/run-trace.log'), `2026-01-01T00:00:00Z phase=spec read file=${join(repo, 'specs/README.md')}\n`);
@@ -1753,6 +1780,19 @@ t('phase-guard denies plan from spec over a delta line the engine does not read'
   const r = writePhase(repo, 'plan');
   if (r.status !== 2) return `plan was allowed over a delta no check reads (exit ${r.status})`;
   return /reads as a delta/.test(r.stderr) ? null : `the denial does not quote the line: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over deltas under a heading spelled another way, or outside their section', (repo) => {
+  for (const [body, says] of [
+    [SIGNED_SPEC.replace('## Requirement deltas', '## Requirement Deltas'), 'has "## Requirement Deltas"'],
+    [SIGNED_SPEC.replace('## Requirement deltas\n- ADDED REQ-USER-001 — a thing', '## ADDED Requirements\n### REQ-USER-001 — a thing'), 'declares a delta outside'],
+  ]) {
+    writeChange(repo, body);
+    const r = writePhase(repo, 'plan');
+    if (r.status !== 2) return `plan was allowed over deltas no check reads (exit ${r.status}): ${says}`;
+    if (!r.stderr.includes(says)) return `the denial does not say where the deltas are: ${r.stderr.slice(0, 300)}`;
+  }
+  return null;
 }, { phase: 'spec' });
 
 t('phase-guard denies plan from spec over a change named like an archived one', (repo) => {
