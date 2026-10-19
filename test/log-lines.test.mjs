@@ -32,11 +32,13 @@ test('node streams the lines the live view counts: the same count and the same l
       { at: since, needle: '' },
       { at: 0, needle: '' },
       { at: 0, needle: 'nothing has this' },
+      { at: -Infinity, needle: '' },
     ]) {
       const view = linesOf(text, needle, at);
       assert.deepStrictEqual(streamed(path, at, needle), view, `since ${at}, needle ${JSON.stringify(needle)}`);
     }
     assert.strictEqual(linesOf(text, '', 0).n, KEEP + 2500, 'every stamped line, and only those');
+    assert.strictEqual(linesOf(text, '', -Infinity).n, KEEP + 2501, 'every line that is not blank, as the run mark counts them');
     assert.strictEqual(linesOf(text, '', 0).last.length, KEEP, 'the last KEEP of them');
     assert.match(linesOf(text, '', 0).last.at(-1), / i=12499$/, 'oldest first, the newest last');
   } finally {

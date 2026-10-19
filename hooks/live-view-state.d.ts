@@ -65,7 +65,7 @@ export type LiveRun = {
   stoodDown: string[]
   // by agent id: the agent gate's send-backs, the last one's reasons, and whether it then let the return through
   sentBack: Record<string, { n: number; why: string; cap: boolean }>
-  // a log that is there and could not be read, and what that leaves unshown
+  // a log that is there and could not be read, and what that leaves unshown; a settings file none of whose settings apply
   unread: string[]
 }
 
@@ -75,7 +75,7 @@ declare module 'claude-code' {
       liveAgents: LiveAgent[]
       liveOrchestrator: LiveOrchestrator
       liveTurn: LiveTurn
-      liveRun: Shaped<LiveRun>
+      liveRun2: Shaped<LiveRun>
       liveClock: number
     }
   }

@@ -10,7 +10,9 @@
 
 /**
  * Whether a line counts: it holds `needle` and is stamped at or after `since`,
- * in milliseconds. A line with no stamp never counts.
+ * in milliseconds; with `since` -Infinity, any line that is not blank, stamped
+ * or not, as the run's telemetry mark counts them. A line with no stamp never
+ * counts otherwise.
  *
  * Self-contained, because `LINES` carries its source to node.
  *
@@ -19,7 +21,8 @@
  * @param {number} since
  * @returns {boolean}
  */
-export const counts = (line, needle, since) => line.includes(needle) && Date.parse(line.split(' ')[0]) >= since;
+export const counts = (line, needle, since) =>
+  line.includes(needle) && (since === -Infinity ? line.trim() !== '' : Date.parse(line.split(' ')[0]) >= since);
 
 /** How many of the lines that count a reading hands back: the last, a run's own. */
 export const KEEP = 10000;

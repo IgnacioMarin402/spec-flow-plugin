@@ -57,7 +57,9 @@ On 2.1.246 a module is not loaded, and nothing says so (ADR-037).
 
 **Cost.** The view reads a log again whenever it changes, and `run-trace.log`
 and `gate-history.log` are never truncated. Past what one read takes (4 MiB),
-node streams the log and hands back how many lines count and the last 10000 of
-them (`hooks/lib/log-lines.mjs`): the count stays exact, and a send-back more
-than 10000 back goes unshown. Where node cannot run, the log is said unread. The agent gate's line and the two logs' timestamps are now read by the
-view as well as by the engine.
+node streams the whole log at each change and hands back how many lines count
+and the last 10000 of them (`hooks/lib/log-lines.mjs`): the count stays exact,
+a send-back more than 10000 back goes unshown, and the time grows with the log,
+about half a second at 46 MiB. Where node cannot run, the log is said unread.
+The agent gate's line and the two logs' timestamps are read by the view as well
+as by the engine.

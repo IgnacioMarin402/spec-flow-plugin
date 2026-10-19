@@ -239,6 +239,27 @@ check('every column stays aligned when a heading is longer than its values', () 
   return '';
 });
 
+// One reading of the file: a byte-order mark some editors write is not part of
+// it, here as in the hook that applies the route.
+check('a routing written after a byte-order mark is reported as the hook applies it', () => {
+  const { code, out } = report({ '.claude/spec-flow.config.json': `\uFEFF${JSON.stringify({ agents: { reviewer: REVIEWER_ELSEWHERE } })}` });
+  if (code !== 0) return `exit ${code}\n--- output ---\n${out}`;
+  const r = row(out, 'reviewer');
+  return r?.includes(REVIEWER_ELSEWHERE) && r.includes('project') ? '' : `the hook re-routes the reviewer and the report says otherwise: ${r}`;
+});
+
+// What refuses a run's start fails the report too, never a clean "Nothing is re-routed".
+check('a file the run start refuses exits non-zero and says why', () => {
+  for (const [file, says] of [
+    ['{ "agents": { "reviewer": "sonnet" }, }', 'does not parse as JSON'],
+    [JSON.stringify({ max_architect_calls: 'three' }), 'max_architect_calls'],
+  ]) {
+    const { code, out } = report({ '.claude/spec-flow.config.json': file });
+    if (code === 0 || !out.includes(says)) return `a file no run starts with got exit ${code}.\n--- output ---\n${out}`;
+  }
+  return '';
+});
+
 check('a settings file that is not valid JSON does not take the report down', () => {
   const { code, out } = report({ '.claude/settings.json': '{ not json' });
   if (code !== 0) return `exit ${code} — an unparseable settings file is Claude Code's to complain about, not this report's.\n--- output ---\n${out}`;

@@ -26,6 +26,8 @@ import { MAX_BLOCKS, parseReturn } from '../scripts/agent-blocks.mjs'
 import { BUDGETS, budgetCap } from './lib/budgets.mjs'
 // Which log lines count, read here or by node past 4 MiB: one filter.
 import { LINES, linesOf } from './lib/log-lines.mjs'
+// The settings file, read the one way its hooks read it.
+import { projectConfig } from './lib/project-config.mjs'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
 
 const PANE = 'spec-flow-live'
@@ -50,8 +52,10 @@ const STOOD_DOWN = [
 const agents = atom({ plugin: 'spec-flow', key: 'liveAgents' } as const, [])
 const orchestrator = atom({ plugin: 'spec-flow', key: 'liveOrchestrator' } as const, ORCH0)
 const turn = atom({ plugin: 'spec-flow', key: 'liveTurn' } as const, TURN0)
-// Tagged: a reload keeps `$.state`, and a run an earlier version wrote lacks fields this one draws.
-const run = atom({ plugin: 'spec-flow', key: 'liveRun' } as const, RUN0, { shape: 'live-run-2' })
+// A reload keeps `$.state`. A key of its own, because an untagged earlier
+// version reads `liveRun` and would draw a tagged run as its own; the tag, so a
+// later version that changes the run declines this one's.
+const run = atom({ plugin: 'spec-flow', key: 'liveRun2' } as const, RUN0, { shape: 'live-run-2' })
 const clock = atom({ plugin: 'spec-flow', key: 'liveClock' } as const, 0)
 
 // ---- what the engine wrote -------------------------------------------------
@@ -69,7 +73,10 @@ let root = ''
 let session = ''
 let phaseSeen = ''
 let phaseTracked = false
-// Each log is read again only when its stat moved; what it said, and whether it was read, until then.
+// Each log is read again only when its stat moved; what it said, and whether it
+// was read, until then. Polls may overlap: each builds its result apart and
+// records the stat it read last, so an older read that lands late is read again
+// at the next tick.
 let gateSeen = ''
 let gateLine = ''
 let gateUnread = false
@@ -79,6 +86,8 @@ let stoodUnread: string[] = []
 let traceSeen = ''
 let backs: LiveRun['sentBack'] = {}
 let traceUnread = false
+// A poll found this session's run armed since the orchestrator's last turn ended.
+let armedSince = false
 
 /**
  * The checks a failing gate line names with a non-zero code: the fields gate.mjs
@@ -154,24 +163,29 @@ async function poll($: EngineInterface): Promise<void> {
   if (!raw && !before.phase) return // a repository that never ran the engine: nothing more to read
 
   if (raw !== phaseSeen) {
-    phaseSeen = raw
-    phaseTracked = false
+    let tracked = false
     if (ARMED.includes(raw)) {
       try {
-        const git = await $.process.run(['git', 'ls-files', '--error-unmatch', '--', '.claude/state/phase'], { cwd: root })
-        phaseTracked = git.exitCode === 0
+        const git = await $.process.run(['git', 'ls-files', '--error-unmatch', '--', '.claude/state/phase'], { cwd: root, timeoutMs: 5_000 })
+        tracked = git.exitCode === 0
       } catch {
         /* no git to ask: the engine's own read counts the phase too */
       }
     }
+    phaseTracked = tracked
+    phaseSeen = raw
   }
   const owner = ARMED.includes(raw) ? await stateText($, root, 'phase.session') : ''
   const phase = phaseTracked || (owner && session && owner !== session) ? '' : raw
+  if (ARMED.includes(phase)) armedSince = true
 
+  // Ours when this session spawned its implementer: by id, or, where the spawn's
+  // response named none, an implementer this session put on that milestone.
   const [slug = '', mk = '', implementer = ''] = (await stateText($, root, 'current-milestone')).split(/\s+/)
-  const ours = (await read($, agents)).some(a => a.agentId === implementer)
+  const ours = (await read($, agents)).some(a => (implementer ? a.agentId === implementer : a.role === 'implementer' && a.milestone === mk))
 
-  // The gate line after the run's mark: the mark counts the lines already there.
+  // The gate line after the run's mark, which counts the lines already there,
+  // stamped or not: `-Infinity` counts them so.
   let mark = 0
   try {
     mark = Number(JSON.parse(await stateText($, root, 'run-offset'))['gate-history.log']) || 0
@@ -180,7 +194,7 @@ async function poll($: EngineInterface): Promise<void> {
   }
   const gateKey = `${await statKey($, `${root}/.claude/state/gate-history.log`)}:${mark}`
   if (phase && gateKey !== gateSeen) {
-    const got = await logLines($, 'gate-history.log', '', 0)
+    const got = await logLines($, 'gate-history.log', '', -Infinity)
     gateLine = got && got.n > mark ? (got.last.at(-1) ?? '') : ''
     gateUnread = got === null
     gateSeen = gateKey
@@ -221,6 +235,7 @@ async function poll($: EngineInterface): Promise<void> {
 
   // While a run can still spend them: at `done` or `idle` no spawn is charged.
   let budgets: LiveRun['budgets'] = []
+  let settings = ''
   if (ARMED.includes(phase)) {
     let config = ''
     try {
@@ -231,6 +246,9 @@ async function poll($: EngineInterface): Promise<void> {
     budgets = await Promise.all(
       Object.entries(BUDGETS).map(async ([role, b]) => ({ role, used: Number(await stateText($, root, b.counter)) || 0, cap: budgetCap(config, role) })),
     )
+    // Mid-run its hooks fall back to the defaults over it, and say nothing.
+    const { problem } = projectConfig(config)
+    if (problem) settings = `.claude/spec-flow.config.json ${problem}: the caps shown are the defaults`
   }
 
   const after: LiveRun = {
@@ -249,25 +267,11 @@ async function poll($: EngineInterface): Promise<void> {
           ...(gateUnread ? ['gate-history.log could not be read: the last gate is not shown'] : []),
           ...stoodUnread,
           ...(traceUnread ? ["run-trace.log could not be read: the agent gate's send-backs are not shown"] : []),
+          ...(settings ? [settings] : []),
         ]
       : [],
   }
   if (JSON.stringify(after) !== JSON.stringify(before)) await update($, run, () => after)
-}
-
-// One poll at a time: two at once share the caches above, and the later write
-// could carry the older read. A tick that finds one waiting skips; a turn's end
-// queues behind it, so what it reads is what the turn left.
-let polls: Promise<void> = Promise.resolve()
-let waiting = 0
-function pollNow($: EngineInterface, tick = false): Promise<void> {
-  if (tick && waiting > 0) return polls
-  waiting++
-  polls = polls
-    .then(() => poll($))
-    .catch(() => undefined)
-    .finally(() => void waiting--)
-  return polls
 }
 
 // ---- what the session's own events say ------------------------------------
@@ -385,14 +389,16 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
 /**
  * The orchestrator is charged per turn, as `token-trace` charges it at Stop: a
  * turn that ends inside this session's run counts whole, the turn that starts
- * the run included, and so does the one that writes `done` (ADR-043). One that
- * ends outside a run counts nothing.
+ * the run included, and so does the one that writes `done` (ADR-043) — told by
+ * a run armed since the last turn ended, which a tick that already saw `done`
+ * does not undo. One that ends outside a run counts nothing.
  */
 async function closeTurn($: EngineInterface) {
   const before = (await read($, run)).phase
-  await pollNow($)
+  await poll($)
   const open = await read($, turn)
-  const closing = (await read($, run)).phase === 'done' && ARMED.includes(before)
+  const closing = (await read($, run)).phase === 'done' && (ARMED.includes(before) || armedSince)
+  armedSince = false
   if (open.steps > 0 && ((await armed($)) || closing)) {
     await update($, orchestrator, m => ({
       ...m,
@@ -446,7 +452,7 @@ export const register: Register = (on, options) => {
     } catch {
       /* unknown: the phase owner then cannot be compared, as in readOwnedPhase */
     }
-    $.clock.every(2000, () => pollNow($, true))
+    $.clock.every(2000, () => poll($).catch(() => undefined))
     // A running agent's clock ticks once a second; nothing redraws while none runs.
     let shown: string | undefined
     $.clock.every(1000, async () => {

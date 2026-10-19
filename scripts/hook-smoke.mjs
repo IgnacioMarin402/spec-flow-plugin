@@ -1418,6 +1418,7 @@ t(
 // consult, mid-implement, to deny anything.
 for (const [what, text, says] of [
   ['a cap that is not a whole number of calls', JSON.stringify({ max_architect_calls: 'three' }), 'max_architect_calls'],
+  ['a cap of null', JSON.stringify({ max_opus_calls: null }), 'max_opus_calls'],
   ['a file that does not parse', '{ "max_opus_calls": 2, }', 'does not parse as JSON'],
   ['a route to an agent this plugin does not ship', JSON.stringify({ agents: { plannr: 'sonnet' } }), 'plannr'],
 ]) {
@@ -1435,15 +1436,23 @@ for (const [what, text, says] of [
   );
 }
 
+// Mid-run each hook applies what it can and denies what it cannot: a refusal
+// at every spawn would stop every agent in the repository (ADR-028, ADR-049).
 t(
-  'preflight refuses a spawn while a cap in .claude/spec-flow.config.json is not a whole number of calls',
+  'mid-run, a settings file that cannot be applied stops only what a hook cannot apply',
   (repo) => {
-    writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 2.5 }));
-    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'spec-writer' } }, repo);
-    if (r.status !== 2) return `a spawn went through under a cap opus-budget denies every planner call at — exit ${r.status}`;
-    return r.stderr.includes('max_opus_calls') ? null : `the refusal does not name the key to fix: ${r.stderr}`;
+    const spawn = (hook, subagent_type) => runHook(hook, { tool_name: 'Agent', tool_input: { subagent_type } }, repo);
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), '{ "max_opus_calls": 8, }');
+    for (const agent of ['spec-flow:implementer', 'Explore']) {
+      const r = spawn('preflight.mjs', agent);
+      if (r.status !== 0) return `preflight denied ${agent} over a file every hook reads as the defaults — exit ${r.status}: ${r.stderr.slice(0, 200)}`;
+    }
+    if (spawn('opus-budget.mjs', 'planner').status !== 0) return 'the planner was denied under the default cap';
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: 'three' }));
+    if (spawn('preflight.mjs', 'Explore').status !== 0) return 'preflight denied an unrelated agent over the architect\'s cap';
+    return spawn('opus-budget.mjs', 'architect').status === 2 ? null : 'the architect went through under a cap no count can reach';
   },
-  { phase: 'spec' },
+  { phase: 'implement' },
 );
 
 t(

@@ -17,8 +17,8 @@ export const BUDGETS = {
 /**
  * A role's cap, from the text of `.claude/spec-flow.config.json`: its default
  * when the file is missing or malformed, or does not set it. NaN when it sets
- * something that is not a whole number of calls: no count compares true
- * against NaN, so a caller that compared would never deny.
+ * something that is not a whole number of calls, `null` included: no count
+ * compares true against NaN, so a caller that compared would never deny.
  *
  * @param {string} configText
  * @param {string} role `planner` or `architect`
@@ -27,7 +27,7 @@ export const BUDGETS = {
 export function budgetCap(configText, role) {
   const budget = BUDGETS[role];
   const value = projectConfig(configText).settings[budget.key];
-  if (value === undefined || value === null) return budget.fallback;
+  if (value === undefined) return budget.fallback;
   // Digits only, in a string: `Number()` also reads "0x10" as 16 and "1e1" as 10.
   const cap = typeof value === 'number' ? value : typeof value === 'string' && /^\s*\d+\s*$/.test(value) ? Number(value) : NaN;
   return Number.isInteger(cap) && cap >= 0 ? cap : NaN;

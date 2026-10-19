@@ -21,13 +21,15 @@
  * file explaining it. Unpinned prints as unpinned. `model-pins.mjs` caught
  * this header doing it.
  *
- * Exits non-zero when the routing block is unusable, so this doubles as the
- * way to find that out without provoking a denied spawn. Same problems, same
- * wording, one reader — see `hooks/lib/routing.mjs`.
+ * Exits non-zero when the file cannot be applied, so this doubles as the way
+ * to find that out without provoking a refused start or a denied spawn. Same
+ * problems, same wording, one reader — see `hooks/lib/can-run.mjs`.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALIASES, EFFORT_LEVELS, shippedAgents, shippedRouting, projectRouting } from '../hooks/lib/routing.mjs';
+import { projectConfig } from '../hooks/lib/project-config.mjs';
+import { settingsProblems } from '../hooks/lib/can-run.mjs';
 
 const root = process.cwd();
 
@@ -114,21 +116,18 @@ function envEffort() {
 
 const meta = shippedAgents();
 const shipped = shippedRouting(meta);
-const { routing, problems } = projectRouting(root, shipped);
+const { routing } = projectRouting(root, shipped);
+// The run start's own question, so this report and the refusal cannot disagree.
+const problems = settingsProblems(root);
 const declared = (() => {
   const path = join(root, '.claude', 'spec-flow.config.json');
-  if (!existsSync(path)) return {};
-  try {
-    return JSON.parse(readFileSync(path, 'utf8')).agents ?? {};
-  } catch {
-    return {};
-  }
+  return existsSync(path) ? (projectConfig(readFileSync(path, 'utf8')).settings.agents ?? {}) : {};
 })();
 
 if (problems.length > 0) {
-  console.error(`spec-flow models: the routing in .claude/spec-flow.config.json cannot be applied.\n`);
+  console.error(`spec-flow models: .claude/spec-flow.config.json cannot be applied.\n`);
   for (const p of problems) console.error(`  - ${p}`);
-  console.error(`\nEvery spawn of a spec-flow agent is denied until this is fixed.`);
+  console.error(`\nNo run starts until it is fixed, and a route that cannot be applied denies every spawn of a spec-flow agent.`);
   process.exit(1);
 }
 

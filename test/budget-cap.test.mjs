@@ -6,9 +6,9 @@ const cap = (value) => budgetCap(JSON.stringify({ max_architect_calls: value }),
 
 // `Number()` reads each of these as a count — true as 1, [5] as 5, [] and ''
 // as 0, "0x10" as 16 — and a fraction is no number of calls: none is what a
-// person set.
+// person set. Nor is null, which reads as "no cap" and would get the default.
 test('budgetCap reads a cap that is not a whole number of calls as NaN', () => {
-  for (const value of [true, false, [5], [], '', '  ', 'six', {}, -1, 2.5, '2.5', '0x10', '1e1', '-1']) {
+  for (const value of [true, false, [5], [], '', '  ', 'six', {}, -1, 2.5, '2.5', '0x10', '1e1', '-1', null]) {
     assert.ok(Number.isNaN(cap(value)), JSON.stringify(value));
   }
 });
@@ -23,7 +23,6 @@ test('budgetCap reads a whole number of calls, written as a number or a numeric 
 test('budgetCap falls back to the default for a file that sets nothing, or does not parse', () => {
   assert.strictEqual(budgetCap('', 'architect'), 3);
   assert.strictEqual(budgetCap('{ not json', 'planner'), 6);
-  assert.strictEqual(budgetCap(JSON.stringify({ max_architect_calls: null }), 'architect'), 3);
   assert.strictEqual(budgetCap(JSON.stringify({}), 'planner'), 6);
   for (const root of ['null', '[]', '6']) assert.strictEqual(budgetCap(root, 'planner'), 6, root);
 });

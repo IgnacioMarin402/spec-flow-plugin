@@ -8,11 +8,12 @@
  *
  * Throws the first failure, with `kind` naming it so a caller can head its
  * message — `no-repository` and `not-root` from `assertRepoRoot`, then
- * `contract`, then `settings`, then `base`, then `foreign-change` — and
- * returns `{ config, base }` otherwise.
+ * `contract`, then `base`, then `foreign-change` — and returns
+ * `{ config, base }` otherwise.
  *
  * Not the Node floor: that is a fact about the engine's host, not about the
- * repository, and `preflight` keeps it.
+ * repository, and `preflight` keeps it. Not the settings either: those are
+ * `assertCanStart`'s.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,10 +24,10 @@ import { projectConfig } from './project-config.mjs';
 import { projectRouting } from './routing.mjs';
 
 /**
- * What in `.claude/spec-flow.config.json` a hook would refuse during the run:
- * a cap `opus-budget` denies every call at, a route `model-route` denies every
- * spawn over, or a file none of whose settings apply. Refused at the start, a
- * bad cap does not wait for the architect's first consult, mid-implement.
+ * What in `.claude/spec-flow.config.json` cannot be applied: a cap
+ * `opus-budget` denies every call at, a route `model-route` denies every spawn
+ * over, or a file none of whose settings apply. Refused at the start, a bad
+ * cap does not wait for the architect's first consult, mid-implement.
  *
  * @param {string} root
  * @returns {string[]}
@@ -38,7 +39,7 @@ export function settingsProblems(root) {
   try {
     text = readFileSync(path, 'utf8');
   } catch (err) {
-    return [`it could not be read (${err.message}), so none of its settings apply`];
+    return [`could not be read (${err.message}), so none of its settings apply`];
   }
   const { settings, problem } = projectConfig(text);
   if (problem) return [problem];
@@ -56,17 +57,6 @@ export function assertCanRun(root) {
     config = loadConfig(root);
   } catch (err) {
     throw Object.assign(err, { kind: 'contract' });
-  }
-
-  const settings = settingsProblems(root);
-  if (settings.length > 0) {
-    throw Object.assign(
-      new Error(
-        `.claude/spec-flow.config.json cannot be applied:\n${settings.map((p) => `  - ${p}`).join('\n')}\n` +
-          `Fix each, or remove the setting to take its default.`,
-      ),
-      { kind: 'settings' },
-    );
   }
 
   let base;
@@ -92,4 +82,25 @@ export function assertCanRun(root) {
     );
   }
   return { config, base };
+}
+
+/**
+ * `assertCanRun`, and a setting a hook cannot apply (`kind: 'settings'`): what
+ * `phase-guard` asks of the write that starts a run. Not `preflight` at each
+ * spawn: mid-run each hook applies what it can and denies what it cannot, and
+ * a refusal there would stop every spawn in the repository (ADR-049).
+ */
+export function assertCanStart(root) {
+  const found = assertCanRun(root);
+  const settings = settingsProblems(root);
+  if (settings.length > 0) {
+    throw Object.assign(
+      new Error(
+        `.claude/spec-flow.config.json cannot be applied:\n${settings.map((p) => `  - ${p}`).join('\n')}\n` +
+          `Fix each, or remove the setting to take its default.`,
+      ),
+      { kind: 'settings' },
+    );
+  }
+  return found;
 }

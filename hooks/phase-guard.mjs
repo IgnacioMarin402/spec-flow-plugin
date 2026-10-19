@@ -53,7 +53,7 @@ import { spawnSync } from 'node:child_process';
 import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
-import { assertCanRun } from './lib/can-run.mjs';
+import { assertCanStart } from './lib/can-run.mjs';
 import { resolveBase, changesAtBase } from '../scripts/changed-files.mjs';
 import { leavingSpecProblems } from '../scripts/spec-time.mjs';
 import { unconfirmedCorrections, correctionDenial } from './lib/human-turn.mjs';
@@ -228,7 +228,7 @@ await run(async () => {
     // write: a run refused here leaves no phase behind, while one refused
     // there had already armed every hook that reads the phase.
     try {
-      assertCanRun(root);
+      assertCanStart(root);
     } catch (err) {
       deny(
         `starting a run by writing '${written}' into .claude/state/phase, and this engine cannot run in this repository: ${err.message}\n\n` +

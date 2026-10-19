@@ -18,16 +18,16 @@
  * @returns {{ settings: Record<string, unknown>, problem: string }}
  */
 export function projectConfig(text) {
-  const json = text.replace(/^﻿/, '');
+  const json = text.replace(/^\uFEFF/, '');
   if (json.trim() === '') return { settings: {}, problem: '' };
   let value;
   try {
     value = JSON.parse(json);
   } catch (err) {
-    return { settings: {}, problem: `it does not parse as JSON (${err.message}), so none of its settings apply` };
+    return { settings: {}, problem: `does not parse as JSON (${err.message}), so none of its settings apply` };
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return { settings: {}, problem: 'it is not a JSON object, so none of its settings apply' };
+    return { settings: {}, problem: 'is not a JSON object, so none of its settings apply' };
   }
   return { settings: value, problem: '' };
 }
