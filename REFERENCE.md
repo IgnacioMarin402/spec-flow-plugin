@@ -224,13 +224,16 @@ Resolved in order: `verify.base_ref`, `refs/remotes/origin/HEAD`, then
 
 None resolves → `preflight` refuses the run, the gate blocks one already
 underway, and `spec-trace` fails over an archived change it cannot tell as
-this branch's or inherited. Resolves to **HEAD itself** → only the gate blocks
-(a fresh feature branch sits at its base until its first commit, so
-`preflight` cannot tell).
+this branch's or inherited, so `spec-flow trace` in CI needs the base once a
+change is SHIPPED with an id. Resolves to **HEAD itself** → only the gate
+blocks (a fresh feature branch sits at its base until its first commit, so
+`preflight` cannot tell), and `spec-trace` reads every archived change as
+inherited.
 There is no fallback: comparing HEAD with itself is indistinguishable from
-"nothing changed". Declare `base_ref` for a release branch, a fork, or a
-shallow CI checkout. Both refusals write `fail:base`; `files=-` means the base
-could not be named, `files=0` means it resolved to HEAD.
+"nothing changed". Declare `base_ref` for a release branch or a fork. A shallow
+CI checkout holds no base, declared or not: check out with `fetch-depth: 0`, or
+run `git fetch --unshallow`. Both refusals write `fail:base`; `files=-` means
+the base could not be named, `files=0` means it resolved to HEAD.
 
 ---
 

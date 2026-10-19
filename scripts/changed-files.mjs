@@ -129,6 +129,9 @@ function mergeBase(root, ref) {
   return res.status === 0 ? res.stdout.trim() : null;
 }
 
+// Declaring the base does not help here: the clone holds no history to find it in.
+const SHALLOW = 'A shallow or single-branch clone holds no base, declared or not: fetch the history first (`fetch-depth: 0` on actions/checkout, or `git fetch --unshallow`).';
+
 /**
  * The commit this branch is judged against.
  *
@@ -164,8 +167,8 @@ export function resolveBase(root, config = undefined) {
     if (base) return base;
     throw new Error(
       `the contract declares verify.base_ref "${declared}", and git cannot resolve a merge-base between it and HEAD. ` +
-        `Either the ref does not exist in this clone (a shallow or single-branch fetch is the usual cause) or the name is wrong. ` +
-        `Refusing to fall back: a base this engine cannot resolve produces an EMPTY changed-file list, which reads as "nothing to check" rather than "I do not know what to check".`,
+        `Either the ref does not exist in this clone or the name is wrong. ${SHALLOW} ` +
+        `Refusing to fall back: with no base, nothing tells what this branch changed, and a check scoped to it reads "nothing to check" rather than "I do not know what to check".`,
     );
   }
 
@@ -182,8 +185,8 @@ export function resolveBase(root, config = undefined) {
 
   throw new Error(
     `no base branch could be resolved for this repo. Tried the contract's verify.base_ref (not set), refs/remotes/origin/HEAD (absent or unresolvable), and ${BASE_CANDIDATES.join(', ')}. ` +
-      `Declare the branch this work is judged against as "base_ref" under "verify" in .spec-flow/config.json — e.g. "base_ref": "origin/trunk". ` +
-      `This is a refusal to run, not a failed milestone: with no base, the changed-file list is empty for reasons that have nothing to do with the code, and every scoped check would report clean without ever running.`,
+      `Declare the branch this work is judged against as "base_ref" under "verify" in .spec-flow/config.json — e.g. "base_ref": "origin/trunk". ${SHALLOW} ` +
+      `This is a refusal to run, not a failed milestone: with no base, nothing tells what this branch changed, and every check scoped to it would report clean without ever running.`,
   );
 }
 

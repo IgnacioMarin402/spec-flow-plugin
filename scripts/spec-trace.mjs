@@ -423,18 +423,20 @@ for (const slug of archived) {
 
 // Two archived folders a case apart are one on macOS and Windows: checked out
 // there, one change lies inside the other, and nothing nests on this disk.
-for (const [i, a] of archived.entries()) {
-  for (const b of archived.slice(i + 1).filter((other) => other.toLowerCase() === a.toLowerCase())) {
-    if (scope().err) {
-      unscoped.push(`specflow/archive/${a}/`, `specflow/archive/${b}/`);
-      continue;
-    }
-    const ours = [a, b].filter((slug) => !inherited(`archive/${slug}/spec.md`));
-    if (ours.length === 0) continue;
-    (ours.every((slug) => earlierRun(`archive/${slug}/spec.md`)) ? earlier : problems).push(
-      `specflow/archive/${a}/ and specflow/archive/${b}/ differ only in case: on macOS and Windows they are one folder, where one change lands inside the other. Give one a name of its own.`,
-    );
+// Grouped by name in one pass: this runs at every gate, over the whole archive.
+const byName = new Map();
+for (const slug of archived) byName.set(slug.toLowerCase(), [...(byName.get(slug.toLowerCase()) ?? []), slug]);
+const caseApart = [...byName.values()].flatMap((same) => same.flatMap((a, i) => same.slice(i + 1).map((b) => [a, b])));
+for (const [a, b] of caseApart) {
+  if (scope().err) {
+    unscoped.push(`specflow/archive/${a}/`, `specflow/archive/${b}/`);
+    continue;
   }
+  const ours = [a, b].filter((slug) => !inherited(`archive/${slug}/spec.md`));
+  if (ours.length === 0) continue;
+  (ours.every((slug) => earlierRun(`archive/${slug}/spec.md`)) ? earlier : problems).push(
+    `specflow/archive/${a}/ and specflow/archive/${b}/ differ only in case: on macOS and Windows they are one folder, where one change lands inside the other. Give one a name of its own.`,
+  );
 }
 
 // ---- a live change spec stays light -----------------------------------
