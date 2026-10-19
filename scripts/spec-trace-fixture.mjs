@@ -4,9 +4,9 @@
  *
  * spec-trace is what makes `specs/` authoritative instead of decorative: it
  * binds a requirement id to the test that proves it, in both directions, and
- * fails the gate when they disagree. It is ~270 lines of regex parsing that
- * runs on every gate, every phase-guard and every check command — and until
- * this file existed it had no test of its own. `gate-fixture.mjs`
+ * fails the gate when they disagree. It is regex parsing that runs on every
+ * gate, every phase-guard and every check command — and until this file
+ * existed it had no test of its own. `gate-fixture.mjs`
  * deliberately replaces it with a green/red stub, so nothing anywhere
  * exercised the actual parsing.
  *
@@ -14,7 +14,7 @@
  * throwaway repo, writes a file map into it, spawns the real script with
  * `CLAUDE_PROJECT_DIR` pointed at that repo, and asserts on the exit code
  * and the problems it named. Most repos here have no `.git`: spec-trace asks
- * git only about the archive — which change specs the base holds, and when the
+ * git about the archive — which change specs the base holds, and when the
  * branch wrote each since — and the cases about that build one (`withBranch`).
  *
  * The contract each case is testing: a problem must be REPORTED (exit 1 and
@@ -190,18 +190,15 @@ async function withRepo(files, assert) {
 }
 
 /**
- * `withRepo` with git: `base` committed on `main`, then `branch` committed on
- * a branch off it, which is where spec-trace runs. The base resolves to
- * `main`, as it does for a run's own branch. `under` puts the project in that
- * folder of the repository instead of at its top; `state` is written to
- * `.claude/state/` after the commits, untracked, as a run leaves it.
+ * `withRepo` with git: `base` committed on `main`, then each file map of
+ * `branch` committed in turn on `feat` off it — one map is one commit — which
+ * is where spec-trace runs; the base resolves to `main`, as it does for a run's
+ * own branch. After the commits, uncommitted: `uncommitted` written over the
+ * tree, `dirs` left as empty folders and `state` written under
+ * `.claude/state/`, as a run leaves it. `under` puts the project in that folder
+ * of the repository instead of at its top.
  */
-/**
- * A repository on branch `feat` off `main`: `base` committed on main, then each
- * file map of `branch` committed in turn — one map is one commit — and `state`
- * written under `.claude/state/`, `dirs` left as empty folders, uncommitted.
- */
-async function withBranch(base, branch, assert, { under = '', state = {}, dirs = [] } = {}) {
+async function withBranch(base, branch, assert, { under = '', state = {}, dirs = [], uncommitted = {} } = {}) {
   const repoDir = mkdtempSync(join(tmpdir(), 'spec-trace-branch-'));
   const projectDir = under ? join(repoDir, under) : repoDir;
   const git = (...args) => spawnSync('git', ['-c', 'user.email=f@example.com', '-c', 'user.name=fixture', ...args], { cwd: repoDir, encoding: 'utf8' });
@@ -225,6 +222,7 @@ async function withBranch(base, branch, assert, { under = '', state = {}, dirs =
       git('add', '-A');
       git('commit', '-q', '-m', `branch ${i}`);
     }
+    write(uncommitted);
     for (const dir of dirs) mkdirSync(join(projectDir, dir), { recursive: true });
     write(Object.fromEntries(Object.entries(state).map(([name, text]) => [`.claude/state/${name}`, text])));
     const env = { ...process.env, CLAUDE_PROJECT_DIR: projectDir };
@@ -682,6 +680,52 @@ await Promise.all([
     ),
   ),
 
+  // A live change is as old as its first write: edited after the fold, it
+  // still started before it.
+  check('a live change edited after the fold is as old as its first write', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      [
+        { 'specflow/other/spec.md': '# Spec — other\n\n## Requirement deltas\n- none\n', 'specflow/other/proposal.md': '# Proposal\n\nWhy.\n' },
+        ...ownFold,
+        { 'specflow/other/spec.md': '# Spec — other\n\n## Requirement deltas\n- none — edited after the fold\n' },
+      ],
+      holdsOwnFold,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // A fold and the next run's spec in one commit — a squash, an amend — have no
+  // order between them, so the fold is held as this run's (ADR-048).
+  check('a fold committed with the next run is held as that run\'s', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      [{ ...twoRuns[0], ...twoRuns[1] }],
+      (r) =>
+        r.status !== 0 && /^ {2}- REQ-USER-002 is ADDED by specflow\/archive\/run-one/m.test(r.out) ? null : `a fold committed with the next run passed as an earlier run's: ${r.out}`,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // Outside a run — CI, `check` — no change is an earlier run's.
+  check('outside a run, a change the branch shipped earlier is held', () =>
+    withBranch({ 'specs/user.md': spec() }, twoRuns, (r) =>
+      r.status !== 0 && /^ {2}- REQ-USER-002 is ADDED by specflow\/archive\/run-one/m.test(r.out) && !/held from the fold's gate on/.test(r.out)
+        ? null
+        : `outside a run, run one's drift was not held: ${r.out}`,
+    ),
+  ),
+
+  // Written since, even a typo fix not yet committed, an inherited change is the branch's.
+  check("an inherited change edited and not yet committed is this branch's", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/old/.test(r.out) ? null : `an edit not yet committed left the change inherited: ${r.out}`),
+      { uncommitted: { 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before, typo fixed') } },
+    ),
+  ),
+
   // Mid-run, a milestone writes its delta when it delivers it; only the stamp claims all landed.
   check('a live change is not held to its ADDED ids before it is SHIPPED', () =>
     withBranch(
@@ -938,6 +982,14 @@ await Promise.all([
         if (/outside `## Requirement deltas`/.test(r.out)) return `a constraint was refused as a delta: ${r.out}`;
         return /REQ-USER-002 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
       },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch that names an id and has no deltas section is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': '# Spec — add\n\n**Status:** SHIPPED 2026-10-17\n\nThe user can export their data (REQ-USER-002).\n' },
+      (r) => (r.status !== 0 && /specflow\/archive\/add\/spec\.md has no `## Requirement deltas` section/.test(r.out) ? null : `a SHIPPED change with no deltas section passed: ${r.out}`),
     ),
   ),
 

@@ -111,7 +111,7 @@ function specWriterProblems(ret, text, root, agentId, trace, phase) {
   }
   if (!['SPEC_READY', 'TRIAGED'].includes(ret.status)) return { problems, skips };
   // Case 5 is not a fix: the orchestrator stamps the brief REJECTED and
-  // archives it, so nothing builds from it, and its name must be free.
+  // archives it, so nothing builds from it, and its name must be free (ADR-048).
   if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) {
     const rejected = /^specflow\/([^/]+)\/spec\.md$/.exec(relative(root, resolve(root, pathIn(ret.fields.SPEC_PATH ?? ''))).split(sep).join('/'))?.[1];
     const clash = rejected && rejected !== 'archive' && archiveClash(rejected, archivedSlugsIn(root));
@@ -139,6 +139,8 @@ function specWriterProblems(ret, text, root, agentId, trace, phase) {
     return { problems, skips };
   }
 
+  // The name only in `spec`: mid-run, a re-triage's folder is named by the
+  // milestone, resume and the snapshot, and a rename would strand them (ADR-048).
   const shape = specTimeProblems(root, [slug], { clash: phase === 'spec' });
   if (shape.length > 0) problems.push({ why: 'spec-shape', reason: `The spec is not ready to build from:\n${shape.map((p) => `- ${p}`).join('\n')}` });
 
