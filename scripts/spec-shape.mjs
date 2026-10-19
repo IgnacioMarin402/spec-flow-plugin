@@ -91,9 +91,13 @@ export const isShipped = (body) => /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body);
 // A delta is one line of the `## Requirement deltas` section: a dash at the
 // start, the verb, the id, then its text — `- ADDED REQ-USER-004 — ...`. Every
 // reader below takes it from `sectionLines`; a second reading would drift into a
-// spec one check binds and another passes.
+// spec one check binds and another passes. A line written as a delta any other
+// way is refused, never read (ADR-048).
 
 const VERB = 'ADDED|CHANGED|REMOVED';
+// Verbs a spec in another format writes, OpenSpec's MODIFIED and RENAMED among
+// them: a line written with one is refused, never skipped.
+const ANY_VERB = `${VERB}|MODIFIED|UPDATED|DELETED|RENAMED|REPLACED|DEPRECATED|ADD|CHANGE|REMOVE|MODIFY|UPDATE|DELETE|RENAME`;
 const ID = 'REQ-[A-Z0-9-]+-\\d{3}(?!\\d)';
 // The verb and the id share the line: a delta wrapped after its verb is two
 // lines, and neither reads as one.
@@ -102,24 +106,39 @@ const DELTA_LINE = new RegExp(`^[-*][ \\t]*(${VERB})[ \\t]+(${ID})(.*)$`);
 /** The two edits a CHANGED may legitimately be. Everything else decomposes. */
 export const CHANGED_KINDS = ['wording', 'correction'];
 
-/** `text` with fenced code blanked: an example in a fence declares nothing. */
-function withoutFences(text) {
-  let fenced = false;
-  return text
-    .split(/\r?\n/)
-    .map((line) => {
-      if (/^[ \t]*(?:```|~~~)/.test(line)) {
-        fenced = !fenced;
-        return '';
-      }
-      return fenced ? '' : line;
-    })
-    .join('\n');
+/**
+ * `text` with line ends made `\n`, and code and comments blanked: an example
+ * declares nothing. A fence closes only on its own character, at least as
+ * long, and one never closed is read as text; an indented block is code after
+ * a blank line that does not continue a list item.
+ */
+function withoutCode(text) {
+  const lines = text.replace(/<!--[\s\S]*?-->/g, (comment) => comment.replace(/[^\r\n]/g, '')).split(/\r\n|\r|\n/);
+  for (let i = 0; i < lines.length; i++) {
+    // Any indent: a fence inside a list item is indented with it.
+    const open = /^[ \t]*(`{3,}|~{3,})/.exec(lines[i]);
+    if (!open) continue;
+    const fence = new RegExp(`^[ \\t]*\\${open[1][0]}{${open[1].length},}[ \\t]*$`);
+    const close = lines.findIndex((line, j) => j > i && fence.test(line));
+    if (close === -1) continue;
+    for (let j = i; j <= close; j++) lines[j] = '';
+    i = close;
+  }
+  let code = false;
+  let listed = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === '') continue;
+    const indented = /^(?: {4}|\t)/.test(lines[i]);
+    code = indented && (code || (i > 0 && lines[i - 1].trim() === '' && !listed));
+    if (code) lines[i] = '';
+    else listed = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]/.test(lines[i]) || (listed && indented);
+  }
+  return lines.join('\n');
 }
 
 /**
- * The body of `## Requirement deltas`, fenced code blanked, or '' when the
- * spec has no such section.
+ * The body of `## Requirement deltas`, code and comments blanked, or '' when
+ * the spec has no such section.
  *
  * Scoped to that section rather than read over the whole file: a spec's prose
  * is entitled to DISCUSS a changed requirement without DECLARING one, and a
@@ -127,7 +146,7 @@ function withoutFences(text) {
  * costs more trust than the case it would catch.
  */
 export function deltasSection(body) {
-  const text = withoutFences(body);
+  const text = withoutCode(body);
   const heading = /^## Requirement deltas\b.*$/m.exec(text);
   if (!heading) return '';
   const after = text.slice(heading.index + heading[0].length);
@@ -173,28 +192,49 @@ export function* deltas(body) {
   for (const d of sectionLines(body)) if (d.verb) yield { verb: d.verb, id: d.id };
 }
 
-// A line written as a delta: the verb is its first word — after a list marker,
-// a heading's hashes, a table's pipe, a checkbox, a bracket or emphasis — or
-// sits in brackets beside an id, `REQ-A-002 (ADDED)`. In capitals the verb
-// makes the line a delta whatever follows; in any other case only beside an
-// id, since a note may start "Changed".
-const LEADS = new RegExp(`^[ \\t]*(?:(?:[-*+]|\\d+[.)]|#{1,6}|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_\`]*[ \\t]*(${VERB})\\b`, 'i');
-const BESIDE = new RegExp(`${ID}[ \\t]*[[(*_\`|]+[ \\t]*(?:${VERB})\\b`, 'i');
+// What may stand before a line's first word: a quote's `>`, a list's marker of
+// any kind, a heading's hashes, a table's pipe, a checkbox, brackets, emphasis.
+const MARKERS = '^[ \\t]*(?:>[ \\t]*)*(?:(?:[-*+•–—]|\\d+[.)]|#{1,6}|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_`]*[ \\t]*';
+const LEADS = new RegExp(`${MARKERS}(${ANY_VERB})(?![\\w-])`, 'i');
+// A verb in another case right before the id: `- Added REQ-A-002`.
+const LEADS_ID = new RegExp(`${MARKERS}(${ANY_VERB})[ \\t:*_\`[\\]()]*${ID}`, 'i');
+// A verb beside the id: in brackets or emphasis in any case, after a space or a
+// colon in capitals — `REQ-A-002 (ADDED)`, `REQ-A-002: ADDED`.
+const BRACKETED = new RegExp(`${ID}[ \\t]*[[(*_\`]+[ \\t]*(${ANY_VERB})(?![\\w-])`, 'i');
+const AFTER = new RegExp(`${ID}[ \\t]*:?[ \\t]*(${ANY_VERB})(?![\\w-])`);
+const CAPS = new RegExp(`(?<![\\w-])(${ANY_VERB})(?![\\w-])`);
+const ROW = /^[ \t]*(?:>[ \t]*)*\|/;
+// A heading that groups deltas: `### Added`, and OpenSpec's `## ADDED
+// Requirements`, the one form that groups them outside the section too.
+const GROUPING = new RegExp(`^[ \\t]*(?:>[ \\t]*)*#{1,6}[ \\t]*(${ANY_VERB})([ \\t]+requirements?)?[ \\t]*:?[ \\t]*$`, 'i');
 const AN_ID = new RegExp(ID);
 const IDS = new RegExp(ID, 'g');
-// Between two ids, what makes the second one more of the same delta: a list or
-// a range. A dash, a colon or a parenthesis starts the text instead, so
-// `REQ-A-001 (REQ-A-004 supersedes it)` is one delta.
-const BETWEEN = /^(?:[ \t]*\([a-z]+\))?[ \t]*(?:[,/&+;–-]|\.\.|(?:and|or|to|through)(?![\w-]))[ \t]*$/i;
-// `REQ-A-001–003`, `REQ-A-001..003`: a range written with one id.
-const RANGE = /^(?:–|\.\.)\d{3}(?!\d)/;
+// After the first id and a CHANGED's kind, another id, or a number going on
+// from it: `REQ-A-001, REQ-A-002`, `REQ-A-001 REQ-A-002`, `REQ-A-001–003`,
+// `REQ-A-001, 002`. An em dash with a space, a colon, a parenthesis or a word
+// starts the text: `REQ-A-001 — REQ-A-004 replaces it` is one delta.
+const SEPARATOR = '(?:—|[ \\t]*(?:[,/&+;–-]|\\.\\.|(?:and|or|to|through)(?![\\w-]))[ \\t]*|[ \\t]+)';
+const NUMBER_ENDS = '(?=[ \\t]*(?:$|[—–:(,/&;+]|\\.\\.|\\.(?!\\d)|-(?=[ \\t])|(?:and|or|to|through)(?![\\w-])))';
+const NEXT_ID = new RegExp(`^(?:[ \\t]*\\([a-z]+\\))?${SEPARATOR}(?:REQ-|\\d{3}(?!\\d)${NUMBER_ENDS})`, 'i');
+const BETWEEN = new RegExp(`^(?:[ \\t]*\\([a-z]+\\))?${SEPARATOR}$`, 'i');
 
-/** The verb a line declares a delta with, or '' when it is not written as one. */
+/**
+ * The verb a line declares a delta with, in capitals, or '' when it is not
+ * written as one. A verb in capitals leading the line makes it one whatever
+ * follows, and so does a heading that is a verb alone. On a line that names an
+ * id, so does a verb in another case right before the id or beside it, and a
+ * verb in capitals in any cell of a table row. A note may open "Removed
+ * because REQ-A-004 replaces it", and prose may name "the ADDED REQ-A-002":
+ * neither is one (ADR-048).
+ */
 function declared(line) {
+  const group = GROUPING.exec(line);
+  if (group) return group[1].toUpperCase();
   const lead = LEADS.exec(line);
   if (lead && lead[1] === lead[1].toUpperCase()) return lead[1];
   if (!AN_ID.test(line)) return '';
-  return (lead?.[1] ?? new RegExp(`(${VERB})\\b`, 'i').exec(line.slice(line.search(BESIDE)))?.[1] ?? '').toUpperCase();
+  const beside = LEADS_ID.exec(line)?.[1] ?? BRACKETED.exec(line)?.[1] ?? AFTER.exec(line)?.[1] ?? (ROW.test(line) ? CAPS.exec(line)?.[1] : '');
+  return (beside ?? '').toUpperCase();
 }
 
 /** The ids a line names before its text: the first, and each listed after it. */
@@ -218,8 +258,15 @@ export function* unreadDeltas(body) {
   for (const d of sectionLines(body)) {
     if (!declared(d.line)) continue;
     if (!d.verb) yield { line: d.line, why: 'unread' };
-    else if (idsBeforeText(d.line).length > 1 || RANGE.test(d.rest)) yield { line: d.line, why: 'two-ids' };
+    else if (NEXT_ID.test(d.rest) || isRange(d.id)) yield { line: d.line, why: 'two-ids' };
   }
+}
+
+// `REQ-A-002-004` reads as one id of a capability named `A-002`. Rising, it is
+// a range; `REQ-RFC-822-001` is the first id of a capability named `RFC-822`.
+function isRange(id) {
+  const [, from, to] = /-(\d{3})-(\d{3})$/.exec(id) ?? [];
+  return from !== undefined && Number(to) > Number(from);
 }
 
 /** Why one line `unreadDeltas` found is refused, in the failure's own voice. */
@@ -227,20 +274,22 @@ export function explainUnread({ line, why }) {
   return why === 'two-ids'
     ? `"${line.trim()}" names more than one id before its text, and the engine reads the first alone. One delta per line, so each id is checked.`
     : `"${line.trim()}" reads as a delta, and the engine does not read it as one, so no check binds it. ` +
-        'A delta is one line, `- ADDED REQ-<CAP>-0NN — <text>`: a dash at the start, the verb in capitals, then the id. Write it so, or keep the note out of this section.';
+        'A delta is one line, `- ADDED REQ-<CAP>-0NN — <text>`: a dash at the start, ADDED, CHANGED or REMOVED in capitals, then one id. Write it so, or keep the note out of this section.';
 }
 
 /**
  * Why the deltas of a change spec are not where every reader looks, or '': a
  * heading spelled another way, or a delta declared outside `## Requirement
- * deltas`, where no check reads it. With `needed`, a spec with no such section
- * is one too: a spec says what it does to `specs/`, `- none` included.
+ * deltas`, where no check reads it. With `needed`, a spec with no such section,
+ * or one with neither a delta nor `- none` in it, is one too: a spec says what
+ * it does to `specs/`, `- none` included.
  *
- * Outside the section only a verb in capitals counts, `## ADDED Requirements`
- * or `- ADDED REQ-…`: prose elsewhere may say a requirement was added.
+ * Outside the section only `## ADDED Requirements` or a line written as a
+ * delta that names an id counts: prose, a constraint about `REMOVED` items, a
+ * quoted audit log or a `### Deleted` state may lead with the word.
  */
 export function deltasSectionProblem(body, { needed }) {
-  const text = withoutFences(body);
+  const text = withoutCode(body);
   const lines = text.split('\n');
   const misspelled = lines.find((l) => /^#{1,6}[ \t]*requirements?[ \t]+deltas?\b/i.test(l) && !/^## Requirement deltas\b/.test(l));
   if (misspelled) {
@@ -249,22 +298,31 @@ export function deltasSectionProblem(body, { needed }) {
   const section = deltasSection(body);
   const heading = /^## Requirement deltas\b.*$/m.exec(text);
   const outside = heading ? `${text.slice(0, heading.index)}\n${text.slice(heading.index + heading[0].length + section.length)}` : text;
-  const stray = outside.split('\n').find((l) => /^(?:ADDED|CHANGED|REMOVED)$/.test(LEADS.exec(l)?.[1] ?? ''));
+  const stray = outside.split('\n').find((l) => (GROUPING.exec(l)?.[2] || AN_ID.test(l)) && declared(l));
   if (stray) {
     return `declares a delta outside \`## Requirement deltas\` ("${stray.trim()}"), where no check reads it. Write each delta in that section, one line each: \`- ADDED REQ-<CAP>-0NN — <text>\`.`;
   }
   if (needed && !heading) return 'has no `## Requirement deltas` section. Write its deltas there, or `- none — <why>` when it has none.';
+  // `- none` is an answer; a section the engine reads nothing in is not —
+  // deltas in prose, or indented into a code block, bind nothing.
+  if (needed && ![...sectionLines(body)].some((d) => d.verb || declared(d.line) || /^[-*+][ \t]*\W*none\b/i.test(d.line))) {
+    return 'says nothing the engine reads under `## Requirement deltas`. Write each delta there, one line each, or `- none — <why>` when it has none.';
+  }
   return '';
 }
 
 /**
- * The ids a change spec retires: each id a REMOVED line names before its
- * text, read as leniently as a line is refused, so an archive written in
- * another spelling still retires what it removed.
+ * The ids a change spec retires: each id a line written as a REMOVED names
+ * before its text, read as leniently as a line is refused, so an archive
+ * written in another spelling still retires what it removed. The word in
+ * capitals: a note that opens "Removed" is refused at spec time, and in an
+ * archive it retires nothing.
  */
 export function retiredIds(body) {
   const ids = [];
-  for (const { line } of sectionLines(body)) if (declared(line) === 'REMOVED') ids.push(...idsBeforeText(line));
+  for (const { line } of sectionLines(body)) {
+    if (declared(line) === 'REMOVED' && /(?<![\w-])REMOVED(?![\w-])/.test(line)) ids.push(...idsBeforeText(line));
+  }
   return ids;
 }
 
@@ -372,7 +430,7 @@ export function* pairedProhibitions(body) {
  * The problem with naming a live change `slug`, or null. The fold moves it to
  * specflow/archive/<slug>/; onto a folder that exists, in any case a
  * case-insensitive filesystem folds together, it lands inside that change,
- * where no archive check reads it.
+ * where no archive check reads it (ADR-048).
  *
  * @param {string} slug
  * @param {string[]} archivedSlugs the folder names under `specflow/archive/`

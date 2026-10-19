@@ -870,6 +870,77 @@ await Promise.all([
     ),
   ),
 
+  check('a SHIPPED change of this branch naming a second id after a space, or a second number, is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': shippedWith('- ADDED REQ-USER-002 REQ-USER-003 — export and import\n- ADDED REQ-USER-004, 005 — sync\n- ADDED REQ-USER-006 to 007 — reports\n') },
+      (r) => {
+        const missed = ['REQ-USER-002 REQ-USER-003', 'REQ-USER-004, 005', 'REQ-USER-006 to 007'].filter((l) => !r.out.includes(`"- ADDED ${l} — `) || !new RegExp(`"- ADDED ${l}[^"]*" names more than one id`).test(r.out));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch with its verb after the id, another bullet, a quote or another verb is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add/spec.md': shippedWith(
+          '| REQ-USER-002 | Export to CSV | ADDED |\n- REQ-USER-003 ADDED — export\n– ADDED REQ-USER-004 — an en dash\n> - ADDED REQ-USER-005 — quoted\n' +
+            '- MODIFIED REQ-USER-001 — now also PDF\n- DELETED REQ-USER-001 — gone\n',
+        ),
+      },
+      (r) => {
+        const missed = ['Export to CSV | ADDED |', 'REQ-USER-003 ADDED — export', 'an en dash', 'quoted', 'now also PDF', 'gone'].filter((w) => !r.out.includes(`${w}" reads as a delta`));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a SHIPPED change's comment, nested fence or indented example declares nothing", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/infra/spec.md': shippedWith(
+          '- none — infrastructure only\n<!--\n- ADDED REQ-USER-003 — dropped\n-->\n````md\n```\n- ADDED REQ-USER-099 — an example\n```\n````\n' +
+            '~~~\n```\n- ADDED REQ-USER-098 — an example\n```\n~~~\n\nFor example:\n\n    - ADDED REQ-USER-097 — an example\n',
+        ),
+      },
+      (r) => (r.status === 0 ? null : `an example was held as a delta: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED change of this branch with a fence never closed, or lines ended by CR alone, is still held', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/open/spec.md': shippedWith('```\n- ADDED REQ-USER-002 — export\n'),
+        'specflow/archive/cr/spec.md': shippedWith('- ADDED REQ-USER-003 — import\n').replace(/\n/g, '\r'),
+      },
+      (r) =>
+        r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/open/.test(r.out) && /REQ-USER-003 is ADDED by specflow\/archive\/cr/.test(r.out)
+          ? null
+          : `a delta went unread: ${r.out}`,
+    ),
+  ),
+
+  // Outside the section, a word in capitals that names no id is not a delta:
+  // a cart, a sync engine or an audit log names exactly these states.
+  check('outside its deltas, a SHIPPED change may lead a line with a word in capitals', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/cart/spec.md':
+          '# Spec — cart\n\n**Status:** SHIPPED 2026-10-17\n\n## Non-functional / constraints\n- `REMOVED` items never reappear after a sync\n\n## Notes\nADDED in response to issue #12.\n\n' +
+          '## Requirement deltas\n- ADDED REQ-USER-002 — the cart syncs\n',
+      },
+      (r) => {
+        if (/outside `## Requirement deltas`/.test(r.out)) return `a constraint was refused as a delta: ${r.out}`;
+        return /REQ-USER-002 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
+      },
+    ),
+  ),
+
   // A run signed off before a spelling was refused builds on; its fold is held to it.
   check('a live spec with a delta the engine does not read does not fail a milestone gate', () =>
     withRepo(

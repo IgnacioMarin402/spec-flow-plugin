@@ -1811,6 +1811,19 @@ t('phase-guard denies plan from spec over deltas under a heading spelled another
   return null;
 }, { phase: 'spec' });
 
+t('phase-guard denies plan from spec over a spec that says nothing of its deltas', (repo) => {
+  for (const [body, says] of [
+    [SIGNED_SPEC.replace('## Requirement deltas\n- ADDED REQ-USER-001 — a thing\n', ''), 'has no `## Requirement deltas` section'],
+    [SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', 'This change adds REQ-USER-001.'), 'says nothing the engine reads'],
+  ]) {
+    writeChange(repo, body);
+    const r = writePhase(repo, 'plan');
+    if (r.status !== 2) return `plan was allowed over a spec whose deltas no check reads (exit ${r.status}): ${says}`;
+    if (!r.stderr.includes(says)) return `the denial does not say what is missing: ${r.stderr.slice(0, 300)}`;
+  }
+  return null;
+}, { phase: 'spec' });
+
 t('phase-guard denies plan from spec over a change named like an archived one', (repo) => {
   writeChange(repo, SIGNED_SPEC);
   mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });

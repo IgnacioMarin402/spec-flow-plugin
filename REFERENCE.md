@@ -141,11 +141,14 @@ has a folder of its own: one folded inside another, or beside one a case apart,
 fails ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)).
 
 A delta is one line under `## Requirement deltas`, `- VERB REQ-<CAP>-0NN —
-<text>`, its verb in capitals and one id. A line written as a delta any other
-way — a table row, a bracketed or lowercase verb, a range, a second id before
-the text — and deltas under another heading are refused when the spec leaves
-`spec` and in a SHIPPED change of this branch, never at a milestone gate. A
-claim that appears, disappears or changes is `REMOVED` + `ADDED` on a new id.
+<text>`: `ADDED`, `CHANGED` or `REMOVED` in capitals, and one id. A line
+written as a delta any other way — a table row, another bullet, a bracketed or
+lowercase verb, another verb such as `MODIFIED`, a range, a second id or number
+before the text — deltas under another heading, and a section with neither a
+delta nor `- none` are refused when the spec leaves `spec` and in a SHIPPED
+change of this branch, never at a milestone gate. Code and HTML comments are
+not read. A claim that appears, disappears or changes is `REMOVED` + `ADDED`
+on a new id.
 `CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 

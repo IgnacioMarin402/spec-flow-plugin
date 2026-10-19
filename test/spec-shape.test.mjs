@@ -130,6 +130,122 @@ test('a spec with no deltas section is refused where one is needed', () => {
   assert.equal(deltasSectionProblem(body, { needed: false }), '');
 });
 
+test('a second id after a space alone is refused', () => {
+  assert.deepStrictEqual(refused('- ADDED REQ-A-002 REQ-A-003 — two'), ['two-ids']);
+});
+
+test('a second number after the id, listed or as a range, is refused', () => {
+  for (const line of [
+    '- ADDED REQ-A-001, 002 — export and import',
+    '- ADDED REQ-A-001 to 002 — x',
+    '- ADDED REQ-A-001 – 002 — x',
+    '- ADDED REQ-A-001/002 — x',
+    '- ADDED REQ-A-002—004 — x',
+    '- ADDED REQ-A-002 .. 004 — x',
+    '- ADDED REQ-A-002 & 003 — x',
+    '- ADDED REQ-A-002 and 003 — x',
+    '- ADDED REQ-A-002-004 — x',
+  ]) {
+    assert.deepStrictEqual(refused(line), ['two-ids'], line);
+  }
+  for (const line of [
+    '- ADDED REQ-A-001 — 300 requests per second',
+    '- ADDED REQ-A-001 100 users can export at once',
+    '- ADDED REQ-A-001: 500 errors are retried',
+    '- ADDED REQ-A-001 - 500 errors are retried',
+    '- CHANGED REQ-A-001 (wording) — 300 ms',
+  ]) {
+    assert.deepStrictEqual(refused(line), [], line);
+  }
+  assert.deepStrictEqual(read('- ADDED REQ-RFC-822-001 — a capability named for a number'), ['ADDED REQ-RFC-822-001']);
+  assert.deepStrictEqual(refused('- ADDED REQ-RFC-822-001 — a capability named for a number'), []);
+});
+
+test('a delta with its verb after the id, another bullet or in a quote is refused', () => {
+  for (const line of [
+    '| REQ-A-002 | Export to CSV | ADDED |',
+    '- REQ-A-002 ADDED — export',
+    '- REQ-A-002: ADDED — export',
+    '– ADDED REQ-A-002 — an en dash',
+    '• ADDED REQ-A-002 — a bullet',
+    '> - ADDED REQ-A-002 — quoted',
+    '- Added REQ-A-002 — export',
+    '### Added',
+    '### Removed requirements',
+  ]) {
+    assert.deepStrictEqual(read(line), [], line);
+    assert.ok(refused(line).includes('unread'), line);
+  }
+});
+
+test('a verb another format writes is refused, never read', () => {
+  for (const line of ['- MODIFIED REQ-A-001 — now also PDF', '- UPDATED REQ-A-001 — x', '- DELETED REQ-A-001 — gone', '- RENAMED REQ-A-001 — to export', '- Updated REQ-A-001 wording']) {
+    assert.deepStrictEqual(read(line), [], line);
+    assert.ok(refused(line).includes('unread'), line);
+  }
+  assert.match(deltasSectionProblem('# S\n\n## MODIFIED Requirements\n### Requirement: x\n\n## Requirement deltas\n- none\n', { needed: true }), /outside `## Requirement deltas` \("## MODIFIED Requirements"\)/);
+});
+
+test('a note may open with a verb and name an id after it', () => {
+  const section = [
+    '- REMOVED REQ-A-001 — legacy export',
+    '  - Removed for now; REQ-A-004 will replace it in a follow-up',
+    '- Removed because REQ-A-004 replaces it',
+    '- Changed from thirty; REQ-A-003 keeps its timeout',
+    '  - Added after review; REQ-A-005 stays as is',
+  ].join('\n');
+  assert.deepStrictEqual(read(section), ['REMOVED REQ-A-001']);
+  assert.deepStrictEqual(refused(section), []);
+});
+
+test('a note retires nothing', () => {
+  assert.deepStrictEqual(retiredIds(deltasOf('- REMOVED REQ-A-001 — legacy export\n  - Removed for now; REQ-A-004 will replace it in a follow-up')), ['REQ-A-001']);
+});
+
+test('a comment, a nested fence and indented code declare nothing', () => {
+  for (const section of [
+    '- ADDED REQ-A-001 — x\n<!--\n- ADDED REQ-A-003 — dropped\n-->',
+    '- ADDED REQ-A-001 — x\n````md\n```\n- ADDED REQ-A-099 — an example\n```\n````',
+    '- ADDED REQ-A-001 — x\n~~~md\n```\n- ADDED REQ-A-099 — an example\n```\n~~~',
+    '- ADDED REQ-A-001 — x\n\nFor example:\n\n    - ADDED REQ-A-099 — an example',
+  ]) {
+    assert.deepStrictEqual(read(section), ['ADDED REQ-A-001'], section);
+    assert.deepStrictEqual(refused(section), [], section);
+  }
+});
+
+test('a fence never closed, and lines ended by CR alone, still declare', () => {
+  assert.deepStrictEqual(read('```\n- ADDED REQ-A-002 — x'), ['ADDED REQ-A-002']);
+  assert.deepStrictEqual([...deltas(deltasOf('- ADDED REQ-A-002 — x').replace(/\n/g, '\r'))].map((d) => d.id), ['REQ-A-002']);
+  assert.deepStrictEqual([...deltas(deltasOf('- ADDED REQ-A-002 — x').replace(/\n/g, '\r\n'))].map((d) => d.id), ['REQ-A-002']);
+});
+
+test('outside the section, a word in capitals that names no id is not a delta', () => {
+  const at = (body) => deltasSectionProblem(body, { needed: true });
+  const around = (outside) => `# S\n\n${outside}\n\n## Requirement deltas\n- ADDED REQ-A-002 — x\n`;
+  for (const outside of [
+    '## Non-functional / constraints\n- `REMOVED` items never reappear after a sync\n- `ADDED` events carry the item id',
+    '## Symptom\n- ADDED role admin to user 42\n- ADDED role admin to user 42',
+    '## Notes\nADDED in response to issue #12.',
+    '## User stories\n- ADDED value: users export',
+    '## States\n### Update\n### Deleted',
+  ]) {
+    assert.equal(at(around(outside)), '', outside);
+  }
+  assert.match(at(around('## Deltas\n- added REQ-A-003 — y')), /outside `## Requirement deltas` \("- added REQ-A-003/);
+});
+
+test('a section the engine reads nothing in is refused where one is needed', () => {
+  const at = (section) => deltasSectionProblem(`# S\n\n## Requirement deltas\n${section}\n`, { needed: true });
+  assert.match(at('This change adds REQ-A-002.'), /says nothing the engine reads/);
+  assert.match(at('\n    - ADDED REQ-A-002 — indented into a code block'), /says nothing the engine reads/);
+  assert.match(at(''), /says nothing the engine reads/);
+  assert.equal(at('- none — infrastructure only'), '');
+  assert.equal(at('- **None**'), '');
+  assert.equal(at('- added REQ-A-002 — refused as a line instead'), '');
+  assert.equal(deltasSectionProblem('# S\n\n## Requirement deltas\nprose\n', { needed: false }), '');
+});
+
 test('a REMOVED line retires each id it names before its text, however it is spelled', () => {
   assert.deepStrictEqual(retiredIds(deltasOf('- REMOVED REQ-A-001, REQ-A-002 — both')), ['REQ-A-001', 'REQ-A-002']);
   assert.deepStrictEqual(retiredIds(deltasOf('  - REMOVED REQ-A-003\n- **REMOVED** REQ-A-004\n- REQ-A-005 (REMOVED)')), ['REQ-A-003', 'REQ-A-004', 'REQ-A-005']);

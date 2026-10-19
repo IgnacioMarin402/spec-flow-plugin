@@ -31,13 +31,17 @@ same exit 0 held for a delta spelled any way the parser did not read: under
 - Each archived change has a folder of its own. A change spec inside another
   change's folder — a fold onto a name the archive had — and two folders a case
   apart, one folder on macOS and Windows, are reported, scoped as above.
-- A delta is one line of `## Requirement deltas`: `- VERB REQ-id`, its verb in
-  capitals, one id, then its text, fences aside. A line written as a delta
-  another way, a second id or range before its text, and deltas under another
-  heading or outside the section are refused at spec time — leaving `spec`, the
-  spec-writer's return, resume's sign-off — and in a SHIPPED change of this
-  branch. A note in the section is not one: a verb in capitals leads only a
-  delta, and in another case it counts only beside an id.
+- A delta is one line of `## Requirement deltas`: `- VERB REQ-id`, its verb
+  `ADDED`, `CHANGED` or `REMOVED` in capitals, one id, then its text; code and
+  HTML comments are not read. A line written as a delta another way — another
+  verb, bullet or case, a table row, a heading grouping deltas — a second id or
+  number before its text, deltas under another heading or outside the section,
+  and a section with neither a delta nor `- none` are refused at spec time —
+  leaving `spec`, the spec-writer's return, resume's sign-off — and in a
+  SHIPPED change of this branch. A note in the section is not one: a verb in
+  capitals leads only a delta, and in another case it counts only right
+  before or after an id. Outside the section only OpenSpec's `## ADDED
+  Requirements` or a line written as a delta that names an id counts.
 - A live change named like an archived one, in any case, is refused at spec
   time: from the spec-writer only in `spec`, from a case 5 brief, which the
   orchestrator archives at once, always.
@@ -74,6 +78,9 @@ same exit 0 held for a delta spelled any way the parser did not read: under
 - **Reading other spellings of a delta line instead of refusing them.** Every
   reader would have to learn them together, and a second id before the text
   has no reading that is surely the author's.
+- **Refusing any line outside the section that leads with a verb in capitals.**
+  A constraint on `REMOVED` items or a quoted audit log failed a correct spec
+  at spec time and at its fold.
 - **Saying, with no base, that the deltas went unchecked.** `check` and the gate
   fail with no base; a pass beside them looked armed.
 - **`CHANGED` ids.** The id exists before and after the edit (ADR-009).
@@ -83,5 +90,11 @@ branch's writes since, whenever an archived change needs them. A drift a
 branch inherits stays until someone fixes it on a branch of its own; touching
 the inherited spec makes it this branch's. A drift an earlier run of the
 branch left fails the next run's fold, routed to the spec-writer and then the
-human, not to the milestone that met it. An id an archive retired in another
-spelling now counts as retired at every gate, where reuse was always checked.
+human, not to the milestone that met it. A fold and the next run's spec in
+one commit — a squash, an amend — or a fold merged in from another branch after
+the next run began have no order between them, so that drift fails the next
+run's milestone gates instead; the flow commits a fold before `done`. An id an
+archive retired in another spelling, `REMOVED` in capitals, now counts as
+retired at every gate, where reuse was always checked; a note retires nothing.
+An update reaches a run in flight: a spelling refused since, or an earlier
+run's drift, fails its fold.
