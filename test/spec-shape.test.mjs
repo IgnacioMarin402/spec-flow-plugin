@@ -68,7 +68,6 @@ test('a delta spelled any other way is refused, never skipped', () => {
     '+ ADDED REQ-A-002 — a plus sign',
     '  - ADDED REQ-A-002 — indented',
     '### ADDED REQ-A-002 — a heading',
-    '### ADDED',
     '- added REQ-A-002 — lowercase',
     '- ADDED: REQ-A-002 — a colon',
   ]) {
@@ -144,7 +143,7 @@ test('a second number after the id, listed or as a range, is refused', () => {
     '- ADDED REQ-A-002 .. 004 — x',
     '- ADDED REQ-A-002 & 003 — x',
     '- ADDED REQ-A-002 and 003 — x',
-    '- ADDED REQ-A-002-004 — x',
+    '- ADDED REQ-A-001~003 — x',
   ]) {
     assert.deepStrictEqual(refused(line), ['two-ids'], line);
   }
@@ -157,8 +156,24 @@ test('a second number after the id, listed or as a range, is refused', () => {
   ]) {
     assert.deepStrictEqual(refused(line), [], line);
   }
-  assert.deepStrictEqual(read('- ADDED REQ-RFC-822-001 — a capability named for a number'), ['ADDED REQ-RFC-822-001']);
-  assert.deepStrictEqual(refused('- ADDED REQ-RFC-822-001 — a capability named for a number'), []);
+});
+
+test('a number the text goes on from is the text', () => {
+  for (const line of [
+    '- ADDED REQ-A-002 - 404 or 410 for a deleted user',
+    '- ADDED REQ-A-002 – 100 to 200 ms jitter is tolerated',
+    '- ADDED REQ-A-002 - 401, not 403, for a bad token',
+    '- CHANGED REQ-A-001 (wording) - 300. Still the same',
+  ]) {
+    assert.deepStrictEqual(refused(line), [], line);
+  }
+});
+
+test('an id whose capability is named for a number is one id', () => {
+  for (const id of ['REQ-RFC-822-001', 'REQ-ADR-009-010', 'REQ-A-002-004']) {
+    assert.deepStrictEqual(read(`- ADDED ${id} — x`), [`ADDED ${id}`]);
+    assert.deepStrictEqual(refused(`- ADDED ${id} — x`), []);
+  }
 });
 
 test('a delta with its verb after the id, another bullet or in a quote is refused', () => {
@@ -170,12 +185,29 @@ test('a delta with its verb after the id, another bullet or in a quote is refuse
     '• ADDED REQ-A-002 — a bullet',
     '> - ADDED REQ-A-002 — quoted',
     '- Added REQ-A-002 — export',
-    '### Added',
-    '### Removed requirements',
+    '· ADDED REQ-A-002 — a middle dot',
+    '\u00a0- ADDED REQ-A-002 — a no-break space before the dash',
+    'a) ADDED REQ-A-002 — a lettered list',
+    '- NEW REQ-A-002 — another word',
+    '- REQ-A-002 Added — the verb after the id',
+    '- REQ-A-002 — ADDED: the verb in the text',
   ]) {
     assert.deepStrictEqual(read(line), [], line);
     assert.ok(refused(line).includes('unread'), line);
   }
+});
+
+test('a table row names its id in any case', () => {
+  for (const line of ['| REQ-A-002 | Added | export to CSV |', '| added | REQ-A-002 | export to CSV |', '| Removed | REQ-A-002 |', '| Added | REQ-A-002 | x |']) {
+    const section = `- ADDED REQ-A-001 — import\n${line}`;
+    assert.deepStrictEqual(read(section), ['ADDED REQ-A-001'], line);
+    assert.deepStrictEqual(refused(section), ['unread'], line);
+  }
+});
+
+test('in a delta\'s text, a verb in capitals before an id starts another delta', () => {
+  assert.deepStrictEqual(refused('- ADDED REQ-A-001 — export; ADDED REQ-A-002 — import'), ['unread']);
+  assert.deepStrictEqual(refused('- ADDED REQ-A-001 — export; ADDED REQ-A-002 — import\n- ADDED REQ-A-002 — import'), []);
 });
 
 test('a verb another format writes is refused, never read', () => {
@@ -186,20 +218,42 @@ test('a verb another format writes is refused, never read', () => {
   assert.match(deltasSectionProblem('# S\n\n## MODIFIED Requirements\n### Requirement: x\n\n## Requirement deltas\n- none\n', { needed: true }), /outside `## Requirement deltas` \("## MODIFIED Requirements"\)/);
 });
 
-test('a note may open with a verb and name an id after it', () => {
+test("a note names only ids its deltas read; a delta's own text may name any", () => {
   const section = [
-    '- REMOVED REQ-A-001 — legacy export',
-    '  - Removed for now; REQ-A-004 will replace it in a follow-up',
-    '- Removed because REQ-A-004 replaces it',
-    '- Changed from thirty; REQ-A-003 keeps its timeout',
-    '  - Added after review; REQ-A-005 stays as is',
+    '- REMOVED REQ-A-001 — legacy export; REQ-A-004 will replace it in a follow-up',
+    '  - Removed for now; REQ-A-001 goes with its test',
+    '- ADDED REQ-A-005 — sync',
+    '  - Added after review; REQ-A-005 stays behind a flag',
+    '> REQ-A-005 ships dark.',
   ].join('\n');
-  assert.deepStrictEqual(read(section), ['REMOVED REQ-A-001']);
+  assert.deepStrictEqual(read(section), ['REMOVED REQ-A-001', 'ADDED REQ-A-005']);
+  assert.deepStrictEqual(refused(section), []);
+  for (const note of ['  - Removed for now; REQ-A-004 will replace it', '- Changed from thirty; REQ-A-003 keeps its timeout', 'REQ-A-003 keeps its timeout.']) {
+    assert.deepStrictEqual(refused(`- REMOVED REQ-A-001 — legacy export\n${note}`), ['unread'], note);
+  }
+});
+
+test('notes, headings and HTTP words in the section name no delta of their own', () => {
+  const section = [
+    '### Create',
+    '- ADDED REQ-API-008 — POST /users creates a user',
+    '### Update',
+    '- ADDED REQ-API-009 — PUT /users/:id replaces it',
+    '  - REQ-API-009 DELETE /users/:id answers 204',
+    '  - UPDATE statements run in one transaction',
+    '### Delete',
+    '- REMOVED REQ-API-010 — the batch delete',
+    '  - DELETE /legacy/users now answers 410',
+    '  - DEPRECATED since v2.3',
+  ].join('\n');
+  assert.deepStrictEqual(read(section), ['ADDED REQ-API-008', 'ADDED REQ-API-009', 'REMOVED REQ-API-010']);
   assert.deepStrictEqual(refused(section), []);
 });
 
-test('a note retires nothing', () => {
+test('only REMOVED in capitals retires: a note, or the verb in another case, retires nothing', () => {
   assert.deepStrictEqual(retiredIds(deltasOf('- REMOVED REQ-A-001 — legacy export\n  - Removed for now; REQ-A-004 will replace it in a follow-up')), ['REQ-A-001']);
+  assert.deepStrictEqual(retiredIds(deltasOf('- Removed REQ-A-004 — x\n- REQ-A-005 (removed)\n| Removed | REQ-A-006 |')), []);
+  assert.deepStrictEqual(retiredIds(deltasOf('| REMOVED | REQ-A-006 |')), ['REQ-A-006']);
 });
 
 test('a comment, a nested fence and indented code declare nothing', () => {
@@ -212,6 +266,12 @@ test('a comment, a nested fence and indented code declare nothing', () => {
     assert.deepStrictEqual(read(section), ['ADDED REQ-A-001'], section);
     assert.deepStrictEqual(refused(section), [], section);
   }
+});
+
+test('a comment marker in a code span hides nothing, and a fence ends with its list item', () => {
+  const quoted = '- ADDED REQ-A-001 — strips `<!--` from names\n- ADDED REQ-A-002 — export\n- ADDED REQ-A-003 — strips `-->` too';
+  assert.deepStrictEqual(read(quoted), ['ADDED REQ-A-001', 'ADDED REQ-A-002', 'ADDED REQ-A-003']);
+  assert.deepStrictEqual(read('- ADDED REQ-A-001 — x\n  ```\n- ADDED REQ-A-002 — y\n  ```'), ['ADDED REQ-A-001', 'ADDED REQ-A-002']);
 });
 
 test('a fence never closed, and lines ended by CR alone, still declare', () => {
@@ -229,21 +289,46 @@ test('outside the section, a word in capitals that names no id is not a delta', 
     '## Notes\nADDED in response to issue #12.',
     '## User stories\n- ADDED value: users export',
     '## States\n### Update\n### Deleted',
+    '## API\n| /users/:id | DELETE | REQ-A-001 |\n- REQ-A-001 (deleted users are hidden) is unchanged\n### REQ-A-002: DELETE /users/:id',
+    '## States\n| DELETED | REQ-A-001 |',
+    '## Context\n- added REQ-A-003 last time, as prose',
   ]) {
     assert.equal(at(around(outside)), '', outside);
   }
-  assert.match(at(around('## Deltas\n- added REQ-A-003 — y')), /outside `## Requirement deltas` \("- added REQ-A-003/);
+  assert.match(at(around('## Deltas\n- ADDED REQ-A-003 — y')), /outside `## Requirement deltas` \("- ADDED REQ-A-003/);
+  assert.match(at(around('## Deltas\n| REMOVED | REQ-A-003 |')), /outside `## Requirement deltas` \("\| REMOVED \| REQ-A-003 \|"\)/);
 });
 
 test('a section the engine reads nothing in is refused where one is needed', () => {
   const at = (section) => deltasSectionProblem(`# S\n\n## Requirement deltas\n${section}\n`, { needed: true });
-  assert.match(at('This change adds REQ-A-002.'), /says nothing the engine reads/);
+  assert.match(at('This change adds the export.'), /says nothing the engine reads/);
+  assert.match(at('### ADDED'), /says nothing the engine reads/);
   assert.match(at('\n    - ADDED REQ-A-002 — indented into a code block'), /says nothing the engine reads/);
   assert.match(at(''), /says nothing the engine reads/);
   assert.equal(at('- none — infrastructure only'), '');
   assert.equal(at('- **None**'), '');
   assert.equal(at('- added REQ-A-002 — refused as a line instead'), '');
   assert.equal(deltasSectionProblem('# S\n\n## Requirement deltas\nprose\n', { needed: false }), '');
+});
+
+test('a section says it has no delta in the words writers use', () => {
+  const at = (section) => deltasSectionProblem(`# S\n\n## Requirement deltas\n${section}\n`, { needed: true });
+  for (const none of [
+    'None — infrastructure only',
+    '_None._',
+    '- n/a — wiring only',
+    '- No requirement changes — wiring only',
+    '- No deltas: wiring only',
+    '1. none — wiring only',
+    '  - none — wiring only',
+    '> none — wiring only',
+    '- Nothing changes in specs/ — wiring only',
+    'No change — REQ-A-001 is right; its test missed a case',
+  ]) {
+    assert.equal(at(none), '', none);
+    assert.deepStrictEqual(refused(none), [], none);
+  }
+  assert.deepStrictEqual(refused('- No longer exports CSV (REQ-A-002)'), ['unread']);
 });
 
 test('a REMOVED line retires each id it names before its text, however it is spelled', () => {

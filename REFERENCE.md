@@ -141,14 +141,15 @@ has a folder of its own: one folded inside another, or beside one a case apart,
 fails ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)).
 
 A delta is one line under `## Requirement deltas`, `- VERB REQ-<CAP>-0NN —
-<text>`: `ADDED`, `CHANGED` or `REMOVED` in capitals, and one id. A line
-written as a delta any other way — a table row, another bullet, a bracketed or
-lowercase verb, another verb such as `MODIFIED`, a range, a second id or number
-before the text — deltas under another heading, and a section with neither a
-delta nor `- none` are refused when the spec leaves `spec` and in a SHIPPED
-change of this branch, never at a milestone gate. Code and HTML comments are
-not read. A claim that appears, disappears or changes is `REMOVED` + `ADDED`
-on a new id.
+<text>`: `ADDED`, `CHANGED` or `REMOVED` in capitals, and one id. Every other
+line of the section names only ids a delta line reads; a delta's own text, and
+`- none`'s, may name any id, but not after a verb in capitals. A line naming
+another id — a table row, a heading, a note, a delta spelled another way — a
+second id or number before a delta's text, deltas under another heading, and a
+section with neither a delta nor a `none` line are refused when the spec leaves
+`spec`, and in a SHIPPED change of this branch that names an id; never at a
+milestone gate. Code and HTML comments are not read. A claim that appears,
+disappears or changes is `REMOVED` + `ADDED` on a new id.
 `CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 
@@ -292,6 +293,8 @@ Code falls through to the git SHA and every push to `main` is an update
 **Installed** → **Update now**; a session keeps what it loaded until
 `/reload-plugins` or the next launch. `claude plugin marketplace update` without
 a name refreshes the listing and leaves the installed plugin where it is.
+An update reaches a run in flight: a check added since can fail its next gate
+or its fold.
 
 Background auto-update is off by default for third-party marketplaces. Once on,
 it runs once per interactive session, within ten minutes of the first message,

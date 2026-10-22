@@ -33,15 +33,15 @@ same exit 0 held for a delta spelled any way the parser did not read: under
   apart, one folder on macOS and Windows, are reported, scoped as above.
 - A delta is one line of `## Requirement deltas`: `- VERB REQ-id`, its verb
   `ADDED`, `CHANGED` or `REMOVED` in capitals, one id, then its text; code and
-  HTML comments are not read. A line written as a delta another way — another
-  verb, bullet or case, a table row, a heading grouping deltas — a second id or
-  number before its text, deltas under another heading or outside the section,
-  and a section with neither a delta nor `- none` are refused at spec time —
-  leaving `spec`, the spec-writer's return, resume's sign-off — and in a
-  SHIPPED change of this branch. A note in the section is not one: a verb in
-  capitals leads only a delta, and in another case it counts only right
-  before or after an id. Outside the section only OpenSpec's `## ADDED
-  Requirements` or a line written as a delta that names an id counts.
+  HTML comments are not read. Every other line of the section names only ids a
+  delta line reads; a delta's own text, and a `none` line's, may name any id,
+  but not after a verb in capitals. A line naming another id, a second id or
+  number before a delta's text, deltas under another heading or outside the
+  section, and a section with neither a delta nor a `none` line are refused at
+  spec time — leaving `spec`, the spec-writer's return, resume's sign-off — and
+  in a SHIPPED change of this branch that names an id. Outside the section only
+  OpenSpec's `## ADDED Requirements`, or a delta verb in capitals leading a
+  line into an id, counts.
 - A live change named like an archived one, in any case, is refused at spec
   time: from the spec-writer only in `spec`, from a case 5 brief, which the
   orchestrator archives at once, always.
@@ -78,6 +78,12 @@ same exit 0 held for a delta spelled any way the parser did not read: under
 - **Reading other spellings of a delta line instead of refusing them.** Every
   reader would have to learn them together, and a second id before the text
   has no reading that is surely the author's.
+- **Telling a delta from a note by its verbs.** Each pass over such a grammar
+  found a spelling read as neither — a table cell in title case, a `·` bullet —
+  or a correct line refused — `DELETE /users/:id` beside an id, `### Update`.
+  An id is what a check binds, so an id no delta reads is what is refused.
+- **Reading `REQ-X-002-004` as a range.** It is also an id of a capability
+  named `X-002`.
 - **Refusing any line outside the section that leads with a verb in capitals.**
   A constraint on `REMOVED` items or a quoted audit log failed a correct spec
   at spec time and at its fold.
@@ -96,5 +102,5 @@ the next run began have no order between them, so that drift fails the next
 run's milestone gates instead; the flow commits a fold before `done`. An id an
 archive retired in another spelling, `REMOVED` in capitals, now counts as
 retired at every gate, where reuse was always checked; a note retires nothing.
-An update reaches a run in flight: a spelling refused since, or an earlier
-run's drift, fails its fold.
+An update reaches a run in flight: a spelling refused since, a note naming an
+id its deltas do not read, or an earlier run's drift fails its fold.

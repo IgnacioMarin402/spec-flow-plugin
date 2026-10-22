@@ -1795,7 +1795,7 @@ t('phase-guard denies plan from spec over a delta line the engine does not read'
   writeChange(repo, SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', '- **ADDED** REQ-USER-001 — a thing'));
   const r = writePhase(repo, 'plan');
   if (r.status !== 2) return `plan was allowed over a delta no check reads (exit ${r.status})`;
-  return /reads as a delta/.test(r.stderr) ? null : `the denial does not quote the line: ${r.stderr.slice(0, 300)}`;
+  return /names REQ-USER-001, which no delta line/.test(r.stderr) ? null : `the denial does not quote the line: ${r.stderr.slice(0, 300)}`;
 }, { phase: 'spec' });
 
 t('phase-guard denies plan from spec over deltas under a heading spelled another way, or outside their section', (repo) => {
@@ -1814,7 +1814,7 @@ t('phase-guard denies plan from spec over deltas under a heading spelled another
 t('phase-guard denies plan from spec over a spec that says nothing of its deltas', (repo) => {
   for (const [body, says] of [
     [SIGNED_SPEC.replace('## Requirement deltas\n- ADDED REQ-USER-001 — a thing\n', ''), 'has no `## Requirement deltas` section'],
-    [SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', 'This change adds REQ-USER-001.'), 'says nothing the engine reads'],
+    [SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', 'This change adds the export.'), 'says nothing the engine reads'],
   ]) {
     writeChange(repo, body);
     const r = writePhase(repo, 'plan');

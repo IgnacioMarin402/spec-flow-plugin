@@ -832,8 +832,8 @@ await Promise.all([
       },
       (r) => {
         if (r.status === 0) return `deltas no check reads passed: ${r.out}`;
-        const missed = ['indented', 'bold', 'colon', 'backticks', 'table |', 'bracketed', 'after', 'checkbox', 'lowercase', '### ADDED', '- ADDED'].filter(
-          (w) => !r.out.includes(`${w}" reads as a delta`),
+        const missed = ['indented', 'bold', 'colon', 'backticks', 'table |', 'bracketed', 'after', 'checkbox', 'lowercase', 'wrapped'].filter(
+          (w) => !new RegExp(`${w.replace(/[|]/g, '\\|')}" names REQ-USER-0\\d\\d, which no delta line`).test(r.out),
         );
         return missed.length ? `not reported: ${missed.join(', ')}. ${r.out}` : null;
       },
@@ -879,7 +879,7 @@ await Promise.all([
         ),
       },
       (r) => {
-        if (/reads as a delta|more than one id|REQ-USER-09[89]/.test(r.out)) return `a line that is not a delta was refused: ${r.out}`;
+        if (/which no delta line|more than one id|REQ-USER-09[89]/.test(r.out)) return `a line that is not a delta was refused: ${r.out}`;
         return /REQ-USER-004 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
       },
     ),
@@ -935,7 +935,7 @@ await Promise.all([
         ),
       },
       (r) => {
-        const missed = ['Export to CSV | ADDED |', 'REQ-USER-003 ADDED — export', 'an en dash', 'quoted', 'now also PDF', 'gone'].filter((w) => !r.out.includes(`${w}" reads as a delta`));
+        const missed = ['Export to CSV | ADDED |', 'REQ-USER-003 ADDED — export', 'an en dash', 'quoted', 'now also PDF', 'gone'].filter((w) => !r.out.includes(`${w}" names REQ-USER-`));
         return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
       },
     ),
@@ -990,6 +990,57 @@ await Promise.all([
       { 'specs/user.md': spec() },
       { 'specflow/archive/add/spec.md': '# Spec — add\n\n**Status:** SHIPPED 2026-10-17\n\nThe user can export their data (REQ-USER-002).\n' },
       (r) => (r.status !== 0 && /specflow\/archive\/add\/spec\.md has no `## Requirement deltas` section/.test(r.out) ? null : `a SHIPPED change with no deltas section passed: ${r.out}`),
+    ),
+  ),
+
+  // An id is what a check binds: a line naming one that no delta reads is
+  // refused, whatever case its verb is in.
+  check('a SHIPPED change of this branch with a table row in title case beside a delta is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': shippedWith('- ADDED REQ-USER-001 — import\n| REQ-USER-002 | Added | export to CSV |\n| added | REQ-USER-003 | sync |\n') },
+      (r) =>
+        r.status !== 0 && /"\| REQ-USER-002 \| Added \| export to CSV \|" names REQ-USER-002/.test(r.out) && /"\| added \| REQ-USER-003 \| sync \|" names REQ-USER-003/.test(r.out)
+          ? null
+          : `a row naming an id no delta reads passed: ${r.out}`,
+    ),
+  ),
+
+  check('a SHIPPED change whose delta text quotes a comment marker hides no delta', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/html/spec.md': shippedWith('- ADDED REQ-USER-001 — strips `<!--` from names\n- ADDED REQ-USER-002 — export\n- ADDED REQ-USER-003 — strips `-->` too\n') },
+      (r) =>
+        r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/html/.test(r.out) && /REQ-USER-003 is ADDED by specflow\/archive\/html/.test(r.out)
+          ? null
+          : `deltas between two quoted comment markers went unread: ${r.out}`,
+    ),
+  ),
+
+  // Correct specs a verb-guessing grammar refused: an HTTP method or a state
+  // beside an id, CRUD headings, a number starting a delta's text. Held as a
+  // SHIPPED change with a drift, so the check that would refuse them runs.
+  check('in a SHIPPED change, HTTP words, CRUD headings and numbers in the text are not deltas', () =>
+    withBranch(
+      { 'specs/user.md': twoReqs },
+      {
+        'specflow/archive/api/spec.md':
+          '# Spec — api\n\n**Status:** SHIPPED 2026-10-17\n\n## Constraints\n| /users/:id | DELETE | REQ-USER-001 |\n- REQ-USER-001 (deleted users are hidden) is unchanged\n\n' +
+          '## Requirement deltas\n### Update\n- ADDED REQ-USER-002 - 404 or 410 for a deleted user\n  - REQ-USER-002 DELETE /users/:id answers 204\n  - UPDATE statements run in one transaction\n' +
+          '### Delete\n- ADDED REQ-USER-009 — the check runs\n',
+      },
+      (r) => {
+        if (/which no delta line|more than one id|outside `## Requirement deltas`/.test(r.out)) return `a correct line was refused: ${r.out}`;
+        return /REQ-USER-009 is ADDED by/.test(r.out) && !/REQ-USER-002 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a SHIPPED fix brief that says it has no delta in other words passes', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/fix-thing/spec.md': '# Fix — thing\n\n**Status:** SHIPPED 2026-10-17\n\n## Case\n2 WEAK-TEST\n\n## Requirement deltas\nNo change — REQ-USER-001 is right; its test missed a case\n' },
+      (r) => (r.status === 0 ? null : `a section that says it has no delta was refused: ${r.out}`),
     ),
   ),
 
