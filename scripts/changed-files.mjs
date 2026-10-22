@@ -129,8 +129,11 @@ function mergeBase(root, ref) {
   return res.status === 0 ? res.stdout.trim() : null;
 }
 
-// Declaring the base does not help here: the clone holds no history to find it in.
-const SHALLOW = 'A shallow or single-branch clone holds no base, declared or not: fetch the history first (`fetch-depth: 0` on actions/checkout, or `git fetch --unshallow`).';
+// Declaring the base does not help here: the clone holds no branch or history
+// to find it in, and `--unshallow` alone fetches only the branch a
+// single-branch clone tracks.
+const SHALLOW =
+  "A shallow or single-branch clone holds no base, declared or not: fetch it first — `fetch-depth: 0` on actions/checkout; elsewhere `git fetch origin '+refs/heads/*:refs/remotes/origin/*'`, with `--unshallow` in a shallow clone.";
 
 /**
  * The commit this branch is judged against.

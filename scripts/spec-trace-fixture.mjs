@@ -751,6 +751,7 @@ await Promise.all([
         if (r.status === 0) return `a repo with no base passed: ${r.out}`;
         const said = /- (.*): whether these are this branch's or inherited needs the base, and no base branch could be resolved/.exec(r.out)?.[1] ?? '';
         if (!said.includes('archive/add-export/spec.md') || !said.includes('archive/old/old/spec.md')) return `not both named, or not the reason: ${r.out}`;
+        if (!/fetch-depth: 0/.test(r.out) || !/refs\/heads\/\*:refs\/remotes\/origin\/\*/.test(r.out)) return `the failure does not say how to fetch the base: ${r.out}`;
         return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
       },
     ),

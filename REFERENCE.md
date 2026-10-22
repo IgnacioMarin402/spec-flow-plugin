@@ -232,9 +232,11 @@ blocks (a fresh feature branch sits at its base until its first commit, so
 inherited.
 There is no fallback: comparing HEAD with itself is indistinguishable from
 "nothing changed". Declare `base_ref` for a release branch or a fork. A shallow
-CI checkout holds no base, declared or not: check out with `fetch-depth: 0`, or
-run `git fetch --unshallow`. Both refusals write `fail:base`; `files=-` means
-the base could not be named, `files=0` means it resolved to HEAD.
+or single-branch clone holds no base, declared or not: check out with
+`fetch-depth: 0`, or run `git fetch origin '+refs/heads/*:refs/remotes/origin/*'`,
+with `--unshallow` in a shallow clone. Both refusals write `fail:base`;
+`files=-` means the base could not be named, `files=0` means it resolved to
+HEAD.
 
 ---
 
