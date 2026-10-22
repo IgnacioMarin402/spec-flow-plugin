@@ -111,8 +111,8 @@ await run(async () => {
     return;
   }
 
-  // The same check `phase-guard` makes at the write that starts a run
-  // (ADR-028), and in the same order: the repository ahead of the contract,
+  // The check `phase-guard` makes at the write that starts a run (ADR-028),
+  // but the settings, and in the same order: the repository ahead of the contract,
   // because the contract at the wrong directory is the wrong contract or none,
   // and "could not be read" would send someone to write a second one where no
   // gate can run it (ADR-027).

@@ -34,6 +34,8 @@ const PANE = 'spec-flow-live'
 const PREFIX = 'spec-flow:'
 // The phase vocabulary `hooks/lib/io.mjs` arms on.
 const ARMED = ['spec', 'plan', 'review', 'implement', 'blocked']
+// `specflow/<change>/milestones/<Mk>.md`, as an implementer's spawn names its work order.
+const MILESTONE = /specflow[\\/]([^\\/\s"'`]+)[\\/]milestones[\\/](M\d+)\.md/
 const BAR = ['spec', 'plan', 'review', 'implement', 'done']
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const CARD = 38 // 34 columns of text, its padding and its border
@@ -74,9 +76,9 @@ let session = ''
 let phaseSeen = ''
 let phaseTracked = false
 // Each log is read again only when its stat moved; what it said, and whether it
-// was read, until then. Polls may overlap: each builds its result apart and
-// records the stat it read last, so an older read that lands late is read again
-// at the next tick.
+// was read, until then. Polls may overlap and share these: each records the
+// stat it read last, so an older read that lands late is read again, and drawn
+// right, at the next tick.
 let gateSeen = ''
 let gateLine = ''
 let gateUnread = false
@@ -86,8 +88,10 @@ let stoodUnread: string[] = []
 let traceSeen = ''
 let backs: LiveRun['sentBack'] = {}
 let traceUnread = false
-// A poll found this session's run armed since the orchestrator's last turn ended.
-let armedSince = false
+// This session's `closed` lines in run-trace.log, which run-trace writes when
+// this session writes `done`, as counted at the last turn's end; null until a
+// count has been read.
+let closedSeen: number | null = null
 
 /**
  * The checks a failing gate line names with a non-zero code: the fields gate.mjs
@@ -177,12 +181,14 @@ async function poll($: EngineInterface): Promise<void> {
   }
   const owner = ARMED.includes(raw) ? await stateText($, root, 'phase.session') : ''
   const phase = phaseTracked || (owner && session && owner !== session) ? '' : raw
-  if (ARMED.includes(phase)) armedSince = true
+  if (closedSeen === null) closedSeen = await closedCount($)
 
   // Ours when this session spawned its implementer: by id, or, where the spawn's
-  // response named none, an implementer this session put on that milestone.
+  // response named none, an implementer this session put on that change's milestone.
   const [slug = '', mk = '', implementer = ''] = (await stateText($, root, 'current-milestone')).split(/\s+/)
-  const ours = (await read($, agents)).some(a => (implementer ? a.agentId === implementer : a.role === 'implementer' && a.milestone === mk))
+  const ours = (await read($, agents)).some(a =>
+    implementer ? a.agentId === implementer : a.role === 'implementer' && a.milestone === mk && a.change === slug,
+  )
 
   // The gate line after the run's mark, which counts the lines already there,
   // stamped or not: `-Infinity` counts them so.
@@ -237,18 +243,21 @@ async function poll($: EngineInterface): Promise<void> {
   let budgets: LiveRun['budgets'] = []
   let settings = ''
   if (ARMED.includes(phase)) {
+    const path = `${root}/.claude/spec-flow.config.json`
     let config = ''
+    let unreadable = false
     try {
-      config = await $.fs.read(`${root}/.claude/spec-flow.config.json`)
+      config = await $.fs.read(path)
     } catch {
-      /* none: each cap is its default, as opus-budget reads it */
+      // None: each cap is its default, as opus-budget reads it. There and not read: the same, said.
+      unreadable = (await statKey($, path)) !== ''
     }
     budgets = await Promise.all(
       Object.entries(BUDGETS).map(async ([role, b]) => ({ role, used: Number(await stateText($, root, b.counter)) || 0, cap: budgetCap(config, role) })),
     )
     // Mid-run its hooks fall back to the defaults over it, and say nothing.
     const { problem } = projectConfig(config)
-    if (problem) settings = `.claude/spec-flow.config.json ${problem}: the caps shown are the defaults`
+    if (problem || unreadable) settings = `.claude/spec-flow.config.json ${problem || 'could not be read'}: the caps shown are the defaults`
   }
 
   const after: LiveRun = {
@@ -386,19 +395,29 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
   await update($, orchestrator, m => ({ ...m, ctx: u ? sent(u) : m.ctx, model: u?.model ?? m.model, effort: effort || m.effort, lastAt: at }))
 }
 
+/** This session's `closed` lines in run-trace.log; null when it cannot be read, or whose they are cannot be told. */
+async function closedCount($: EngineInterface): Promise<number | null> {
+  if (!session) return null
+  return (await logLines($, 'run-trace.log', ` session=${session} closed tool=`, 0))?.n ?? null
+}
+
 /**
  * The orchestrator is charged per turn, as `token-trace` charges it at Stop: a
  * turn that ends inside this session's run counts whole, the turn that starts
- * the run included, and so does the one that writes `done` (ADR-043) — told by
- * a run armed since the last turn ended, which a tick that already saw `done`
- * does not undo. One that ends outside a run counts nothing.
+ * the run included, and so does the one that writes `done` (ADR-043) — told, as
+ * token-trace tells it, by a `closed` line of this session's written during the
+ * turn, so neither a tick that saw `done` first nor another session's close
+ * moves it. With no count to compare, a run the turn began in is the sign. One
+ * that ends outside a run counts nothing.
  */
 async function closeTurn($: EngineInterface) {
   const before = (await read($, run)).phase
   await poll($)
   const open = await read($, turn)
-  const closing = (await read($, run)).phase === 'done' && (ARMED.includes(before) || armedSince)
-  armedSince = false
+  const closed = await closedCount($)
+  const closing =
+    (await read($, run)).phase === 'done' && (closed !== null && closedSeen !== null ? closed > closedSeen : ARMED.includes(before))
+  if (closed !== null) closedSeen = closed
   if (open.steps > 0 && ((await armed($)) || closing)) {
     await update($, orchestrator, m => ({
       ...m,
@@ -485,12 +504,14 @@ export const register: Register = (on, options) => {
     try {
       const at = await $.clock.now()
       const role = e.subagentType.slice(PREFIX.length)
+      // Only an implementer works ON a milestone; the others merely name one.
+      const [, change = '', milestone = ''] = role === 'implementer' ? (MILESTONE.exec(e.prompt) ?? []) : []
       const agent: LiveAgent = {
         agentId: spawned.agentId,
         role,
         parentId: e.parentAgentId ?? '',
-        // Only an implementer works ON a milestone; the others merely name one.
-        milestone: role === 'implementer' ? (/milestones[\\/](M\d+)\.md/.exec(e.prompt)?.[1] ?? '') : '',
+        change,
+        milestone,
         model: spawned.model,
         effort: '',
         startedAt: at,

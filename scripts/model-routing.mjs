@@ -119,17 +119,17 @@ const shipped = shippedRouting(meta);
 const { routing } = projectRouting(root, shipped);
 // The run start's own question, so this report and the refusal cannot disagree.
 const problems = settingsProblems(root);
-const declared = (() => {
-  const path = join(root, '.claude', 'spec-flow.config.json');
-  return existsSync(path) ? (projectConfig(readFileSync(path, 'utf8')).settings.agents ?? {}) : {};
-})();
-
 if (problems.length > 0) {
   console.error(`spec-flow models: .claude/spec-flow.config.json cannot be applied.\n`);
   for (const p of problems) console.error(`  - ${p}`);
   console.error(`\nNo run starts until it is fixed, and a route that cannot be applied denies every spawn of a spec-flow agent.`);
   process.exit(1);
 }
+// Read only once the file is known to read: one that does not is a problem above.
+const declared = (() => {
+  const path = join(root, '.claude', 'spec-flow.config.json');
+  return existsSync(path) ? (projectConfig(readFileSync(path, 'utf8')).settings.agents ?? {}) : {};
+})();
 
 const agents = Object.keys(shipped).sort();
 if (agents.length === 0) {

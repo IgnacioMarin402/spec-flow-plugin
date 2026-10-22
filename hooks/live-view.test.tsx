@@ -48,7 +48,9 @@ const stateFile = (path: string) => /[\\/]\.claude[\\/](?:state[\\/])?(.+)$/.exe
  * `mtimes` sets a file's modification time (mutable); a file in `unreadable` is
  * there and refuses a read, as one over 4 MiB does, and node reads it unless
  * `node` is false, or hands back more than one read takes when `truncated`.
- * `hold` is awaited inside a read, with the file's name.
+ * `hold` is awaited inside a read, with the file's name, and inside git's call,
+ * as `git`. With `gitHangs`, git never answers a call that sets no time limit,
+ * and one that sets one fails, as the host fails it when the limit passes.
  */
 function world(
   on: On,
@@ -62,6 +64,7 @@ function world(
     node = true,
     truncated = false,
     hold,
+    gitHangs = false,
   }: {
     tracked?: boolean
     usd?: number
@@ -71,6 +74,7 @@ function world(
     node?: boolean
     truncated?: boolean
     hold?: (file: string) => Promise<void>
+    gitHangs?: boolean
   } = {},
 ) {
   on('fs.read', async (_, e) => {
@@ -85,8 +89,12 @@ function world(
     if (text === undefined) throw new Error('ENOENT')
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[stateFile(e.path)] ?? text.length, isLink: false } }
   })
-  on('process.run', (_, e) => {
-    if (e.argv[0] !== 'node') return { value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  on('process.run', async (_, e) => {
+    if (e.argv[0] !== 'node') {
+      await hold?.('git')
+      if (gitHangs) return typeof e.init?.timeoutMs === 'number' ? Promise.reject(new Error('ETIMEDOUT')) : new Promise<never>(() => {})
+      return { value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (!node) throw new Error('ENOENT: node')
     const [path = '', since = '', needle = ''] = e.argv.slice(e.argv.indexOf('--') + 1)
     const { n, last } = linesOf(files[stateFile(path)] ?? '', needle, Number(since))
@@ -125,6 +133,9 @@ async function step($: Stepper, agentId?: string) {
   }
   return s.result
 }
+
+/** The line run-trace writes when `session` writes `done` (ADR-043). */
+const closedBy = (session: string) => `2026-10-22T10:00:00Z phase=done session=${session} closed tool=Write\n`
 
 /** The end of one of the orchestrator's turns: where token-trace's Stop would charge it. */
 const mainTurnEnds = { answer: '', durationMs: 1, isAborted: false, turnId: 't-main', reason: 'answer' } as const
@@ -260,6 +271,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // The turn that ends the run writes `done` and is charged (ADR-043).
     await step($)
     files.phase = 'done'
+    files['run-trace.log'] = closedBy(ME)
     await $.turn.complete(mainTurnEnds)
 
     // A turn after the run is not.
@@ -659,6 +671,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: /^ planner 0\/6$/ }), 'the default the hook falls back to').toBeDefined()
   })
 
+  test(`${surface}: a settings file that is there and cannot be read is said, with the caps it leaves`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME, 'spec-flow.config.json': '{ "max_opus_calls": 2 }' }, { unreadable: ['spec-flow.config.json'] })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^\.claude\/spec-flow\.config\.json could not be read: the caps shown are the defaults$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ planner 0\/6$/ }), 'the default the hook falls back to').toBeDefined()
+  })
+
   test(`${surface}: what node hands back past what one read takes is said, never shown cut`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     world(on, { phase: 'implement', 'phase.session': ME, 'run-trace.log': 'x\n' }, { unreadable: ['run-trace.log'], truncated: true })
@@ -676,6 +698,57 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ text: /could not be read/ })).toBeUndefined()
   })
+
+  // What this session's run could not read is its own: a run another session takes over says nothing of it.
+  test(`${surface}: a log this session's run could not read is not said once the run is another session's`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files: Record<string, string> = { phase: 'implement', 'phase.session': ME, 'run-trace.log': 'x\n' }
+    world(on, files, { unreadable: ['run-trace.log'], node: false })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /^run-trace\.log could not be read/ }), 'own run').toBeDefined()
+    files['phase.session'] = 'session-other'
+    await clock.advance(2_000)
+    expect(await ui.find({ text: /could not be read/ }), "another session's run").toBeUndefined()
+  })
+
+  test(`${surface}: git is asked with a time limit, so one that never answers holds no run back`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const status = world(on, { phase: 'plan', 'phase.session': ME }, { gitHangs: true })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await clock.advance(1_000)
+    expect(status.at(-1)).toBe('plan')
+  })
+
+  // The phase is seen only with git's answer for it: a poll that meets it before then asks git itself.
+  test(`${surface}: a phase git tracks stays no run here while git's first answer is pending`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const git = held('git')
+    world(on, { phase: 'implement', 'phase.session': ME }, { tracked: true, hold: git.hold })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    const asked = git.next()
+    void clock.advance(2_000)
+    await asked
+    await step($)
+    await $.turn.complete(mainTurnEnds)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: '[implement]' }), 'a tracked phase drawn as this run').toBeUndefined()
+    git.release()
+  })
+
+  // Every phase the engine arms on is a run here: the view's list is the engine's.
+  for (const phase of ['spec', 'plan', 'review', 'implement', 'blocked']) {
+    test(`${surface}: a run at ${phase} shows its phase in the status line`, async ($, on) => {
+      const clock = mock.clock(on, { now: 1_000_000 })
+      const status = world(on, { phase, 'phase.session': ME })
+      await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+      await clock.advance(2_000)
+      await clock.advance(1_000)
+      expect(status.at(-1)).toBe(phase)
+    })
+  }
 
   // A blocked run is still a run: the budget is armed, and the status says so.
   test(`${surface}: a blocked run shows its budgets and its phase in the status line`, async ($, on) => {
@@ -702,6 +775,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /M2 · this-change/ }), 'the one this session put on it').toBeDefined()
   })
 
+  test(`${surface}: another change's milestone of the same number is not this run's`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME, 'current-milestone': 'change-b M1' })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/change-a/milestones/M1.md'))
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /M1 · change-b/ })).toBeUndefined()
+  })
+
   test(`${surface}: the turn that writes done is charged, even when a tick saw done first`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const files: Record<string, string> = { phase: 'implement', 'phase.session': ME }
@@ -712,12 +795,35 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
     await step($)
     files.phase = 'done'
+    files['run-trace.log'] = closedBy(ME)
     await clock.advance(2_000)
     await step($)
     await $.turn.complete(mainTurnEnds)
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'copy' })
     expect(copied.at(-1)?.split('\n').at(-1)).toMatch(/ msgs=2$/)
+  })
+
+  // token-trace charges a turn at `done` by this session's own closed line, never by what a poll saw.
+  test(`${surface}: a turn after another session closed the run is not charged`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files: Record<string, string> = { phase: 'implement', 'phase.session': ME }
+    world(on, files)
+    const copied = clipboard(on)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    await step($)
+    await $.turn.complete(mainTurnEnds)
+    await clock.advance(2_000)
+    files['phase.session'] = 'session-other'
+    files.phase = 'done'
+    files['run-trace.log'] = closedBy('session-other')
+    await step($)
+    await $.turn.complete(mainTurnEnds)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'copy' })
+    expect(copied.at(-1)?.split('\n').at(-1)).toMatch(/ msgs=1$/)
   })
 
   test(`${surface}: a run an earlier version of the view kept is read as none, not drawn`, async ($, on) => {

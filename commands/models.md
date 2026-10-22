@@ -15,8 +15,8 @@ single file shows more than one of them — the tier its frontmatter ships, the
 project's override in `.claude/spec-flow.config.json`, and what
 `ANTHROPIC_DEFAULT_<TIER>_MODEL` pins that tier to. Reading one and concluding
 is how you get a confident wrong answer, which is the thing the report exists
-to prevent. If it exits non-zero the routing block is unusable and every
-spec-flow spawn is being denied; relay what it says and stop.
+to prevent. If it exits non-zero, `.claude/spec-flow.config.json` holds a
+setting the hooks cannot apply; relay what it says and stop.
 
 ## With arguments
 

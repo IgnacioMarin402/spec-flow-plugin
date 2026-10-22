@@ -1436,6 +1436,17 @@ for (const [what, text, says] of [
   );
 }
 
+t(
+  'phase-guard refuses to start a run over a .claude/spec-flow.config.json it cannot read',
+  (repo) => {
+    mkdirSync(join(repo, '.claude/spec-flow.config.json'), { recursive: true });
+    const r = startRun(repo);
+    if (r.status !== 2) return `a run started over a settings file no hook can read — exit ${r.status}`;
+    return r.stderr.includes('could not be read') ? null : `the refusal does not say the file could not be read: ${r.stderr}`;
+  },
+  { phase: '' },
+);
+
 // Mid-run each hook applies what it can and denies what it cannot: a refusal
 // at every spawn would stop every agent in the repository (ADR-028, ADR-049).
 t(

@@ -5,6 +5,8 @@ export type LiveAgent = {
   role: string
   // the agent that spawned it ('' for the orchestrator): the architect runs inside the implementer
   parentId: string
+  // an implementer's work order: its change and milestone ('' for any other role)
+  change: string
   milestone: string
   model: string
   effort: string

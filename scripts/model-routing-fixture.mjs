@@ -41,6 +41,9 @@ const PINNED_OPUS = [VENDOR + 'opus', '4', '8'].join('-');
 const REVIEWER = shippedAgents().reviewer ?? {};
 const REVIEWER_ELSEWHERE = ['haiku', 'sonnet', 'opus'].find((t) => t !== REVIEWER.model);
 
+// A folder where a file should be: there, and no read of it succeeds.
+const A_DIRECTORY = Symbol('a directory');
+
 /**
  * Runs the real report against a throwaway repo holding exactly `files`.
  * `cwd` is how the script finds the project, and its own location is how it
@@ -51,7 +54,8 @@ function report(files, env = {}) {
   try {
     mkdirSync(join(root, '.claude'), { recursive: true });
     for (const [rel, contents] of Object.entries(files)) {
-      writeFileSync(join(root, rel), typeof contents === 'string' ? contents : JSON.stringify(contents));
+      if (contents === A_DIRECTORY) mkdirSync(join(root, rel), { recursive: true });
+      else writeFileSync(join(root, rel), typeof contents === 'string' ? contents : JSON.stringify(contents));
     }
     // The ambient environment must not leak in: a developer with one of these
     // exported would otherwise see different results than CI.
@@ -258,6 +262,13 @@ check('a file the run start refuses exits non-zero and says why', () => {
     if (code === 0 || !out.includes(says)) return `a file no run starts with got exit ${code}.\n--- output ---\n${out}`;
   }
   return '';
+});
+
+// The run start says such a file could not be read; the report says the same, never a stack.
+check('a settings file that cannot be read exits non-zero and says why', () => {
+  const { code, out } = report({ '.claude/spec-flow.config.json': A_DIRECTORY });
+  if (code === 0 || !out.includes('could not be read')) return `exit ${code}\n--- output ---\n${out}`;
+  return /\n\s+at /.test(out) ? `it crashed instead of saying why:\n${out}` : '';
 });
 
 check('a settings file that is not valid JSON does not take the report down', () => {

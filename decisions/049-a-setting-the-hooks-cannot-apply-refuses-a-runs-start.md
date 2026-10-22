@@ -1,6 +1,6 @@
 # ADR-049 — a setting the hooks cannot apply refuses a run's start, not its spawns
 
-**Date:** 2026-10-19 · **Status:** accepted · **Governs:** `hooks/lib/can-run.mjs`, `hooks/phase-guard.mjs`, `hooks/lib/project-config.mjs`, `hooks/lib/budgets.mjs`, `hooks/lib/routing.mjs`, `scripts/model-routing.mjs`, `commands/spec-flow.md`, `commands/spec-fix.md`, `commands/resume.md`, `REFERENCE.md`, `README.md` · **Related:** ADR-014, ADR-028, ADR-038, ADR-047
+**Date:** 2026-10-19 · **Status:** accepted · **Governs:** `hooks/lib/can-run.mjs`, `hooks/phase-guard.mjs`, `hooks/preflight.mjs`, `hooks/live-view.tsx`, `hooks/lib/project-config.mjs`, `hooks/lib/budgets.mjs`, `hooks/lib/routing.mjs`, `scripts/model-routing.mjs`, `commands/spec-flow.md`, `commands/spec-fix.md`, `commands/resume.md`, `REFERENCE.md`, `README.md` · **Related:** ADR-014, ADR-028, ADR-038, ADR-047
 
 **Question.** `.claude/spec-flow.config.json` holds the escalation caps and the
 routing. When a setting in it cannot be applied, who refuses, and when?
@@ -44,4 +44,10 @@ routing. When a setting in it cannot be applied, who refuses, and when?
   would get one without a word.
 
 **Cost.** A file broken mid-run is not refused until the next run starts: until
-then the defaults apply, and only the live view says so.
+then the defaults apply, and only the live view says so. The refusal is
+phase-guard's, so a run started by a write it cannot read — `node -e`, a `cp`
+— meets each setting only where a hook applies it, as a file broken mid-run
+does; the orchestrator writes the phase with `Write` or `printf`, which it
+reads. An update reaches a run in flight: a cap main read as the default, as
+a number of calls or as no limit at all — `null`, `"0x10"`, `"six"` — denies
+that role's calls from then on.

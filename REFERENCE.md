@@ -481,10 +481,13 @@ armed.
 - **A run that cannot run here does not start**
   ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
   first run phase written while no run is in progress is denied unless the
-  directory is a repository root, the contract loads, the base resolves and no
+  directory is a repository root, the contract loads, the base resolves, no
   live change folder is one the base already has
-  ([ADR-032](decisions/032-a-change-the-base-already-has-is-not-this-runs.md));
-  nothing is armed by a refused start.
+  ([ADR-032](decisions/032-a-change-the-base-already-has-is-not-this-runs.md))
+  and every setting in `.claude/spec-flow.config.json` can be applied
+  ([ADR-049](decisions/049-a-setting-the-hooks-cannot-apply-refuses-a-runs-start.md));
+  nothing is armed by a refused start. A start phase-guard cannot read is met
+  by `preflight` at the first spawn, which checks all of it but the settings.
 - **A phase write leaving `spec` needs a spec its first gate would accept**
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
   `plan`, `review` or `implement` written from `spec` is denied while a live

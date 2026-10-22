@@ -26,9 +26,10 @@
  *   4. A write that STARTS a run — a run phase while no run is in progress —
  *      is refused where this engine cannot run: not a repository root, no
  *      contract that loads, no base that resolves (ADR-028), a live change
- *      folder the base already has (ADR-032). Nothing is armed
- *      then, so a refused start leaves nothing for `session-start` to reset
- *      and denies no later spawn in that repository.
+ *      folder the base already has (ADR-032), a setting in
+ *      `.claude/spec-flow.config.json` the hooks cannot apply (ADR-049).
+ *      Nothing is armed then, so a refused start leaves nothing for
+ *      `session-start` to reset and denies no later spawn in that repository.
  *   5. A write that LEAVES `spec` needs every live spec with no plan yet to
  *      pass what spec-trace will check of it at the first gate, and to state
  *      its assumptions (ADR-030); and a fix brief that corrects a requirement
@@ -196,7 +197,8 @@ await run(async () => {
     // In or out of a run: a command writing into `.claude/state/phase` creates
     // that directory itself, so recording it there leaves nothing behind that
     // the command did not — and a start this hook could not read is the one
-    // `preflight` has to catch, which is worth a line saying so.
+    // `preflight` has to catch, but for the settings (ADR-049), which is worth
+    // a line saying so.
     if (!written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
   } else {
     const filePath = String(input.file_path ?? input.filePath ?? '');
@@ -225,7 +227,8 @@ await run(async () => {
     if (!STARTS_A_RUN.includes(written)) return;
 
     // The checks `preflight` makes at the first spawn, made at the first
-    // write: a run refused here leaves no phase behind, while one refused
+    // write, and the settings, which only this write is refused over
+    // (ADR-049): a run refused here leaves no phase behind, while one refused
     // there had already armed every hook that reads the phase.
     try {
       assertCanStart(root);
