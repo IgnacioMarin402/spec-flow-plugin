@@ -1532,6 +1532,15 @@ await Promise.all([
     ),
   ),
 
+  // A sub-heading under a requirement, a capability named like `Req-to-Pay`
+  // and an example in a fence are no requirement anyone misspelled.
+  check('a sub-heading naming a declared id, a word like req-, and a fenced example are not reported', () =>
+    withRepo(
+      { 'specs/user.md': `${spec()}\n#### REQ-USER-001 — examples\n\nGiven a user.\n\n## Req-to-Pay\n\nThe flow.\n\n\`\`\`\n### REQ-USER-10 — not like this\n\`\`\`\n` },
+      (r) => (r.status === 0 ? null : `a correct capability spec was refused: ${r.out}`),
+    ),
+  ),
+
   check('a requirement heading parses with an em dash, a hyphen or a colon', () =>
     withRepo(
       {

@@ -117,7 +117,7 @@ export const CHANGED_KINDS = ['wording', 'correction'];
  * never closed is read as text. An indented block is code after a blank line
  * that does not continue a list item.
  */
-function withoutCode(text) {
+export function withoutCode(text) {
   const lines = text.split(/\r\n|\r|\n/);
   for (let i = 0; i < lines.length; i++) {
     let end = -1;
@@ -215,23 +215,29 @@ const NONE =
 // `- ADDED: the export`, `- ADDED REQ-USER-10 — …`. A heading grouping deltas,
 // `### ADDED`, is not one.
 const VERB_LED = new RegExp(`^[ \\t]*(?:>[ \\t]*)*(?:(?:[-*+•·◦▪–—]|\\d+[.)]|[a-z][.)]|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_\`]*(?:${VERB})(?![\\w-])`);
-// Shaped like an id and not one: `REQ-USER-10`, `REQ-USER-0002`, `REQ_USER_002`, `req-user-002`.
-const ID_SHAPED = /(?<![\w-])req[-_][a-z0-9]+(?:[-_][a-z0-9]+)*/gi;
+// Shaped like an id — a capability led by a letter, then digits — and maybe
+// not one: `REQ-USER-10`, `REQ-USER-0002`, `REQ_USER_002`, `req-user-002`. A
+// word that merely starts so, `req_id` or `Req-to-Pay`, is not shaped like one.
+const ID_SHAPED = /(?<![\w-])req[-_][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*[-_]\d+(?![\w-])/gi;
 const WHOLE_ID = new RegExp(`^${ID}$`);
-const malformedIn = (line) => [...new Set(line.match(ID_SHAPED) ?? [])].filter((token) => !WHOLE_ID.test(token));
+/** The tokens of `text` shaped like an id, read as one or not. */
+export const idShaped = (text) => [...new Set(text.match(ID_SHAPED) ?? [])];
+/** Whether `token` is an id as every reader reads one. */
+export const isId = (token) => WHOLE_ID.test(token);
+const malformedIn = (line) => idShaped(line).filter((token) => !isId(token));
 
 // In a delta's text, a verb in capitals before an id starts another delta:
 // `- ADDED REQ-A-001 — export; ADDED REQ-A-002 — import`.
 const VERBED = new RegExp(`(?<![\\w-])(?:${VERB}|MODIFIED|RENAMED|DELETED|UPDATED|REPLACED|DEPRECATED)[ \\t:*_\`|[\\]()]*(${ID})`, 'g');
 
 // A delta's text starts at an em dash after a space, a colon, a parenthesis,
-// or a hyphen or en dash before a word. Before it, another id, or a number
+// or a hyphen or en dash before a word that joins nothing. Before it, another id, or a number
 // going on from the first to where the text starts, is a second id:
 // `REQ-A-001, REQ-A-002`, `REQ-A-001 thru REQ-A-003`, `REQ-A-001 - REQ-A-002`,
 // `REQ-A-001–003 —`, `REQ-A-001, 002 —`. A number the text goes on from is the
 // text's: `REQ-A-001 - 404 or 410 for a deleted user`.
 const KIND = /^[ \t]*\([a-z]+\)/;
-const TEXT_STARTS = /[ \t]—|:|\(|[ \t][–-][ \t]+(?!REQ-|\d{3}(?!\d))/;
+const TEXT_STARTS = /[ \t]—|:|\(|[ \t][–-][ \t]+(?!REQ-|\d{3}(?!\d)|(?:and|or|to|through|thru)(?![\w-]))/;
 const JOINER = '(?:[ \\t]*(?:[,/&+;~–]|\\.\\.|-(?=[ \\t])|(?:and|or|to|through|thru)(?![\\w-]))[ \\t]*|—)';
 const NUMBERS = new RegExp(`^(?:${JOINER}\\d{3}(?!\\d))+[ \\t]*(?:$|—|:|\\()`, 'i');
 const BETWEEN = new RegExp(`^(?:[ \\t]*\\([a-z]+\\))?(?:${JOINER}|[ \\t]+)$`, 'i');
@@ -279,7 +285,7 @@ export function* unreadDeltas(body) {
     const named = text === null ? (d.line.match(IDS) ?? []) : [...text.matchAll(VERBED)].map((m) => m[1]);
     const ids = [...new Set(named)].filter((id) => !read.has(id));
     if (ids.length > 0) yield { line: d.line, why: 'unread', ids };
-    else if (!d.verb && VERB_LED.test(d.line)) yield { line: d.line, why: 'no-id' };
+    else if (!d.verb && VERB_LED.test(d.line)) yield { line: d.line, why: AN_ID.test(d.line) ? 'not-a-delta' : 'no-id' };
   }
 }
 
@@ -295,6 +301,7 @@ export function explainUnread({ line, why, ids = [] }) {
     return `${quoted} names ${ids.join(', ')}, which no check reads as an id: an id is REQ-, its capability in capitals, then three digits, \`REQ-<CAP>-0NN\`. Write it so. ${DELTA_SHAPE}`;
   }
   if (why === 'no-id') return `${quoted} is written as a delta and names no id, so no check binds it. ${DELTA_SHAPE}`;
+  if (why === 'not-a-delta') return `${quoted} leads with a delta's verb and is no delta line, so no check reads it as one. ${DELTA_SHAPE} Write each delta so, once.`;
   return (
     `${quoted} names ${ids.join(', ')}, which no delta line of this section reads, so no check binds ${ids.length > 1 ? 'them' : 'it'}. ${DELTA_SHAPE} ` +
     "Every other line of the section names only ids its deltas read; a delta's own text may name any. Write each delta so, or move the rest out of the section."

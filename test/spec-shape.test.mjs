@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { assumptionsProblem, capabilityOf, declaredIds, deltas, deltasSectionProblem, retiredIds, reusedIds, unreadDeltas } from '../scripts/spec-shape.mjs';
+import { assumptionsProblem, capabilityOf, declaredIds, deltas, deltasSectionProblem, explainUnread, retiredIds, reusedIds, unreadDeltas } from '../scripts/spec-shape.mjs';
 
 const spec = (assumptions) => `# Spec — x\n\n## Requirement deltas\n- ADDED REQ-A-001 — a thing\n${assumptions}\n## Out of scope\n- nothing\n`;
 
@@ -206,9 +206,23 @@ test('a delta line whose id is malformed is refused', () => {
   assert.deepStrictEqual(refused('- ADDED REQ-A-001 — import\n| REQ-A-10 | Added |'), ['malformed']);
 });
 
+test('a word that merely starts like an id is no malformed id', () => {
+  const section = [
+    '- ADDED REQ-A-002 — logs the `req_id` of every export',
+    '- ADDED REQ-A-003 — the req-res cycle times out after 30 s',
+    '- ADDED REQ-A-004 — a Req-to-Pay approval needs two signatures, as asked in REQ-1234',
+    '  - req_headers are logged, never bodies',
+    '- ADDED REQ-A-005 — export, proven by `TestExport/REQ-A-005_rejects_empty`',
+  ].join('\n');
+  assert.deepStrictEqual(refused(section), []);
+});
+
 test('a line a delta verb leads in capitals is a delta, with or without an id', () => {
   assert.deepStrictEqual(refused('- ADDED REQ-A-001 — import\n- ADDED: the export button'), ['no-id']);
   assert.deepStrictEqual(refused('### ADDED\n- ADDED REQ-A-001 — import'), [], 'a heading grouping deltas');
+  const row = [...unreadDeltas(deltasOf('- ADDED REQ-A-002 — export\n| ADDED | REQ-A-002 |'))];
+  assert.deepStrictEqual(row.map((u) => u.why), ['not-a-delta']);
+  assert.doesNotMatch(explainUnread(row[0]), /names no id/);
 });
 
 test('a hyphen or en dash before a word starts the text', () => {
@@ -216,6 +230,7 @@ test('a hyphen or en dash before a word starts the text', () => {
     assert.deepStrictEqual(refused(line), [], line);
   }
   assert.deepStrictEqual(refused('- ADDED REQ-A-009 - REQ-A-010 a range'), ['two-ids']);
+  assert.deepStrictEqual(refused('- ADDED REQ-A-001 - and REQ-A-003 — two'), ['two-ids'], 'a dash before a joining word joins');
 });
 
 test('a table row names its id in any case', () => {

@@ -58,6 +58,9 @@ import {
   retiredIds,
   unreadDeltas,
   explainUnread,
+  withoutCode,
+  idShaped,
+  isId,
 } from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -149,6 +152,7 @@ const requirements = new Map();
 
 // ---- read the specs ---------------------------------------------------
 const NOT_A_CAPABILITY = new Set(CONFIG.trace.not_a_capability);
+const shapedHeadings = [];
 const specFiles = walk(SPECS_DIR, (f) => f.endsWith('.md') && !NOT_A_CAPABILITY.has(basename(f)));
 
 for (const file of specFiles) {
@@ -163,18 +167,17 @@ for (const file of specFiles) {
   }
 
   const prefix = expectedPrefix(file);
+  // Headings led by something shaped like an id, code aside: judged once every
+  // requirement is known, below.
+  for (const line of withoutCode(text).split('\n')) {
+    const heading = /^(#{1,6})\s+(\S+)/.exec(line.trim());
+    const token = heading && idShaped(heading[2])[0];
+    if (token && heading[2].startsWith(token)) shapedHeadings.push({ rel, line: line.trim(), level: heading[1].length, token });
+  }
+
   for (const line of text.split('\n')) {
     const match = REQ_HEADING.exec(line.trim());
-    if (!match) {
-      // A heading shaped like a requirement and not read as one binds no test,
-      // and nothing else sees it: `### REQ-USER-10`, `#### REQ-USER-010`.
-      if (/^#{1,6}\s+req[-_]/i.test(line.trim())) {
-        problems.push(
-          `${rel}: "${line.trim()}" is no requirement the engine reads, so no test is bound to it. A requirement is a \`### REQ-<CAP>-0NN — <title>\` heading: three hashes, the id in capitals, three digits.`,
-        );
-      }
-      continue;
-    }
+    if (!match) continue;
 
     const [, id, title] = match;
     if (!id.startsWith(prefix)) {
@@ -186,6 +189,17 @@ for (const file of specFiles) {
     }
     requirements.set(id, { title: title.trim(), spec: rel });
   }
+}
+
+// A heading shaped like a requirement and not read as one binds no test, and
+// nothing else sees it: `### REQ-USER-10`, `#### REQ-USER-011` when no `###`
+// declares it. A sub-heading under a requirement, `#### REQ-USER-001 —
+// examples`, names one that is.
+for (const { rel, line, level, token } of shapedHeadings) {
+  if (isId(token) && (level === 3 || requirements.has(token))) continue;
+  problems.push(
+    `${rel}: "${line}" is no requirement the engine reads, so no test is bound to it. A requirement is a \`### REQ-<CAP>-0NN — <title>\` heading: three hashes, the id in capitals, three digits.`,
+  );
 }
 
 // ---- ask which tests actually ran ------------------------------------------
