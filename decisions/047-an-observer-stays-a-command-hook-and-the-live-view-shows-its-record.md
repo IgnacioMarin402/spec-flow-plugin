@@ -1,6 +1,6 @@
 # ADR-047 — an observer stays a command hook, and the live view shows its record
 
-**Date:** 2026-10-17 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/lib/budgets.mjs`, `hooks/lib/project-config.mjs`, `hooks/lib/log-lines.mjs`, `hooks/opus-budget.mjs`, `hooks/agent-gate.mjs`, `hooks/gate.mjs`, `scripts/agent-blocks.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-037 (what a mod may read) · **Related:** ADR-029, ADR-031, ADR-034, ADR-036, ADR-038
+**Date:** 2026-10-17 · **Status:** accepted · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/lib/budgets.mjs`, `hooks/lib/project-config.mjs`, `hooks/lib/log-lines.mjs`, `hooks/lib/milestone-ref.mjs`, `hooks/opus-budget.mjs`, `hooks/agent-gate.mjs`, `hooks/gate.mjs`, `scripts/agent-blocks.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-037 (what a mod may read) · **Related:** ADR-029, ADR-031, ADR-034, ADR-036, ADR-038
 
 **Question.** A mod may only show (ADR-029, ADR-037). Five hooks only observe:
 `human-turn`, `register-agent`, `run-trace`, `dispatch-guard` and `token-trace`;

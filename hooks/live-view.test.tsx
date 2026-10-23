@@ -787,6 +787,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /· M2/ })).toBeDefined()
   })
 
+  test(`${surface}: the work order labels the card, not a milestone file named before it`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME, 'current-milestone': 'this-change M2' })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.agent.spawn(spawn('spec-flow:implementer', 'see docs/milestones/M1.md, then work on specflow/this-change/milestones/M2.md'))
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /M2 · this-change/ }), 'the run line finds the agent current-milestone names').toBeDefined()
+    expect(await ui.find({ text: /· M1/ })).toBeUndefined()
+  })
+
   test(`${surface}: another change's milestone of the same number is not this run's`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     world(on, { phase: 'implement', 'phase.session': ME, 'current-milestone': 'change-b M1' })

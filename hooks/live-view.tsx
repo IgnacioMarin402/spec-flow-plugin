@@ -26,6 +26,8 @@ import { MAX_BLOCKS, parseReturn } from '../scripts/agent-blocks.mjs'
 import { BUDGETS, budgetCap } from './lib/budgets.mjs'
 // Which log lines count, read here or by node past 4 MiB: one filter.
 import { LINES, linesOf } from './lib/log-lines.mjs'
+// The milestone an implementer's spawn names, read the way current-milestone is: one reading.
+import { milestoneRef } from './lib/milestone-ref.mjs'
 // The settings file, read the one way its hooks read it.
 import { projectConfig } from './lib/project-config.mjs'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
@@ -34,9 +36,6 @@ const PANE = 'spec-flow-live'
 const PREFIX = 'spec-flow:'
 // The phase vocabulary `hooks/lib/io.mjs` arms on.
 const ARMED = ['spec', 'plan', 'review', 'implement', 'blocked']
-// `specflow/<change>/milestones/<Mk>.md`, as an implementer's spawn names its
-// work order; a cold restart may name `milestones/<Mk>.md` alone.
-const MILESTONE = /(?:specflow[\\/]([^\\/\s"'`]+)[\\/])?milestones[\\/](M\d+)\.md/
 const BAR = ['spec', 'plan', 'review', 'implement', 'done']
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const CARD = 38 // 34 columns of text, its padding and its border
@@ -509,7 +508,7 @@ export const register: Register = (on, options) => {
       const at = await $.clock.now()
       const role = e.subagentType.slice(PREFIX.length)
       // Only an implementer works ON a milestone; the others merely name one.
-      const [, change = '', milestone = ''] = role === 'implementer' ? (MILESTONE.exec(e.prompt) ?? []) : []
+      const { change, milestone } = (role === 'implementer' && milestoneRef(e.prompt)) || { change: '', milestone: '' }
       const agent: LiveAgent = {
         agentId: spawned.agentId,
         role,
