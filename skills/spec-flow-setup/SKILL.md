@@ -149,9 +149,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/model-routing.mjs
 ```
 
 It names the tier each agent will run on and which layer decided it, and it
-exits non-zero when a routing block is already present and unusable. That last
-case is worth catching at setup: until it is fixed every spec-flow spawn is
-denied, and the first symptom otherwise is a run that will not start.
+exits non-zero when `.claude/spec-flow.config.json` holds a setting the hooks
+cannot apply. That case is worth catching at setup: until it is fixed no run
+starts.
 
 ## What this skill must never contain
 

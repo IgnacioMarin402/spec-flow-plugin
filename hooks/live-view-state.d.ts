@@ -5,6 +5,8 @@ export type LiveAgent = {
   role: string
   // the agent that spawned it ('' for the orchestrator): the architect runs inside the implementer
   parentId: string
+  // an implementer's work order: its change and milestone ('' for any other role)
+  change: string
   milestone: string
   model: string
   effort: string
@@ -57,6 +59,16 @@ export type LiveRun = {
   attempts: number
   // what the session has cost, as /cost totals it; null where the host keeps no ledger
   usd: number | null
+  // the checks the last gate line records as failed: `lint`, `test`, an unscoped check's field
+  failed: string[]
+  // planner and architect calls this run, against the cap opus-budget denies at
+  budgets: { role: string; used: number; cap: number }[]
+  // the checks whose own log says they stood down during this run
+  stoodDown: string[]
+  // by agent id: the agent gate's send-backs, the last one's reasons, and whether it then let the return through
+  sentBack: Record<string, { n: number; why: string; cap: boolean }>
+  // a log that is there and could not be read, and what that leaves unshown; a settings file none of whose settings apply
+  unread: string[]
 }
 
 declare module 'claude-code' {
@@ -65,7 +77,7 @@ declare module 'claude-code' {
       liveAgents: LiveAgent[]
       liveOrchestrator: LiveOrchestrator
       liveTurn: LiveTurn
-      liveRun: LiveRun
+      liveRun2: Shaped<LiveRun>
       liveClock: number
     }
   }

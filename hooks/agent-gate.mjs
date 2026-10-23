@@ -27,15 +27,12 @@ import { join, dirname, isAbsolute, resolve, relative, basename, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
 import { handedBack } from './lib/handback.mjs';
-import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS } from '../scripts/agent-blocks.mjs';
+import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS, MAX_BLOCKS } from '../scripts/agent-blocks.mjs';
 import { deltas, declaredIds, capabilityOf } from '../scripts/spec-shape.mjs';
 import { specTimeProblems } from '../scripts/spec-time.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-/** Blocks per agent before its return goes through as it is. */
-const MAX_BLOCKS = 2;
 
 const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 
@@ -236,7 +233,8 @@ await run(async () => {
   }
 
   // `agent=`, not run-trace's `type=`: stats reads a `type=` line with an
-  // agent id as that agent's return.
+  // agent id as that agent's return. The live view reads `result= why=
+  // agent_id=` in this order (ADR-047).
   const record = (result, why) =>
     appendFileSync(
       traceFile,
