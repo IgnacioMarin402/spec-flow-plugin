@@ -1541,6 +1541,38 @@ await Promise.all([
     ),
   ),
 
+  // ADR-048: a heading the base already has was judged on its own branch, and
+  // renumbering it is a spec call. Failed here, it sent every gate of a run to
+  // an implementer whose milestone did not write it.
+  check('a malformed requirement heading the base branch already has is said, not failed', () =>
+    withBranch(
+      { 'specs/user.md': `${spec()}\n### REQ-USER-10 — legacy export\n\nThe system exports.\n` },
+      { 'README.md': 'unrelated\n' },
+      (r) => {
+        if (r.status !== 0) return `this branch was blocked over a heading it inherited: ${r.out}`;
+        return /not failed — the base branch already has it.*"### REQ-USER-10 — legacy export"/.test(r.out) ? null : `the inherited heading went unsaid: ${r.out}`;
+      },
+      { under: 'pkg' },
+    ),
+  ),
+
+  check('a malformed requirement heading this branch writes or rewrites fails, beside one it inherited', () => {
+    const legacy = `${spec()}\n### REQ-USER-10 — legacy export\n\nThe system exports.\n\n### REQ-USER-20 — legacy import\n\nThe system imports.\n`;
+    const renamed = legacy.replace('legacy import', 'legacy import, renamed');
+    return withBranch(
+      { 'specs/user.md': legacy },
+      { 'specs/user.md': renamed },
+      (r) => {
+        if (r.status === 0) return `headings this branch wrote passed: ${r.out}`;
+        const unnamed = ['"### REQ-USER-20 — legacy import, renamed"', '"#### REQ-USER-011 — sync"'].filter((h) => !r.out.includes(`${h} is no requirement`));
+        if (unnamed.length > 0) return `not reported: ${unnamed.join(', ')}. ${r.out}`;
+        const inherited = r.out.split('\n').filter((l) => l.includes('"### REQ-USER-10 — legacy export"'));
+        return inherited.length > 0 && inherited.every((l) => l.includes('not failed')) ? null : `the inherited heading was failed with them: ${r.out}`;
+      },
+      { uncommitted: { 'specs/user.md': `${renamed}\n#### REQ-USER-011 — sync\n\nThe system syncs.\n` } },
+    );
+  }),
+
   check('a requirement heading parses with an em dash, a hyphen or a colon', () =>
     withRepo(
       {

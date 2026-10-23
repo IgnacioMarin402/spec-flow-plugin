@@ -129,7 +129,8 @@ The system sends a single-use link, valid for one hour.
   `REQ-USER-PROFILE-`.
 - Exactly three digits. Ids are permanent — never renumbered or reused.
 - The scope marker is required. Requirements are `###` headings, id first; a
-  heading shaped like one and not read as one (`### REQ-USER-10`) fails.
+  heading shaped like one and not read as one (`### REQ-USER-10`) fails on the
+  branch that writes it. One the base branch already has is said, not failed.
 
 ### Declaring a delta
 

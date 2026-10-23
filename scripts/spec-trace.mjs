@@ -43,7 +43,7 @@ import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
-import { resolveBase, specsAtBase, branchWrites } from './changed-files.mjs';
+import { resolveBase, specsAtBase, branchWrites, fileAtBase } from './changed-files.mjs';
 import { RUN_PHASES, readPhase } from '../hooks/lib/io.mjs';
 import {
   REQ_HEADING,
@@ -189,17 +189,6 @@ for (const file of specFiles) {
     }
     requirements.set(id, { title: title.trim(), spec: rel });
   }
-}
-
-// A heading shaped like a requirement and not read as one binds no test, and
-// nothing else sees it: `### REQ-USER-10`, `#### REQ-USER-011` when no `###`
-// declares it. A sub-heading under a requirement, `#### REQ-USER-001 —
-// examples`, names one that is.
-for (const { rel, line, level, token } of shapedHeadings) {
-  if (isId(token) && (level === 3 || requirements.has(token))) continue;
-  problems.push(
-    `${rel}: "${line}" is no requirement the engine reads, so no test is bound to it. A requirement is a \`### REQ-<CAP>-0NN — <title>\` heading: three hashes, the id in capitals, three digits.`,
-  );
 }
 
 // ---- ask which tests actually ran ------------------------------------------
@@ -377,7 +366,7 @@ const scope = () => {
   if (scopeAnswer === undefined) {
     try {
       const ref = resolveBase(root, CONFIG);
-      scopeAnswer = { atBase: specsAtBase(root, ref), written: branchWrites(root, ref) };
+      scopeAnswer = { ref, atBase: specsAtBase(root, ref), written: branchWrites(root, ref) };
     } catch (err) {
       scopeAnswer = { err };
     }
@@ -408,6 +397,29 @@ const earlierRun = (spec) => {
   return liveSince.some((since) => since > writtenAt(spec));
 };
 const earlier = [];
+
+// ---- a heading shaped like a requirement is one ---------------------------
+//
+// One not read as one binds no test, and nothing else sees it: `### REQ-USER-10`,
+// `#### REQ-USER-011` when no `###` declares it. A sub-heading under a
+// requirement, `#### REQ-USER-001 — examples`, names one that is. One the base
+// already has is not this branch's (ADR-048): failed, it would turn every gate
+// of a run red, sent to an implementer whose milestone did not write it. With no
+// base, nothing tells whose it is, so it fails.
+const headingsAtBase = new Map();
+const baseHas = (rel, line) => {
+  if (!headingsAtBase.has(rel)) {
+    headingsAtBase.set(rel, new Set(withoutCode(fileAtBase(root, scope().ref, rel)).split('\n').map((l) => l.trim())));
+  }
+  return headingsAtBase.get(rel).has(line);
+};
+const inheritedHeadings = [];
+for (const { rel, line, level, token } of shapedHeadings) {
+  if (isId(token) && (level === 3 || requirements.has(token))) continue;
+  (!scope().err && baseHas(rel, line) ? inheritedHeadings : problems).push(
+    `${rel}: "${line}" is no requirement the engine reads, so no test is bound to it. A requirement is a \`### REQ-<CAP>-0NN — <title>\` heading: three hashes, the id in capitals, three digits.`,
+  );
+}
 
 // ---- the archive declares what became of each change -----------------------
 const archived = existsSync(ARCHIVE_DIR)
@@ -587,6 +599,9 @@ if (unscoped.length > 0) {
 
 for (const problem of earlier) {
   console.log(`spec-trace: held from the fold's gate on, not before — an earlier run of this branch: ${problem}`);
+}
+for (const problem of inheritedHeadings) {
+  console.log(`spec-trace: not failed — the base branch already has it, so it is not this branch's: ${problem}`);
 }
 
 // ---- report -------------------------------------------------------------

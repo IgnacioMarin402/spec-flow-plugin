@@ -63,6 +63,10 @@ same exit 0 held for a delta spelled any way the parser did not read: under
 - **Failing a milestone gate over an earlier change of the branch.** It routes
   a lint/trace failure to the current implementer, whose work order does not
   name the id.
+- **Failing a heading in `specs/` shaped like a requirement that the base
+  already has.** Renumbering it is a spec call, and every gate of a run would
+  send it to an implementer whose milestone did not write it. It is said; the
+  branch that rewrites the line answers for it.
 - **Telling the run's own change by `.claude/state/current-milestone`.** A hook
   writes it at a spawn and nothing clears it: a stale one, measured, exempted
   the run's own change at its fold and at `done`.
@@ -107,4 +111,5 @@ run's milestone gates instead; the flow commits a fold before `done`. An id an
 archive retired in another spelling, `REMOVED` in capitals, now counts as
 retired at every gate, where reuse was always checked; a note retires nothing.
 An update reaches a run in flight: a spelling refused since, a note naming an
-id its deltas do not read, or an earlier run's drift fails its fold.
+id its deltas do not read, or an earlier run's drift fails its fold; a
+malformed heading this branch wrote in `specs/` fails its next gate.

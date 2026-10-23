@@ -20,7 +20,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, realpathSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 function git(root, args, extra = {}) {
   return spawnSync('git', args, { cwd: root, encoding: 'utf8', ...extra });
@@ -225,6 +225,16 @@ export function specsAtBase(root, base) {
   const listed = git(root, ['ls-tree', '--full-tree', '-r', '-z', '--name-only', `${base}:./specflow`], { maxBuffer: 64 << 20 });
   if (listed.status !== 0) return new Set(); // no specflow/ at the base
   return new Set(listed.stdout.split('\0').filter((p) => p === 'spec.md' || p.endsWith('/spec.md')));
+}
+
+/**
+ * A file as `base` holds it, by its path from `root`; '' when the base has no
+ * such file.
+ */
+export function fileAtBase(root, base, rel) {
+  // `./` reads the path from `root`, which spec-trace does not require to be the repository's top.
+  const shown = git(root, ['show', `${base}:./${rel.split(sep).join('/')}`], { maxBuffer: 64 << 20 });
+  return shown.status === 0 ? shown.stdout : '';
 }
 
 /**
