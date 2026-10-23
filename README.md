@@ -105,8 +105,9 @@ nothing is published to npm, and `spec-flow` on npm is someone else's package
 /spec-flow users can reset their password by email
 ```
 
-1. The run refuses to start if the contract does not load or the base branch
-   does not resolve.
+1. The run refuses to start if the contract does not load, the base branch
+   does not resolve, or `.claude/spec-flow.config.json` holds a setting the
+   hooks cannot apply.
 2. The spec-writer asks you questions if the requirement is ambiguous.
 3. **You sign off** on the requirement deltas and the decision. A "no" is
    archived with its reason.

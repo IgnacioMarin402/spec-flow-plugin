@@ -11,15 +11,25 @@
  * engine reads what it shows: `token-trace` stays the record.
  *
  * Per-agent activity comes from the session's events, joined by `agentId`.
- * Phase, milestone and gate come from `.claude/state/`. It never reads a
- * transcript (ADR-036). The one cost in dollars it shows is the session's, as
- * Claude Code totals it: a share per role would be a guess (ADR-037).
+ * Phase, milestone, gate, budgets, send-backs and the checks that stood down
+ * come from `.claude/state/`, and the caps from the file `opus-budget` reads
+ * them from (ADR-047). It never reads a transcript (ADR-036). The one cost in
+ * dollars it shows is the session's, as Claude Code totals it: a share per
+ * role would be a guess (ADR-037).
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnStepInput, TurnStepResult } from 'claude-code'
 
-// The parser the agent gate and run-trace read a return with: one copy.
-import { parseReturn } from '../scripts/agent-blocks.mjs'
+// The parser the agent gate and run-trace read a return with, and the gate's cap: one copy.
+import { MAX_BLOCKS, parseReturn } from '../scripts/agent-blocks.mjs'
+// The caps opus-budget denies at: one copy.
+import { BUDGETS, budgetCap } from './lib/budgets.mjs'
+// Which log lines count, read here or by node past 4 MiB: one filter.
+import { LINES, linesOf } from './lib/log-lines.mjs'
+// The milestone an implementer's spawn names, read the way current-milestone is: one reading.
+import { milestoneRef } from './lib/milestone-ref.mjs'
+// The settings file, read the one way its hooks read it.
+import { projectConfig } from './lib/project-config.mjs'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
 
 const PANE = 'spec-flow-live'
@@ -33,12 +43,21 @@ const CARD = 38 // 34 columns of text, its padding and its border
 const ZERO: LiveTokens = { in: 0, cacheRead: 0, cacheWrite: 0, out: 0 }
 const ORCH0: LiveOrchestrator = { steps: 0, calls: 0, byTool: {}, advisor: 0, advisorMs: 0, lastTool: '', lastAt: 0, ctx: 0, model: '', effort: '', tokens: ZERO }
 const TURN0: LiveTurn = { steps: 0, tokens: ZERO, advisor: 0, advisorMs: 0 }
-const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null }
+const RUN0: LiveRun = { phase: '', milestone: '', gate: '', gateAt: 0, attempts: 0, usd: null, failed: [], budgets: [], stoodDown: [], sentBack: {}, unread: [] }
+
+// The checks whose own log says they stood down, each line stamped when it did.
+const STOOD_DOWN = [
+  { file: 'orchestrator-scope-unmatched.log', check: 'orchestrator-scope', what: 'stood down: no tool call attributed to an agent yet' },
+  { file: 'human-turn-unmatched.log', check: 'the case 3 check', what: 'stood down: no answer ever recorded' },
+]
 
 const agents = atom({ plugin: 'spec-flow', key: 'liveAgents' } as const, [])
 const orchestrator = atom({ plugin: 'spec-flow', key: 'liveOrchestrator' } as const, ORCH0)
 const turn = atom({ plugin: 'spec-flow', key: 'liveTurn' } as const, TURN0)
-const run = atom({ plugin: 'spec-flow', key: 'liveRun' } as const, RUN0)
+// A reload keeps `$.state`. A key of its own, because an untagged earlier
+// version reads `liveRun` and would draw a tagged run as its own; the tag, so a
+// later version that changes the run declines this one's.
+const run = atom({ plugin: 'spec-flow', key: 'liveRun2' } as const, RUN0, { shape: 'live-run-2' })
 const clock = atom({ plugin: 'spec-flow', key: 'liveClock' } as const, 0)
 
 // ---- what the engine wrote -------------------------------------------------
@@ -56,14 +75,91 @@ let root = ''
 let session = ''
 let phaseSeen = ''
 let phaseTracked = false
+// Each log is read again only when its stat moved; what it said, and whether it
+// was read, until then. Polls may overlap and share these: each records the
+// stat it read last, so an older read that lands late is read again, and drawn
+// right, at the next tick.
 let gateSeen = ''
 let gateLine = ''
+let gateUnread = false
+let stoodSeen = ''
+let stood: string[] = []
+let stoodUnread: string[] = []
+let traceSeen = ''
+let backs: LiveRun['sentBack'] = {}
+let traceUnread = false
+// This session's `closed` lines in run-trace.log, which run-trace writes when
+// this session writes `done`, as counted at the last turn's end; null until a
+// count has been read.
+let closedSeen: number | null = null
+
+/**
+ * The checks a failing gate line names with a non-zero code: the fields gate.mjs
+ * writes after `result=` and ahead of `files=` — `lint`, `test`, and each
+ * unscoped check's own, whatever the contract named it.
+ */
+function failedChecks(line: string): string[] {
+  const fields = line.split(' ')
+  const at = fields.findIndex(f => f.startsWith('result='))
+  if (!/^result=fail:(behaviour|lint\/trace)$/.test(fields[at] ?? '')) return []
+  const checks = fields.slice(at + 1)
+  if (checks.at(-1)?.startsWith('files=')) checks.pop()
+  return checks
+    .map(f => f.split('='))
+    .filter(([, v]) => v !== '0' && v !== '-')
+    .map(([key]) => key)
+}
+
+/** The agent gate's send-backs per agent, from its own `agent-check` lines (ADR-031). */
+function sendBacks(lines: string[], ids: Set<string>): LiveRun['sentBack'] {
+  const out: LiveRun['sentBack'] = {}
+  for (const line of lines) {
+    const [, result, why, id] = / agent-check agent=\S+ result=(block|cap) why=(\S+) agent_id=([\w-]+)$/.exec(line) ?? []
+    if (!id || !ids.has(id)) continue
+    const was = out[id] ?? { n: 0, why: '', cap: false }
+    out[id] = { n: was.n + (result === 'block' ? 1 : 0), why, cap: was.cap || result === 'cap' }
+  }
+  return out
+}
+
+async function statKey($: EngineInterface, path: string): Promise<string> {
+  try {
+    const st = await $.fs.stat(path)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * A log's lines that count (lib/log-lines.mjs): none when there is no log, and
+ * null when it is there and could not be read. Past what one read takes, node
+ * streams it.
+ */
+async function logLines($: EngineInterface, file: string, needle: string, since: number): Promise<{ n: number; last: string[] } | null> {
+  const path = `${root}/.claude/state/${file}`
+  try {
+    return linesOf(await $.fs.read(path), needle, since)
+  } catch {
+    /* over what one read takes, or not there */
+  }
+  if ((await statKey($, path)) === '') return { n: 0, last: [] }
+  try {
+    const out = await $.process.run(['node', '-e', LINES, '--', path, String(since), needle], { cwd: root, timeoutMs: 5_000 })
+    const [head = '', ...last] = out.stdout.split('\n')
+    return out.exitCode === 0 && !out.isStdoutTruncated && /^\d+$/.test(head) ? { n: Number(head), last: last.filter(Boolean) } : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * This session's run, as `readOwnedPhase` reads it (ADR-017): a phase another
  * session owns, or one git tracks, is not a run here and shows as none. The
  * milestone and the gate are this run's only: the milestone an implementer
  * this session spawned wrote, and the gate lines after the run's telemetry mark.
+ *
+ * A log it cannot read is said, never drawn as nothing in it (ADR-047).
  */
 async function poll($: EngineInterface): Promise<void> {
   const before = await read($, run)
@@ -71,38 +167,44 @@ async function poll($: EngineInterface): Promise<void> {
   if (!raw && !before.phase) return // a repository that never ran the engine: nothing more to read
 
   if (raw !== phaseSeen) {
-    phaseSeen = raw
-    phaseTracked = false
+    let tracked = false
     if (ARMED.includes(raw)) {
       try {
-        const git = await $.process.run(['git', 'ls-files', '--error-unmatch', '--', '.claude/state/phase'], { cwd: root })
-        phaseTracked = git.exitCode === 0
+        const git = await $.process.run(['git', 'ls-files', '--error-unmatch', '--', '.claude/state/phase'], { cwd: root, timeoutMs: 5_000 })
+        tracked = git.exitCode === 0
       } catch {
         /* no git to ask: the engine's own read counts the phase too */
       }
     }
+    phaseTracked = tracked
+    phaseSeen = raw
   }
   const owner = ARMED.includes(raw) ? await stateText($, root, 'phase.session') : ''
   const phase = phaseTracked || (owner && session && owner !== session) ? '' : raw
+  if (closedSeen === null) closedSeen = await closedCount($)
 
+  // Ours when this session spawned its implementer: by id, or, where the spawn's
+  // response named none, an implementer this session put on that change's milestone.
   const [slug = '', mk = '', implementer = ''] = (await stateText($, root, 'current-milestone')).split(/\s+/)
-  const ours = (await read($, agents)).some(a => a.agentId === implementer)
+  const ours = (await read($, agents)).some(a =>
+    // A card whose spawn named no change matches by milestone alone.
+    implementer ? a.agentId === implementer : a.role === 'implementer' && a.milestone === mk && (!a.change || a.change === slug),
+  )
 
+  // The gate line after the run's mark, which counts the lines already there,
+  // stamped or not: `-Infinity` counts them so.
   let mark = 0
   try {
     mark = Number(JSON.parse(await stateText($, root, 'run-offset'))['gate-history.log']) || 0
   } catch {
     /* no mark: every line counts, as the snapshot reads it */
   }
-  try {
-    const st = await $.fs.stat(`${root}/.claude/state/gate-history.log`)
-    const seen = `${st.size}:${st.mtimeMs}:${mark}`
-    if (seen !== gateSeen) {
-      gateSeen = seen
-      gateLine = (await stateText($, root, 'gate-history.log')).split('\n').slice(mark).filter(Boolean).at(-1) ?? ''
-    }
-  } catch {
-    gateLine = ''
+  const gateKey = `${await statKey($, `${root}/.claude/state/gate-history.log`)}:${mark}`
+  if (phase && gateKey !== gateSeen) {
+    const got = await logLines($, 'gate-history.log', '', -Infinity)
+    gateLine = got && got.n > mark ? (got.last.at(-1) ?? '') : ''
+    gateUnread = got === null
+    gateSeen = gateKey
   }
   const result = /\bresult=(\S+)/.exec(gateLine)?.[1] ?? ''
   let usd: number | null = null
@@ -111,6 +213,54 @@ async function poll($: EngineInterface): Promise<void> {
   } catch {
     /* no ledger to read: shown as none */
   }
+
+  // The run starts where its telemetry mark was set; no mark, every line counts, as above.
+  const offsetKey = await statKey($, `${root}/.claude/state/run-offset`)
+  const stoodKey = [offsetKey, ...(await Promise.all(STOOD_DOWN.map(d => statKey($, `${root}/.claude/state/${d.file}`))))].join('|')
+  if (phase && stoodKey !== stoodSeen) {
+    const startedAt = Number(offsetKey.split(':')[1]) || 0
+    const lines: string[] = []
+    const unread: string[] = []
+    for (const d of STOOD_DOWN) {
+      const got = await logLines($, d.file, '', startedAt)
+      if (got === null) unread.push(`${d.file} could not be read: whether ${d.check} stood down is not shown`)
+      else if (got.n > 0) lines.push(`${d.check} ${d.what} (${got.n}×)`)
+    }
+    stood = lines
+    stoodUnread = unread
+    stoodSeen = stoodKey
+  }
+
+  const ids = (await read($, agents)).map(a => a.agentId)
+  const traceKey = `${await statKey($, `${root}/.claude/state/run-trace.log`)}|${ids.join(',')}`
+  if (phase && traceKey !== traceSeen) {
+    const got = await logLines($, 'run-trace.log', ' agent-check ', 0)
+    backs = got ? sendBacks(got.last, new Set(ids)) : {}
+    traceUnread = got === null
+    traceSeen = traceKey
+  }
+
+  // While a run can still spend them: at `done` or `idle` no spawn is charged.
+  let budgets: LiveRun['budgets'] = []
+  let settings = ''
+  if (ARMED.includes(phase)) {
+    const path = `${root}/.claude/spec-flow.config.json`
+    let config = ''
+    let unreadable = false
+    try {
+      config = await $.fs.read(path)
+    } catch {
+      // None: each cap is its default, as opus-budget reads it. There and not read: the same, said.
+      unreadable = (await statKey($, path)) !== ''
+    }
+    budgets = await Promise.all(
+      Object.entries(BUDGETS).map(async ([role, b]) => ({ role, used: Number(await stateText($, root, b.counter)) || 0, cap: budgetCap(config, role) })),
+    )
+    // Mid-run its hooks fall back to the defaults over it, and say nothing.
+    const { problem } = projectConfig(config)
+    if (problem || unreadable) settings = `.claude/spec-flow.config.json ${problem || 'could not be read'}: the caps shown are the defaults`
+  }
+
   const after: LiveRun = {
     phase,
     milestone: phase && ours && mk ? `${mk} · ${slug}` : '',
@@ -118,6 +268,18 @@ async function poll($: EngineInterface): Promise<void> {
     gateAt: Date.parse(gateLine.split(' ')[0] ?? '') || 0,
     attempts: phase ? Number(await stateText($, root, 'gate_attempts')) || 0 : 0,
     usd,
+    failed: phase ? failedChecks(gateLine) : [],
+    budgets,
+    stoodDown: phase ? stood : [],
+    sentBack: phase ? backs : {},
+    unread: phase
+      ? [
+          ...(gateUnread ? ['gate-history.log could not be read: the last gate is not shown'] : []),
+          ...stoodUnread,
+          ...(traceUnread ? ["run-trace.log could not be read: the agent gate's send-backs are not shown"] : []),
+          ...(settings ? [settings] : []),
+        ]
+      : [],
   }
   if (JSON.stringify(after) !== JSON.stringify(before)) await update($, run, () => after)
 }
@@ -234,17 +396,29 @@ async function noteStep($: EngineInterface, e: TurnStepInput, res: TurnStepResul
   await update($, orchestrator, m => ({ ...m, ctx: u ? sent(u) : m.ctx, model: u?.model ?? m.model, effort: effort || m.effort, lastAt: at }))
 }
 
+/** This session's `closed` lines in run-trace.log; null when it cannot be read, or whose they are cannot be told. */
+async function closedCount($: EngineInterface): Promise<number | null> {
+  if (!session) return null
+  return (await logLines($, 'run-trace.log', ` session=${session} closed tool=`, 0))?.n ?? null
+}
+
 /**
  * The orchestrator is charged per turn, as `token-trace` charges it at Stop: a
  * turn that ends inside this session's run counts whole, the turn that starts
- * the run included, and so does the one that writes `done` (ADR-043). One that
- * ends outside a run counts nothing.
+ * the run included, and so does the one that writes `done` (ADR-043) — told, as
+ * token-trace tells it, by a `closed` line of this session's written during the
+ * turn, so neither a tick that saw `done` first nor another session's close
+ * moves it. With no count to compare, a run the turn began in is the sign. One
+ * that ends outside a run counts nothing.
  */
 async function closeTurn($: EngineInterface) {
   const before = (await read($, run)).phase
   await poll($)
   const open = await read($, turn)
-  const closing = (await read($, run)).phase === 'done' && ARMED.includes(before)
+  const closed = await closedCount($)
+  const closing =
+    (await read($, run)).phase === 'done' && (closed !== null && closedSeen !== null ? closed > closedSeen : ARMED.includes(before))
+  if (closed !== null) closedSeen = closed
   if (open.steps > 0 && ((await armed($)) || closing)) {
     await update($, orchestrator, m => ({
       ...m,
@@ -292,11 +466,14 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     root = e.cwd
+    gateSeen = traceSeen = stoodSeen = ''
     try {
       session = await $.session.id()
     } catch {
       /* unknown: the phase owner then cannot be compared, as in readOwnedPhase */
     }
+    // Counted from here: a session's first turn may write `done` before any poll.
+    closedSeen = await closedCount($).catch(() => null)
     $.clock.every(2000, () => poll($).catch(() => undefined))
     // A running agent's clock ticks once a second; nothing redraws while none runs.
     let shown: string | undefined
@@ -330,12 +507,14 @@ export const register: Register = (on, options) => {
     try {
       const at = await $.clock.now()
       const role = e.subagentType.slice(PREFIX.length)
+      // Only an implementer works ON a milestone; the others merely name one.
+      const { change, milestone } = (role === 'implementer' && milestoneRef(e.prompt)) || { change: '', milestone: '' }
       const agent: LiveAgent = {
         agentId: spawned.agentId,
         role,
         parentId: e.parentAgentId ?? '',
-        // Only an implementer works ON a milestone; the others merely name one.
-        milestone: role === 'implementer' ? (/milestones[\\/](M\d+)\.md/.exec(e.prompt)?.[1] ?? '') : '',
+        change,
+        milestone,
         model: spawned.model,
         effort: '',
         startedAt: at,
@@ -454,6 +633,23 @@ export const register: Register = (on, options) => {
           <Text dimColor>{`${r.gateAt ? ` · ${dur(at - r.gateAt)} ago` : ''} · failures in a row ${r.attempts}`}</Text>
         </Text>
       )
+    // Named by the checks the gate line records; their output stays in gate-failure.log.
+    const failed = r.failed.length > 0 && <Text color="error" wrap="wrap">{`  failed: ${r.failed.join(' · ')}`}</Text>
+
+    // A cap that is not a number of calls is one opus-budget denies every call at.
+    // Wrapped, never cut: what is cut off here is what says why.
+    const budget = r.budgets.length > 0 && (
+      <Text wrap="wrap">
+        <Text dimColor>budget:</Text>
+        {r.budgets.map(b =>
+          Number.isFinite(b.cap) ? (
+            <Text color={b.used >= b.cap ? 'error' : b.used === b.cap - 1 ? 'warning' : undefined}>{` ${b.role} ${b.used}/${b.cap}`}</Text>
+          ) : (
+            <Text color="error">{` ${b.role} ${b.used}, cap unreadable: every call denied`}</Text>
+          ),
+        )}
+      </Text>
+    )
 
     const orchestratorBox = (
       <Box flexDirection="column" borderStyle="round" borderColor="suggestion" paddingX={1} width={Math.min(cols, CARD * 2 + 3)}>
@@ -473,6 +669,16 @@ export const register: Register = (on, options) => {
         <Text wrap="truncate-end">{split(m.tokens)}</Text>
       </Box>
     )
+
+    const sentBack = (a: LiveAgent) => {
+      const b = r.sentBack[a.agentId]
+      if (!b) return null
+      return (
+        <Text color={b.cap ? 'error' : 'warning'} wrap="wrap">
+          {b.cap ? `sent back ${b.n}/${MAX_BLOCKS}, then let through · ${b.why}` : `sent back ${b.n}/${MAX_BLOCKS} · ${b.why}`}
+        </Text>
+      )
+    }
 
     // A running agent is drawn whole and lit; a finished one keeps its box, dimmed and shorter.
     const card = (a: LiveAgent) => {
@@ -494,6 +700,7 @@ export const register: Register = (on, options) => {
         return (
           <Box key={`agent-${a.agentId}`} flexDirection="column" borderStyle="round" borderColor={color} borderDimColor paddingX={1} width={CARD}>
             {title}
+            {sentBack(a)}
             <Text dimColor wrap="truncate-end">{`${pace} · ${shortModel(a.model)}`}</Text>
             <Text dimColor wrap="truncate-end">{counted(a)}</Text>
             {advised(a) !== '' && <Text dimColor wrap="truncate-end">{advised(a)}</Text>}
@@ -504,6 +711,7 @@ export const register: Register = (on, options) => {
       return (
         <Box key={`agent-${a.agentId}`} flexDirection="column" borderStyle="bold" borderColor={color} paddingX={1} width={CARD}>
           {title}
+          {sentBack(a)}
           <Text dimColor wrap="truncate-end">
             {`${shortModel(a.model)}${a.effort ? ` · ${a.effort}` : ''}${a.resumes ? ` · resumed ${a.resumes}` : ''}`}
           </Text>
@@ -536,6 +744,14 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         {bar}
         {gate}
+        {failed}
+        {budget}
+        {r.stoodDown.map(line => (
+          <Text color="warning" wrap="wrap">{`⚠ ${line}`}</Text>
+        ))}
+        {r.unread.map(line => (
+          <Text dimColor wrap="wrap">{line}</Text>
+        ))}
         {orchestratorBox}
         {list.length === 0 ? (
           <Text dimColor>No spec-flow agent has been spawned in this session yet.</Text>

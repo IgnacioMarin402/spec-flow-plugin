@@ -30,10 +30,10 @@
  * not in `.spec-flow/config.json`: they are run-scoped numbers, not an
  * architectural fact about the repo. Counted only while a run is in progress,
  * so a one-off question to the architect outside the flow is never charged.
- * `max_opus_calls` keeps its name for one reason: nothing validates that
- * file, so a rename would read a repo's configured cap as absent and hand it
- * the default instead — a silent change to the one number a human set
- * deliberately.
+ * `max_opus_calls` keeps its name for one reason: nothing refuses a key that
+ * file does not know, so a rename would read a repo's configured cap as absent
+ * and hand it the default instead — a silent change to the one number a human
+ * set deliberately.
  *
  * Two inaccuracies are accepted rather than fixed, because both err small
  * against the default budgets and neither can silently disarm them:
@@ -49,12 +49,7 @@ import { join } from 'node:path';
 import { projectDir, stateDir, readOwnedPhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
 import { nameishFields, matchAgent } from './lib/agent-name.mjs';
 import { coldResume } from './lib/agent-cache.mjs';
-
-/** Each escalation role's cap, its default and its counter (ADR-038). */
-const BUDGETS = {
-  planner: { key: 'max_opus_calls', fallback: 6, counter: 'opus_calls' },
-  architect: { key: 'max_architect_calls', fallback: 3, counter: 'architect_calls' },
-};
+import { BUDGETS, budgetCap } from './lib/budgets.mjs';
 
 function readRegistry(path) {
   const reg = {};
@@ -136,12 +131,13 @@ await run(async () => {
 
   const budget = BUDGETS[agent];
   const countFile = join(state, budget.counter);
-  let max = budget.fallback;
-  try {
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    max = Number(config[budget.key] ?? budget.fallback);
-  } catch {
-    /* missing or malformed config -> the default */
+  const max = budgetCap(readFileOrDefault(configPath, ''), agent);
+  if (Number.isNaN(max)) {
+    process.stderr.write(
+      `[spec-flow] ${budget.key} in .claude/spec-flow.config.json is not a number of calls, so no count of ${agent} calls can be held to it. ` +
+        `Do not spawn or message the ${agent}. Tell the human: they set ${budget.key} to a whole number (${budget.fallback} by default) or remove it.\n`,
+    );
+    process.exit(2); // PreToolUse denial protocol
   }
 
   const used = Number(readFileOrDefault(countFile, '0')) || 0;

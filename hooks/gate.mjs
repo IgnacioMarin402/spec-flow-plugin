@@ -206,6 +206,10 @@ await run(
       // have (ADR-016), and the SHA is that axis; the version number is a
       // second one that moved once and would keep reading `0.1.0` over every
       // change this file will ever see.
+      //
+      // The live view names a failure's checks as the fields between
+      // `result=` and `files=`: a field that is not a check goes elsewhere
+      // (ADR-047).
       `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ${shortSha(root)} cc=${cc} engine=${engineRevision(ENGINE_ROOT)} phase=${phase} attempt=${attemptsNow()} result=${result} lint=${lintRc} test=${testRc} ${unscopedFields} files=${filesField}`;
 
     /**
