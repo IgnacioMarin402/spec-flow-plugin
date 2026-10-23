@@ -34,8 +34,9 @@ const PANE = 'spec-flow-live'
 const PREFIX = 'spec-flow:'
 // The phase vocabulary `hooks/lib/io.mjs` arms on.
 const ARMED = ['spec', 'plan', 'review', 'implement', 'blocked']
-// `specflow/<change>/milestones/<Mk>.md`, as an implementer's spawn names its work order.
-const MILESTONE = /specflow[\\/]([^\\/\s"'`]+)[\\/]milestones[\\/](M\d+)\.md/
+// `specflow/<change>/milestones/<Mk>.md`, as an implementer's spawn names its
+// work order; a cold restart may name `milestones/<Mk>.md` alone.
+const MILESTONE = /(?:specflow[\\/]([^\\/\s"'`]+)[\\/])?milestones[\\/](M\d+)\.md/
 const BAR = ['spec', 'plan', 'review', 'implement', 'done']
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const CARD = 38 // 34 columns of text, its padding and its border
@@ -187,7 +188,8 @@ async function poll($: EngineInterface): Promise<void> {
   // response named none, an implementer this session put on that change's milestone.
   const [slug = '', mk = '', implementer = ''] = (await stateText($, root, 'current-milestone')).split(/\s+/)
   const ours = (await read($, agents)).some(a =>
-    implementer ? a.agentId === implementer : a.role === 'implementer' && a.milestone === mk && a.change === slug,
+    // A card whose spawn named no change matches by milestone alone.
+    implementer ? a.agentId === implementer : a.role === 'implementer' && a.milestone === mk && (!a.change || a.change === slug),
   )
 
   // The gate line after the run's mark, which counts the lines already there,
@@ -471,6 +473,8 @@ export const register: Register = (on, options) => {
     } catch {
       /* unknown: the phase owner then cannot be compared, as in readOwnedPhase */
     }
+    // Counted from here: a session's first turn may write `done` before any poll.
+    closedSeen = await closedCount($).catch(() => null)
     $.clock.every(2000, () => poll($).catch(() => undefined))
     // A running agent's clock ticks once a second; nothing redraws while none runs.
     let shown: string | undefined

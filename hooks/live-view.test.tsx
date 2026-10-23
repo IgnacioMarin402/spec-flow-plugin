@@ -65,6 +65,7 @@ function world(
     truncated = false,
     hold,
     gitHangs = false,
+    sessionId = () => ME,
   }: {
     tracked?: boolean
     usd?: number
@@ -75,6 +76,7 @@ function world(
     truncated?: boolean
     hold?: (file: string) => Promise<void>
     gitHangs?: boolean
+    sessionId?: () => string
   } = {},
 ) {
   on('fs.read', async (_, e) => {
@@ -100,7 +102,7 @@ function world(
     const { n, last } = linesOf(files[stateFile(path)] ?? '', needle, Number(since))
     return { value: { exitCode: 0, stdout: [n, ...last].join('\n'), stderr: '', isStdoutTruncated: truncated, isStderrTruncated: false } }
   })
-  on('session.id', () => ({ value: ME }))
+  on('session.id', () => ({ value: sessionId() }))
   on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...(usd === undefined ? {} : { cost: { usd } }) } as never }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('agent.spawn', (_, e) => ({ model: MODEL, agentId: `a-${e.subagentType.replace(/^spec-flow:/, '')}` }))
@@ -775,6 +777,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /M2 · this-change/ }), 'the one this session put on it').toBeDefined()
   })
 
+  test(`${surface}: a work order named without its change still labels the card`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    world(on, { phase: 'implement', 'phase.session': ME })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.agent.spawn(spawn('spec-flow:implementer', 'resume, with plan.md and milestones/M2.md'))
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /· M2/ })).toBeDefined()
+  })
+
   test(`${surface}: another change's milestone of the same number is not this run's`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     world(on, { phase: 'implement', 'phase.session': ME, 'current-milestone': 'change-b M1' })
@@ -798,6 +810,49 @@ for (const surface of ['terminal', 'desktop'] as const) {
     files['run-trace.log'] = closedBy(ME)
     await clock.advance(2_000)
     await step($)
+    await $.turn.complete(mainTurnEnds)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'copy' })
+    expect(copied.at(-1)?.split('\n').at(-1)).toMatch(/ msgs=2$/)
+  })
+
+  test(`${surface}: a session whose first turn writes done before any poll is charged for it`, async ($, on) => {
+    mock.clock(on, { now: 1_000_000 })
+    const files: Record<string, string> = { phase: 'implement', 'phase.session': ME }
+    world(on, files)
+    const copied = clipboard(on)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    await step($)
+    files.phase = 'done'
+    files['run-trace.log'] = closedBy(ME)
+    await $.turn.complete(mainTurnEnds)
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'copy' })
+    expect(copied.at(-1)?.split('\n').at(-1)).toMatch(/ msgs=1$/)
+  })
+
+  // After /clear the next session counts its own closes from its start.
+  test(`${surface}: a new session's first close is charged after an earlier session closed a run`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    let id = ME
+    const files: Record<string, string> = { phase: 'implement', 'phase.session': ME }
+    world(on, files, { sessionId: () => id })
+    const copied = clipboard(on)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock.advance(2_000)
+    await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
+    await step($)
+    files.phase = 'done'
+    files['run-trace.log'] = closedBy(ME)
+    await $.turn.complete(mainTurnEnds)
+
+    id = 'session-next'
+    Object.assign(files, { phase: 'implement', 'phase.session': id })
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await step($)
+    files.phase = 'done'
+    files['run-trace.log'] += closedBy(id)
     await $.turn.complete(mainTurnEnds)
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'copy' })
