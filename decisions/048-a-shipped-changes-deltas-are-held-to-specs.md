@@ -32,12 +32,14 @@ same exit 0 held for a delta spelled any way the parser did not read: under
   change's folder — a fold onto a name the archive had — and two folders a case
   apart, one folder on macOS and Windows, are reported, scoped as above.
 - A delta is one line of `## Requirement deltas`: `- VERB REQ-id`, its verb
-  `ADDED`, `CHANGED` or `REMOVED` in capitals, one id, then its text; code and
-  HTML comments are not read. Every other line of the section names only ids a
-  delta line reads; a delta's own text, and a `none` line's, may name any id,
-  but not after a verb in capitals. A line naming another id, a second id or
-  number before a delta's text, deltas under another heading or outside the
-  section, and a section with neither a delta nor a `none` line are refused at
+  `ADDED`, `CHANGED` or `REMOVED` in capitals, one id, then its text; code, and
+  an HTML comment that starts a line, are not read. Every other line of the
+  section names only ids a delta line reads; a delta's own text, and a `none`
+  line's, may name any id, but not after a verb in capitals. A line naming
+  another id, an id spelled another way, a line a delta verb leads in capitals
+  that is no delta, a second id or number before a delta's text, deltas under
+  another heading or outside the section, and a section with neither a delta
+  nor a `none` line are refused at
   spec time — leaving `spec`, the spec-writer's return, resume's sign-off — and
   in a SHIPPED change of this branch that names an id. Outside the section only
   OpenSpec's `## ADDED Requirements`, or a delta verb in capitals leading a
@@ -81,7 +83,9 @@ same exit 0 held for a delta spelled any way the parser did not read: under
 - **Telling a delta from a note by its verbs.** Each pass over such a grammar
   found a spelling read as neither — a table cell in title case, a `·` bullet —
   or a correct line refused — `DELETE /users/:id` beside an id, `### Update`.
-  An id is what a check binds, so an id no delta reads is what is refused.
+  An id is what a check binds, so an id no delta reads is what is refused. A
+  delta verb in capitals leading a line is no guess, and is kept: it alone
+  sees `- ADDED REQ-USER-10`, whose id no reader parses.
 - **Reading `REQ-X-002-004` as a range.** It is also an id of a capability
   named `X-002`.
 - **Refusing any line outside the section that leads with a verb in capitals.**

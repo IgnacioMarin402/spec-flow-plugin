@@ -207,20 +207,31 @@ export function* deltas(body) {
 }
 
 // How a writer says the section has no delta: `- none — <why>`, `None.`,
-// `- n/a`, `- No requirement changes`, `1. nothing to declare`.
-const NONE = /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+•·◦▪–—]|\d+[.)])[ \t]+)?[*_`]*[ \t]*(?:none|n\/a|nothing|no[ \t]+(?:requirements?[ \t]+)?(?:changes?|deltas?))(?![\w-])/i;
+// `- n/a`, `- No requirement changes`, `- No spec change: …`, `Unchanged — …`.
+const NONE =
+  /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+•·◦▪–—]|\d+[.)])[ \t]+)?[*_`]*[ \t]*(?:none|n\/a|nothing|unchanged|not[ \t]+applicable|no[ \t]+(?:(?:new|spec)[ \t]+)?(?:requirements?|spec|changes?|deltas?)(?:[ \t]+(?:changes?|deltas?))?)(?![\w-])/i;
+
+// A line a delta's verb leads, in capitals, is written as one whatever follows:
+// `- ADDED: the export`, `- ADDED REQ-USER-10 — …`. A heading grouping deltas,
+// `### ADDED`, is not one.
+const VERB_LED = new RegExp(`^[ \\t]*(?:>[ \\t]*)*(?:(?:[-*+•·◦▪–—]|\\d+[.)]|[a-z][.)]|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_\`]*(?:${VERB})(?![\\w-])`);
+// Shaped like an id and not one: `REQ-USER-10`, `REQ-USER-0002`, `REQ_USER_002`, `req-user-002`.
+const ID_SHAPED = /(?<![\w-])req[-_][a-z0-9]+(?:[-_][a-z0-9]+)*/gi;
+const WHOLE_ID = new RegExp(`^${ID}$`);
+const malformedIn = (line) => [...new Set(line.match(ID_SHAPED) ?? [])].filter((token) => !WHOLE_ID.test(token));
 
 // In a delta's text, a verb in capitals before an id starts another delta:
 // `- ADDED REQ-A-001 — export; ADDED REQ-A-002 — import`.
 const VERBED = new RegExp(`(?<![\\w-])(?:${VERB}|MODIFIED|RENAMED|DELETED|UPDATED|REPLACED|DEPRECATED)[ \\t:*_\`|[\\]()]*(${ID})`, 'g');
 
-// A delta's text starts at an em dash after a space, a colon or a parenthesis.
-// Before it, another id, or a number going on from the first to where the text
-// starts, is a second id: `REQ-A-001, REQ-A-002`, `REQ-A-001 thru REQ-A-003`,
+// A delta's text starts at an em dash after a space, a colon, a parenthesis,
+// or a hyphen or en dash before a word. Before it, another id, or a number
+// going on from the first to where the text starts, is a second id:
+// `REQ-A-001, REQ-A-002`, `REQ-A-001 thru REQ-A-003`, `REQ-A-001 - REQ-A-002`,
 // `REQ-A-001–003 —`, `REQ-A-001, 002 —`. A number the text goes on from is the
 // text's: `REQ-A-001 - 404 or 410 for a deleted user`.
 const KIND = /^[ \t]*\([a-z]+\)/;
-const TEXT_STARTS = /[ \t]—|:|\(/;
+const TEXT_STARTS = /[ \t]—|:|\(|[ \t][–-][ \t]+(?!REQ-|\d{3}(?!\d))/;
 const JOINER = '(?:[ \\t]*(?:[,/&+;~–]|\\.\\.|-(?=[ \\t])|(?:and|or|to|through|thru)(?![\\w-]))[ \\t]*|—)';
 const NUMBERS = new RegExp(`^(?:${JOINER}\\d{3}(?!\\d))+[ \\t]*(?:$|—|:|\\()`, 'i');
 const BETWEEN = new RegExp(`^(?:[ \\t]*\\([a-z]+\\))?(?:${JOINER}|[ \\t]+)$`, 'i');
@@ -244,10 +255,12 @@ function idsBeforeText(line) {
 }
 
 /**
- * Lines of the deltas section that name an id no delta line reads, and delta
- * lines that name a second id before their text. Every check that binds a
- * delta reads `deltas`, so such an id is checked by none of them. A delta's own
- * text, and `- none`'s, may name any id, except after a verb in capitals.
+ * Lines of the deltas section no check binds whole: a delta line naming a
+ * second id before its text, a token shaped like an id that is not one, an id
+ * no delta line reads, and a line a delta's verb leads that is no delta. Every
+ * check that binds a delta reads `deltas`, so none of them sees such a line.
+ * A delta's own text, and `- none`'s, may name any id, except after a verb in
+ * capitals.
  */
 export function* unreadDeltas(body) {
   const lines = [...sectionLines(body)];
@@ -257,21 +270,33 @@ export function* unreadDeltas(body) {
       yield { line: d.line, why: 'two-ids' };
       continue;
     }
+    const malformed = malformedIn(d.line);
+    if (malformed.length > 0) {
+      yield { line: d.line, why: 'malformed', ids: malformed };
+      continue;
+    }
     const text = d.verb ? d.rest : NONE.test(d.line) ? d.line : null;
     const named = text === null ? (d.line.match(IDS) ?? []) : [...text.matchAll(VERBED)].map((m) => m[1]);
     const ids = [...new Set(named)].filter((id) => !read.has(id));
     if (ids.length > 0) yield { line: d.line, why: 'unread', ids };
+    else if (!d.verb && VERB_LED.test(d.line)) yield { line: d.line, why: 'no-id' };
   }
 }
 
+const DELTA_SHAPE = 'A delta is one line, `- ADDED REQ-<CAP>-0NN — <text>`: a dash at the start, ADDED, CHANGED or REMOVED in capitals, then one id.';
+
 /** Why one line `unreadDeltas` found is refused, in the failure's own voice. */
 export function explainUnread({ line, why, ids = [] }) {
+  const quoted = `"${line.trim()}"`;
   if (why === 'two-ids') {
-    return `"${line.trim()}" names more than one id before its text, and the engine reads the first alone. One delta per line, so each id is checked.`;
+    return `${quoted} names more than one id before its text, and the engine reads the first alone. One delta per line, so each id is checked.`;
   }
+  if (why === 'malformed') {
+    return `${quoted} names ${ids.join(', ')}, which no check reads as an id: an id is REQ-, its capability in capitals, then three digits, \`REQ-<CAP>-0NN\`. Write it so. ${DELTA_SHAPE}`;
+  }
+  if (why === 'no-id') return `${quoted} is written as a delta and names no id, so no check binds it. ${DELTA_SHAPE}`;
   return (
-    `"${line.trim()}" names ${ids.join(', ')}, which no delta line of this section reads, so no check binds ${ids.length > 1 ? 'them' : 'it'}. ` +
-    'A delta is one line, `- ADDED REQ-<CAP>-0NN — <text>`: a dash at the start, ADDED, CHANGED or REMOVED in capitals, then one id. ' +
+    `${quoted} names ${ids.join(', ')}, which no delta line of this section reads, so no check binds ${ids.length > 1 ? 'them' : 'it'}. ${DELTA_SHAPE} ` +
     "Every other line of the section names only ids its deltas read; a delta's own text may name any. Write each delta so, or move the rest out of the section."
   );
 }
@@ -309,7 +334,7 @@ export function deltasSectionProblem(body, { needed }) {
     return `declares a delta outside \`## Requirement deltas\` ("${stray.trim()}"), where no check reads it. Write each delta in that section, one line each: \`- ADDED REQ-<CAP>-0NN — <text>\`.`;
   }
   if (needed && !heading) return 'has no `## Requirement deltas` section. Write its deltas there, or `- none — <why>` when it has none.';
-  if (needed && ![...sectionLines(body)].some((d) => d.verb || NONE.test(d.line) || AN_ID.test(d.line))) {
+  if (needed && ![...sectionLines(body)].some((d) => d.verb || NONE.test(d.line) || AN_ID.test(d.line) || VERB_LED.test(d.line) || malformedIn(d.line).length > 0)) {
     return 'says nothing the engine reads under `## Requirement deltas`. Write each delta there, one line each, or `- none — <why>` when it has none.';
   }
   return '';

@@ -128,7 +128,8 @@ The system sends a single-use link, valid for one hour.
 - The id prefix comes from the filename: `specs/user-profile.md` declares
   `REQ-USER-PROFILE-`.
 - Exactly three digits. Ids are permanent — never renumbered or reused.
-- The scope marker is required. Requirements are `###` headings, id first.
+- The scope marker is required. Requirements are `###` headings, id first; a
+  heading shaped like one and not read as one (`### REQ-USER-10`) fails.
 
 ### Declaring a delta
 
@@ -143,13 +144,16 @@ fails ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)).
 A delta is one line under `## Requirement deltas`, `- VERB REQ-<CAP>-0NN —
 <text>`: `ADDED`, `CHANGED` or `REMOVED` in capitals, and one id. Every other
 line of the section names only ids a delta line reads; a delta's own text, and
-`- none`'s, may name any id, but not after a verb in capitals. A line naming
+`- none`'s, may name any id, but not after a verb in capitals; the text starts
+at ` — `, a colon, a parenthesis, or a dash before a word. A line naming
 another id — a table row, a heading, a note, a delta spelled another way — a
-second id or number before a delta's text, deltas under another heading, and a
-section with neither a delta nor a `none` line are refused when the spec leaves
-`spec`, and in a SHIPPED change of this branch that names an id; never at a
-milestone gate. Code and HTML comments are not read. A claim that appears,
-disappears or changes is `REMOVED` + `ADDED` on a new id.
+second id or number before a delta's text, an id spelled another way
+(`REQ-USER-10`), a line led by `ADDED`, `CHANGED` or `REMOVED` that is no
+delta, deltas under another heading, and a section with neither a delta nor a
+`none` line are refused when the spec leaves `spec`, and in a SHIPPED change of
+this branch that names an id; never at a milestone gate. Code, and an HTML
+comment that starts a line, are not read. A claim that appears, disappears or
+changes is `REMOVED` + `ADDED` on a new id.
 `CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 

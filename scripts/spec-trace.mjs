@@ -165,7 +165,16 @@ for (const file of specFiles) {
   const prefix = expectedPrefix(file);
   for (const line of text.split('\n')) {
     const match = REQ_HEADING.exec(line.trim());
-    if (!match) continue;
+    if (!match) {
+      // A heading shaped like a requirement and not read as one binds no test,
+      // and nothing else sees it: `### REQ-USER-10`, `#### REQ-USER-010`.
+      if (/^#{1,6}\s+req[-_]/i.test(line.trim())) {
+        problems.push(
+          `${rel}: "${line.trim()}" is no requirement the engine reads, so no test is bound to it. A requirement is a \`### REQ-<CAP>-0NN — <title>\` heading: three hashes, the id in capitals, three digits.`,
+        );
+      }
+      continue;
+    }
 
     const [, id, title] = match;
     if (!id.startsWith(prefix)) {

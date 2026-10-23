@@ -1037,6 +1037,24 @@ await Promise.all([
     ),
   ),
 
+  // An id numbered past 9 as `REQ-USER-10` is no id: copied into specs/ and a
+  // test, it binds nothing and every gate says all is proven.
+  check('a SHIPPED change of this branch with a malformed id in a delta line is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': shippedWith('- ADDED REQ-USER-001 — import\n- ADDED REQ-USER-10 — export to CSV\n') },
+      (r) => (r.status !== 0 && /"- ADDED REQ-USER-10 — export to CSV" names REQ-USER-10, which no check reads as an id/.test(r.out) ? null : `a malformed id passed: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED change whose delta text starts with a dash and names another id holds one delta', () =>
+    withBranch(
+      { 'specs/user.md': twoReqs, '.spec-flow/config.json': contract('tests/user.test.ts::REQ-USER-001 a', 'tests/user.test.ts::REQ-USER-002 b') },
+      { 'specflow/archive/drop/spec.md': shippedWith('- REMOVED REQ-USER-003 – superseded by REQ-USER-002\n') },
+      (r) => (r.status === 0 ? null : `a delta whose text names an id after a dash was refused: ${r.out}`),
+    ),
+  ),
+
   check('a SHIPPED fix brief that says it has no delta in other words passes', () =>
     withBranch(
       { 'specs/user.md': spec() },
@@ -1500,6 +1518,16 @@ await Promise.all([
         if (r.status !== 0) return `a fully proven spec was reported as drift (rc=${r.status}): ${r.out}`;
         if (!/1 requirement/.test(r.out)) return `did not report the requirement it checked: ${r.out}`;
         return null;
+      },
+    ),
+  ),
+
+  check('a heading shaped like a requirement and not read as one is reported', () =>
+    withRepo(
+      { 'specs/user.md': `${spec()}\n### REQ-USER-10 — export to CSV\n\nThe system exports.\n\n#### REQ-USER-011 — import\n\nThe system imports.\n` },
+      (r) => {
+        const missed = ['### REQ-USER-10 — export to CSV', '#### REQ-USER-011 — import'].filter((h) => !r.out.includes(`"${h}" is no requirement the engine reads`));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
       },
     ),
   ),

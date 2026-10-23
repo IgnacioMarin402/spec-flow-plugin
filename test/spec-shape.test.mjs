@@ -197,6 +197,27 @@ test('a delta with its verb after the id, another bullet or in a quote is refuse
   }
 });
 
+test('a delta line whose id is malformed is refused', () => {
+  for (const id of ['REQ-A-10', 'REQ-A-02', 'REQ-A-0002', 'REQ_A_002', 'req-a-002']) {
+    const section = `- ADDED REQ-A-001 — import\n- ADDED ${id} — export`;
+    assert.deepStrictEqual(read(section), ['ADDED REQ-A-001'], id);
+    assert.deepStrictEqual(refused(section), ['malformed'], id);
+  }
+  assert.deepStrictEqual(refused('- ADDED REQ-A-001 — import\n| REQ-A-10 | Added |'), ['malformed']);
+});
+
+test('a line a delta verb leads in capitals is a delta, with or without an id', () => {
+  assert.deepStrictEqual(refused('- ADDED REQ-A-001 — import\n- ADDED: the export button'), ['no-id']);
+  assert.deepStrictEqual(refused('### ADDED\n- ADDED REQ-A-001 — import'), [], 'a heading grouping deltas');
+});
+
+test('a hyphen or en dash before a word starts the text', () => {
+  for (const line of ['- ADDED REQ-A-002 - export, filtered as REQ-A-001 says', '- REMOVED REQ-A-003 – superseded by REQ-A-002']) {
+    assert.deepStrictEqual(refused(line), [], line);
+  }
+  assert.deepStrictEqual(refused('- ADDED REQ-A-009 - REQ-A-010 a range'), ['two-ids']);
+});
+
 test('a table row names its id in any case', () => {
   for (const line of ['| REQ-A-002 | Added | export to CSV |', '| added | REQ-A-002 | export to CSV |', '| Removed | REQ-A-002 |', '| Added | REQ-A-002 | x |']) {
     const section = `- ADDED REQ-A-001 — import\n${line}`;
@@ -324,6 +345,10 @@ test('a section says it has no delta in the words writers use', () => {
     '> none — wiring only',
     '- Nothing changes in specs/ — wiring only',
     'No change — REQ-A-001 is right; its test missed a case',
+    '- No new requirements — wiring only',
+    '- No spec change: REQ-A-001 is right; its test missed the empty filter',
+    '- Unchanged — REQ-A-001 stays as written',
+    'Not applicable — infrastructure only',
   ]) {
     assert.equal(at(none), '', none);
     assert.deepStrictEqual(refused(none), [], none);
