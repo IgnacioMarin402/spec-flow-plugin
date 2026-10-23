@@ -1487,6 +1487,18 @@ t(
   { phase: 'plan' },
 );
 
+t(
+  "preflight's refusal past a run's first agent says how to pick the run up",
+  (repo) => {
+    parkedOnBase(repo);
+    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer' } }, repo);
+    if (r.status !== 2) return `a spawn went through with specflow/parked/ from the base live — exit ${r.status}`;
+    if (!r.stderr.includes('/spec-flow:resume')) return `a run under way is told only to start again, over what it already did: ${r.stderr}`;
+    return /^Nothing has run yet/m.test(r.stderr) ? `it says nothing has run, mid-run: ${r.stderr}` : null;
+  },
+  { phase: 'implement' },
+);
+
 t("phase-guard's done refusal says a change the base branch has is not this run's to fold", (repo) => {
   parkedOnBase(repo);
   seedGateHistory(repo, 'pass');
