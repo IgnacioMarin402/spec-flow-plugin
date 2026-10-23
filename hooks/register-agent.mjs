@@ -23,10 +23,9 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDir, stateDir, readPhase, readPayload, writeFile, run } from './lib/io.mjs';
 import { matchAgent } from './lib/agent-name.mjs';
+import { milestoneRef } from './lib/milestone-ref.mjs';
 
 const ID_RE = /^[0-9a-f]{16,32}$/; // observed ids: 17 hex chars
-// A milestone a spawn names, in either separator: `specflow\x\milestones\M2.md` on Windows.
-const MILESTONE = /specflow[\\/]([^\\/\s"'`]+)[\\/]milestones[\\/](M\d+)\.md/;
 
 function appendUnique(path, line) {
   try {
@@ -112,20 +111,18 @@ await run(async () => {
   //
   // Written from the SPAWN rather than asked of the orchestrator, for the
   // reason preflight is a hook: state the model has to remember to write is
-  // not state. The milestone comes out of the spawn's own input because that
-  // is where it already is — read from its strings, not their JSON, where a
-  // Windows path's `\` is two. With no id in the response the position is
-  // still the spawn's, and the implementer is left unnamed.
+  // not state. The milestone comes out of the spawn's prompt because that is
+  // where it already is, by the one reading of it (lib/milestone-ref.mjs). A
+  // work order is what names the change; a bare `milestones/<Mk>.md` leaves
+  // the position as it was. With no id in the response the position is still
+  // the spawn's, and the implementer is left unnamed.
   //
   // A follow-up `SendMessage` does not pass through here, and must not: it
   // carries no milestone, and rewriting this from one would blank the
   // position at the first lint retry.
   if (agent === 'implementer') {
-    const at = Object.values(input)
-      .filter((v) => typeof v === 'string')
-      .map((v) => MILESTONE.exec(v))
-      .find(Boolean);
-    if (at) writeFile(join(state, 'current-milestone'), `${at[1]} ${at[2]}${id ? ` ${id}` : ''}`);
+    const at = milestoneRef(input.prompt);
+    if (at?.change) writeFile(join(state, 'current-milestone'), `${at.change} ${at.milestone}${id ? ` ${id}` : ''}`);
   }
 
   if (id) {

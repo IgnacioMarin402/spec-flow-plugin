@@ -1286,6 +1286,23 @@ t('register-agent records the milestone from a Windows path, and with no id in t
   return unnamed === 'add-users M3' ? null : `a response with no id left "${unnamed}"`;
 });
 
+// The live view finds the agent this record names by the milestone it read
+// off the same spawn, so both read its prompt, one way.
+t('register-agent records the work order its prompt names, not a milestone its description or another path names', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'implement');
+  const at = join(repo, '.claude/state/current-milestone');
+  const spawn = (tool_input) => runHook('register-agent.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer', ...tool_input }, tool_response: {} }, repo);
+  spawn({ description: 'redo specflow/add-users/milestones/M1.md', prompt: 'implement specflow/add-users/milestones/M2.md per the plan' });
+  const described = readFileSync(at, 'utf8').trim();
+  if (described !== 'add-users M2') return `a description naming M1 left "${described}"`;
+  spawn({ prompt: 'see docs/milestones/M1.md, then implement specflow/add-users/milestones/M3.md' });
+  const pathed = readFileSync(at, 'utf8').trim();
+  if (pathed !== 'add-users M3') return `a milestone file named before the work order left "${pathed}"`;
+  spawn({ prompt: 'resume, with plan.md and milestones/M4.md' });
+  const bare = readFileSync(at, 'utf8').trim();
+  return bare === 'add-users M3' ? null : `a work order naming no change left "${bare}"`;
+});
+
 t('a stale-phase reset disarms the run without forgetting where it was', (repo) => {
   const pf = join(repo, '.claude/state/phase');
   writeFileSync(pf, 'implement');

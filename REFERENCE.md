@@ -540,7 +540,7 @@ Gitignored working files; delete one to reset that piece of state.
 |---|---|
 | `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
-| `current-milestone` | `<SLUG> <Mk> [<implementer session>]`, written at each implementer spawn, the session when the spawn names one; where `resume` positions the run |
+| `current-milestone` | `<SLUG> <Mk> [<implementer session>]`, written at each implementer spawn whose prompt names `specflow/<SLUG>/milestones/<Mk>.md`, the session when the spawn names one; where `resume` positions the run |
 | `opus_calls` / `architect_calls` | Planner calls / architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |
