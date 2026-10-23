@@ -50,4 +50,5 @@ phase-guard's, so a run started by a write it cannot read — `node -e`, a `cp`
 does; the orchestrator writes the phase with `Write` or `printf`, which it
 reads. An update reaches a run in flight: a cap main read as the default, as
 a number of calls or as no limit at all — `null`, `"0x10"`, `"six"` — denies
-that role's calls from then on.
+that role's calls from then on, and a file main never read for its byte-order
+mark is read: a route in it naming no agent denies every plugin spawn.
