@@ -834,7 +834,7 @@ await Promise.all([
       (r) => {
         if (r.status === 0) return `deltas no check reads passed: ${r.out}`;
         const missed = ['indented', 'bold', 'colon', 'backticks', 'table |', 'bracketed', 'after', 'checkbox', 'lowercase', 'wrapped'].filter(
-          (w) => !new RegExp(`${w.replace(/[|]/g, '\\|')}" names REQ-USER-0\\d\\d, which no delta line`).test(r.out),
+          (w) => !new RegExp(`${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" names REQ-USER-0\\d\\d, which no delta line`).test(r.out),
         );
         return missed.length ? `not reported: ${missed.join(', ')}. ${r.out}` : null;
       },
