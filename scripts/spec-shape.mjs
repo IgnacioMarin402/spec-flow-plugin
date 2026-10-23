@@ -83,19 +83,76 @@ export function capabilityOf(id, specs) {
 // `**Status:** SHIPPED 2026-07-30`, on an archived change spec.
 export const ARCHIVE_STATUS = /^\*\*Status:\*\*\s+(SHIPPED|REJECTED|SUPERSEDED)\b/m;
 
-// `- CHANGED REQ-USER-001 (wording) — was X, now Y`, inside a change spec's
-// `## Requirement deltas` section. The marker is OPTIONAL to this regex and
-// required by the check that reads it: matching the line without one is what
-// lets the failure quote the line it is complaining about, instead of
-// reporting that it found nothing.
-const CHANGED_DELTA = /^[-*]\s*CHANGED\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)[ \t]*(?:\(([a-z]+)\))?.*$/gm;
+/** Whether an archived change spec is stamped SHIPPED: its deltas claim to be in `specs/`. */
+export const isShipped = (body) => /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body);
+
+// ---- a delta: one grammar ----------------------------------------------------
+//
+// A delta is one line of the `## Requirement deltas` section: a dash at the
+// start, the verb, the id, then its text — `- ADDED REQ-USER-004 — ...`. Every
+// reader below takes it from `sectionLines`; a second reading would drift into a
+// spec one check binds and another passes.
+//
+// Every other line of the section names only ids a delta line reads, so a delta
+// spelled another way — a table row, a bullet, a verb in another case — is
+// refused by the id it names, not by a guess at its verb (ADR-048). A delta's
+// own text, and `- none`'s, may name any id.
+
+const VERB = 'ADDED|CHANGED|REMOVED';
+const ID = 'REQ-[A-Z0-9-]+-\\d{3}(?!\\d)';
+// The verb and the id share the line: a delta wrapped after its verb is two
+// lines, and neither reads as one.
+const DELTA_LINE = new RegExp(`^[-*][ \\t]*(${VERB})[ \\t]+(${ID})(.*)$`);
+const AN_ID = new RegExp(ID);
+const IDS = new RegExp(ID, 'g');
 
 /** The two edits a CHANGED may legitimately be. Everything else decomposes. */
 export const CHANGED_KINDS = ['wording', 'correction'];
 
 /**
- * The body of `## Requirement deltas`, or '' when the spec has no such
- * section.
+ * `text` with line ends made `\n`, and code and comments blanked: an example
+ * declares nothing. A comment is one that starts a line, as an HTML block
+ * does: `<!--` quoted in a code span hides nothing. A fence closes on its own
+ * character, at least as long, or where the list item it opened in ends; one
+ * never closed is read as text. An indented block is code after a blank line
+ * that does not continue a list item.
+ */
+export function withoutCode(text) {
+  const lines = text.split(/\r\n|\r|\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let end = -1;
+    if (/^[ \t]*<!--/.test(lines[i])) {
+      const from = lines[i].indexOf('<!--') + 4;
+      end = lines.findIndex((line, j) => j >= i && line.includes('-->', j === i ? from : 0));
+    } else {
+      const open = /^([ \t]*)(`{3,}|~{3,})/.exec(lines[i]);
+      if (!open) continue;
+      const fence = new RegExp(`^[ \\t]*\\${open[2][0]}{${open[2].length},}[ \\t]*$`);
+      for (let j = i + 1; j < lines.length && end === -1; j++) {
+        if (fence.test(lines[j])) end = j;
+        // A line less indented than the fence ends the list item it opened in.
+        else if (lines[j].trim() !== '' && /^[ \t]*/.exec(lines[j])[0].length < open[1].length) end = j - 1;
+      }
+    }
+    if (end === -1) continue;
+    for (let j = i; j <= end; j++) lines[j] = '';
+    i = end;
+  }
+  let code = false;
+  let listed = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === '') continue;
+    const indented = /^(?: {4}|\t)/.test(lines[i]);
+    code = indented && (code || (i > 0 && lines[i - 1].trim() === '' && !listed));
+    if (code) lines[i] = '';
+    else listed = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]/.test(lines[i]) || (listed && indented);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The body of `## Requirement deltas`, code and comments blanked, or '' when
+ * the spec has no such section.
  *
  * Scoped to that section rather than read over the whole file: a spec's prose
  * is entitled to DISCUSS a changed requirement without DECLARING one, and a
@@ -103,17 +160,30 @@ export const CHANGED_KINDS = ['wording', 'correction'];
  * costs more trust than the case it would catch.
  */
 export function deltasSection(body) {
-  const heading = /^## Requirement deltas\b.*$/m.exec(body);
+  const text = withoutCode(body);
+  const heading = /^## Requirement deltas\b.*$/m.exec(text);
   if (!heading) return '';
-  const after = body.slice(heading.index + heading[0].length);
+  const after = text.slice(heading.index + heading[0].length);
   const next = after.search(/^## /m);
   return next === -1 ? after : after.slice(0, next);
 }
 
-/** Every CHANGED delta a change spec declares, with the kind it claims. */
+/** Each line of the deltas section, with the verb, id and text of the delta it is, if it is one. */
+function* sectionLines(body) {
+  for (const line of deltasSection(body).split('\n')) {
+    const m = DELTA_LINE.exec(line);
+    yield m ? { line, verb: m[1], id: m[2], rest: m[3] } : { line };
+  }
+}
+
+/**
+ * Every CHANGED delta a change spec declares, with the kind it claims. The
+ * kind is optional here and required by the check that reads it: read without
+ * one, the failure can quote the line instead of reporting it found nothing.
+ */
 export function* changedDeltas(body) {
-  for (const m of deltasSection(body).matchAll(CHANGED_DELTA)) {
-    yield { line: m[0], id: m[1], kind: m[2] ?? null };
+  for (const d of sectionLines(body)) {
+    if (d.verb === 'CHANGED') yield { line: d.line, id: d.id, kind: /^[ \t]*\(([a-z]+)\)/.exec(d.rest)?.[1] ?? null };
   }
 }
 
@@ -131,12 +201,169 @@ export function explainKind(kind) {
  */
 export const HEAVY_HEADINGS = ['## Source', '## Context', '## Decision'];
 
-// Any delta line, whatever its kind: `- ADDED REQ-USER-004 — ...`.
-const DELTA = /^[-*]\s*(ADDED|CHANGED|REMOVED)\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)/gm;
-
 /** Every delta a change spec declares, as `{ verb, id }`, read from its deltas section only. */
 export function* deltas(body) {
-  for (const m of deltasSection(body).matchAll(DELTA)) yield { verb: m[1], id: m[2] };
+  for (const d of sectionLines(body)) if (d.verb) yield { verb: d.verb, id: d.id };
+}
+
+// How a writer says the section has no delta: `- none — <why>`, `None.`,
+// `- n/a`, `- No requirement changes`, `- No spec change: …`, `Unchanged — …`.
+const NONE =
+  /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+•·◦▪–—]|\d+[.)])[ \t]+)?[*_`]*[ \t]*(?:none|n\/a|nothing|unchanged|not[ \t]+applicable|no[ \t]+(?:(?:new|spec)[ \t]+)?(?:requirements?|spec|changes?|deltas?)(?:[ \t]+(?:changes?|deltas?))?)(?![\w-])/i;
+
+// A line a delta's verb leads, in capitals, is written as one whatever follows:
+// `- ADDED: the export`, `- ADDED REQ-USER-10 — …`. A heading grouping deltas,
+// `### ADDED`, is not one.
+const VERB_LED = new RegExp(`^[ \\t]*(?:>[ \\t]*)*(?:(?:[-*+•·◦▪–—]|\\d+[.)]|[a-z][.)]|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_\`]*(?:${VERB})(?![\\w-])`);
+// Shaped like an id — a capability led by a letter, then digits — and maybe
+// not one: `REQ-USER-10`, `REQ-USER-0002`, `REQ_USER_002`, `req-user-002`. A
+// word that merely starts so, `req_id` or `Req-to-Pay`, is not shaped like one.
+const ID_SHAPED = /(?<![\w-])req[-_][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*[-_]\d+(?![\w-])/gi;
+const WHOLE_ID = new RegExp(`^${ID}$`);
+/** The tokens of `text` shaped like an id, read as one or not. */
+export const idShaped = (text) => [...new Set(text.match(ID_SHAPED) ?? [])];
+/** Whether `token` is an id as every reader reads one. */
+export const isId = (token) => WHOLE_ID.test(token);
+const malformedIn = (line) => idShaped(line).filter((token) => !isId(token));
+
+// In a delta's text, a verb in capitals before an id starts another delta:
+// `- ADDED REQ-A-001 — export; ADDED REQ-A-002 — import`.
+const VERBED = new RegExp(`(?<![\\w-])(?:${VERB}|MODIFIED|RENAMED|DELETED|UPDATED|REPLACED|DEPRECATED)[ \\t:*_\`|[\\]()]*(${ID})`, 'g');
+
+// A delta's text starts at an em dash after a space, a colon, a parenthesis,
+// or a hyphen or en dash before a word that joins nothing. Before it, another id, or a number
+// going on from the first to where the text starts, is a second id:
+// `REQ-A-001, REQ-A-002`, `REQ-A-001 thru REQ-A-003`, `REQ-A-001 - REQ-A-002`,
+// `REQ-A-001–003 —`, `REQ-A-001, 002 —`. A number the text goes on from is the
+// text's: `REQ-A-001 - 404 or 410 for a deleted user`.
+const KIND = /^[ \t]*\([a-z]+\)/;
+const TEXT_STARTS = /[ \t]—|:|\(|[ \t][–-][ \t]+(?!REQ-|\d{3}(?!\d)|(?:and|or|to|through|thru)(?![\w-]))/;
+const JOINER = '(?:[ \\t]*(?:[,/&+;~–]|\\.\\.|-(?=[ \\t])|(?:and|or|to|through|thru)(?![\\w-]))[ \\t]*|—)';
+const NUMBERS = new RegExp(`^(?:${JOINER}\\d{3}(?!\\d))+[ \\t]*(?:$|—|:|\\()`, 'i');
+const BETWEEN = new RegExp(`^(?:[ \\t]*\\([a-z]+\\))?(?:${JOINER}|[ \\t]+)$`, 'i');
+
+/** Whether what follows a delta's id names a second id before its text. */
+function namesSecondId(rest) {
+  const before = rest.replace(KIND, '');
+  const text = before.search(TEXT_STARTS);
+  return AN_ID.test(text === -1 ? before : before.slice(0, text)) || NUMBERS.test(before);
+}
+
+/** The ids a line names before its text: the first, and each listed after it. */
+function idsBeforeText(line) {
+  const found = [...line.matchAll(IDS)];
+  const ids = [];
+  for (const [i, m] of found.entries()) {
+    if (i > 0 && !BETWEEN.test(line.slice(found[i - 1].index + found[i - 1][0].length, m.index))) break;
+    ids.push(m[0]);
+  }
+  return ids;
+}
+
+/**
+ * Lines of the deltas section no check binds whole: a delta line naming a
+ * second id before its text, a token shaped like an id that is not one, an id
+ * no delta line reads, and a line a delta's verb leads that is no delta. Every
+ * check that binds a delta reads `deltas`, so none of them sees such a line.
+ * A delta's own text, and `- none`'s, may name any id, except after a verb in
+ * capitals.
+ */
+export function* unreadDeltas(body) {
+  const lines = [...sectionLines(body)];
+  const read = new Set(lines.filter((d) => d.verb).map((d) => d.id));
+  for (const d of lines) {
+    if (d.verb && namesSecondId(d.rest)) {
+      yield { line: d.line, why: 'two-ids' };
+      continue;
+    }
+    const malformed = malformedIn(d.line);
+    if (malformed.length > 0) {
+      yield { line: d.line, why: 'malformed', ids: malformed };
+      continue;
+    }
+    const text = d.verb ? d.rest : NONE.test(d.line) ? d.line : null;
+    const named = text === null ? (d.line.match(IDS) ?? []) : [...text.matchAll(VERBED)].map((m) => m[1]);
+    const ids = [...new Set(named)].filter((id) => !read.has(id));
+    if (ids.length > 0) yield { line: d.line, why: 'unread', ids };
+    else if (!d.verb && VERB_LED.test(d.line)) yield { line: d.line, why: AN_ID.test(d.line) ? 'not-a-delta' : 'no-id' };
+  }
+}
+
+const DELTA_SHAPE = 'A delta is one line, `- ADDED REQ-<CAP>-0NN — <text>`: a dash at the start, ADDED, CHANGED or REMOVED in capitals, then one id.';
+
+/** Why one line `unreadDeltas` found is refused, in the failure's own voice. */
+export function explainUnread({ line, why, ids = [] }) {
+  const quoted = `"${line.trim()}"`;
+  if (why === 'two-ids') {
+    return `${quoted} names more than one id before its text, and the engine reads the first alone. One delta per line, so each id is checked.`;
+  }
+  if (why === 'malformed') {
+    return `${quoted} names ${ids.join(', ')}, which no check reads as an id: an id is REQ-, its capability in capitals, then three digits, \`REQ-<CAP>-0NN\`. Write it so. ${DELTA_SHAPE}`;
+  }
+  if (why === 'no-id') return `${quoted} is written as a delta and names no id, so no check binds it. ${DELTA_SHAPE}`;
+  if (why === 'not-a-delta') return `${quoted} leads with a delta's verb and is no delta line, so no check reads it as one. ${DELTA_SHAPE} Write each delta so, once.`;
+  return (
+    `${quoted} names ${ids.join(', ')}, which no delta line of this section reads, so no check binds ${ids.length > 1 ? 'them' : 'it'}. ${DELTA_SHAPE} ` +
+    "Every other line of the section names only ids its deltas read; a delta's own text may name any. Write each delta so, or move the rest out of the section."
+  );
+}
+
+// Outside the section only what can be nothing but a misplaced delta counts:
+// OpenSpec's `## ADDED Requirements`, or ADDED, CHANGED, REMOVED, MODIFIED or
+// RENAMED in capitals leading a line into an id — `- ADDED REQ-…`,
+// `| REMOVED | REQ-… |`. Prose, an HTTP method or a state beside an id is not.
+const OUTSIDE_VERB = `${VERB}|MODIFIED|RENAMED`;
+const GROUPING = new RegExp(`^[ \\t]*(?:>[ \\t]*)*#{1,6}[ \\t]*(?:${OUTSIDE_VERB})[ \\t]+requirements?\\b`, 'i');
+const MISPLACED = new RegExp(
+  `^[ \\t]*(?:>[ \\t]*)*(?:(?:[-*+•·◦▪–—]|\\d+[.)]|#{1,6}|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_\`]*(?:${OUTSIDE_VERB})[ \\t:*_\`|\\])]*${ID}`,
+);
+
+/**
+ * Why the deltas of a change spec are not where every reader looks, or '': a
+ * heading spelled another way, or a delta declared outside `## Requirement
+ * deltas`, where no check reads it. With `needed`, a spec with no such
+ * section, or one where the engine reads nothing — no delta, no `none`, no id
+ * for `unreadDeltas` to refuse — is one too: a spec says what it does to
+ * `specs/`, `- none` included.
+ */
+export function deltasSectionProblem(body, { needed }) {
+  const text = withoutCode(body);
+  const lines = text.split('\n');
+  const misspelled = lines.find((l) => /^#{1,6}[ \t]*requirements?[ \t]+deltas?\b/i.test(l) && !/^## Requirement deltas\b/.test(l));
+  if (misspelled) {
+    return `has "${misspelled.trim()}", and the engine reads deltas under \`## Requirement deltas\` alone, spelled so: no check binds a delta under it. Rename the heading.`;
+  }
+  const section = deltasSection(body);
+  const heading = /^## Requirement deltas\b.*$/m.exec(text);
+  const outside = heading ? `${text.slice(0, heading.index)}\n${text.slice(heading.index + heading[0].length + section.length)}` : text;
+  const stray = outside.split('\n').find((l) => GROUPING.test(l) || MISPLACED.test(l));
+  if (stray) {
+    return `declares a delta outside \`## Requirement deltas\` ("${stray.trim()}"), where no check reads it. Write each delta in that section, one line each: \`- ADDED REQ-<CAP>-0NN — <text>\`.`;
+  }
+  if (needed && !heading) return 'has no `## Requirement deltas` section. Write its deltas there, or `- none — <why>` when it has none.';
+  if (needed && ![...sectionLines(body)].some((d) => d.verb || NONE.test(d.line) || AN_ID.test(d.line) || VERB_LED.test(d.line) || malformedIn(d.line).length > 0)) {
+    return 'says nothing the engine reads under `## Requirement deltas`. Write each delta there, one line each, or `- none — <why>` when it has none.';
+  }
+  return '';
+}
+
+// REMOVED in capitals as a line's verb, before or beside its id: the delta, or
+// how an archive written before this grammar spelled it — `**REMOVED** REQ-…`,
+// `| REMOVED | REQ-… |`, `REQ-… (REMOVED)`.
+const REMOVES = new RegExp(
+  `^[ \\t]*(?:>[ \\t]*)*(?:(?:[-*+•·◦▪–—]|\\d+[.)]|#{1,6}|\\|)[ \\t]*)?(?:\\[[ xX]\\][ \\t]*)?[[(*_\`]*REMOVED[ \\t:*_\`|\\])]*${ID}|${ID}[ \\t:*_\`|[(]*REMOVED(?![\\w-])`,
+);
+
+/**
+ * The ids a change spec retires: each id a line with REMOVED in capitals as
+ * its verb names before its text, read leniently, so an archive written in
+ * another spelling still retires what it removed. A line with the verb in
+ * another case retires nothing: in an archive it is a note.
+ */
+export function retiredIds(body) {
+  const ids = [];
+  for (const { line } of sectionLines(body)) if (REMOVES.test(line)) ids.push(...idsBeforeText(line));
+  return ids;
 }
 
 /**
@@ -150,13 +377,9 @@ export function* deltas(body) {
  * count, because a REJECTED or SUPERSEDED change removed nothing.
  */
 export function reusedIds(body, archivedBodies) {
-  const own = [...deltas(body)];
-  const retired = new Set(own.filter((d) => d.verb === 'REMOVED').map((d) => d.id));
-  for (const archived of archivedBodies) {
-    if (!/^\*\*Status:\*\*\s+SHIPPED\b/m.test(archived)) continue;
-    for (const d of deltas(archived)) if (d.verb === 'REMOVED') retired.add(d.id);
-  }
-  return [...new Set(own.filter((d) => d.verb === 'ADDED' && retired.has(d.id)).map((d) => d.id))];
+  const retired = new Set(retiredIds(body));
+  for (const archived of archivedBodies) if (isShipped(archived)) for (const id of retiredIds(archived)) retired.add(id);
+  return [...new Set([...deltas(body)].filter((d) => d.verb === 'ADDED' && retired.has(d.id)).map((d) => d.id))];
 }
 
 /** The section where a spec says what its writer decided without asking. */
@@ -225,23 +448,41 @@ function prohibitionIn(clause) {
   return null;
 }
 
-const ADDED_DELTA = /^[-*]\s*ADDED\s+(REQ-[A-Z0-9-]+-\d{3})(?!\d)(.*)$/gm;
-
 /**
  * Every ADDED delta that states a prohibition and another claim on one id,
  * with the word that made it one. Quoted and code text is not read: a message
  * or a flag may hold any of the words.
  */
 export function* pairedProhibitions(body) {
-  for (const m of deltasSection(body).matchAll(ADDED_DELTA)) {
-    const claim = m[2]
+  for (const d of sectionLines(body)) {
+    if (d.verb !== 'ADDED') continue;
+    const claim = d.rest
       .replace(/^\s*[—–:-]?\s*/, '')
       .replace(/`[^`]*`|"[^"]*"|“[^”]*”/g, ' ');
     const clauses = claim.split(CLAUSE_BREAK).filter((c) => c.trim());
     if (clauses.length < 2) continue;
     const word = clauses.map(prohibitionIn).find(Boolean);
-    if (word) yield { line: m[0], id: m[1], word };
+    if (word) yield { line: d.line, id: d.id, word };
   }
+}
+
+/**
+ * The problem with naming a live change `slug`, or null. The fold moves it to
+ * specflow/archive/<slug>/; onto a folder that exists, in any case a
+ * case-insensitive filesystem folds together, it lands inside that change,
+ * where no archive check reads it (ADR-048).
+ *
+ * @param {string} slug
+ * @param {string[]} archivedSlugs the folder names under `specflow/archive/`
+ * @returns {string | null}
+ */
+export function archiveClash(slug, archivedSlugs) {
+  const taken = archivedSlugs.find((a) => a.toLowerCase() === slug.toLowerCase());
+  if (!taken) return null;
+  return (
+    `specflow/${slug}/ has the name of an archived change, specflow/archive/${taken}/. The fold moves a change to specflow/archive/<its name>/, ` +
+    `and onto a folder that exists it lands inside that change instead. Give this change a name of its own: rename specflow/${slug}/.`
+  );
 }
 
 /**

@@ -12,12 +12,12 @@
  * Stands down outside a run, like the budget and preflight: a SendMessage in a
  * repo that merely has the plugin installed is not this engine's business.
  */
-import { projectDir, readPhase, readPayload, run } from './lib/io.mjs';
+import { projectDir, readPhase, readPayload, run, RUN_PHASES } from './lib/io.mjs';
 import { coldResume } from './lib/agent-cache.mjs';
 
 await run(async () => {
   const phase = readPhase(projectDir());
-  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return;
+  if (!RUN_PHASES.includes(phase)) return;
 
   const cold = coldResume(await readPayload());
   if (!cold) return;

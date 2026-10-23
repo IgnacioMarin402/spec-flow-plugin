@@ -4,26 +4,26 @@
  *
  * spec-trace is what makes `specs/` authoritative instead of decorative: it
  * binds a requirement id to the test that proves it, in both directions, and
- * fails the gate when they disagree. It is ~270 lines of regex parsing that
- * runs on every gate, every phase-guard and every check command — and until
- * this file existed it had no test of its own. `gate-fixture.mjs`
+ * fails the gate when they disagree. It is regex parsing that runs on every
+ * gate, every phase-guard and every check command — and until this file
+ * existed it had no test of its own. `gate-fixture.mjs`
  * deliberately replaces it with a green/red stub, so nothing anywhere
  * exercised the actual parsing.
  *
  * Tested the same way as the gate: by RUNNING it. Each case builds a
  * throwaway repo, writes a file map into it, spawns the real script with
  * `CLAUDE_PROJECT_DIR` pointed at that repo, and asserts on the exit code
- * and the problems it named. No repo here has a `.git` — spec-trace never
- * shells out to git, so a fixture that created one would be testing
- * scaffolding rather than the script.
+ * and the problems it named. Most repos here have no `.git`: spec-trace asks
+ * git about the archive — which change specs the base holds, and when the
+ * branch wrote each since — and the cases about that build one (`withBranch`).
  *
  * The contract each case is testing: a problem must be REPORTED (exit 1 and
  * named in the output), not merely survived. A parser that silently matches
  * nothing looks identical to a repo where everything is proven — which is
  * the failure mode this whole engine is built against.
  */
-import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -188,6 +188,80 @@ async function withRepo(files, assert) {
     rmSync(repoDir, { recursive: true, force: true });
   }
 }
+
+/**
+ * `withRepo` with git: `base` committed on `main`, then each file map of
+ * `branch` committed in turn on `feat` off it — one map is one commit — which
+ * is where spec-trace runs; the base resolves to `main`, as it does for a run's
+ * own branch. After the commits, uncommitted: `uncommitted` written over the
+ * tree, `dirs` left as empty folders and `state` written under
+ * `.claude/state/`, as a run leaves it. `under` puts the project in that folder
+ * of the repository instead of at its top.
+ */
+async function withBranch(base, branch, assert, { under = '', state = {}, dirs = [], uncommitted = {} } = {}) {
+  const repoDir = mkdtempSync(join(tmpdir(), 'spec-trace-branch-'));
+  const projectDir = under ? join(repoDir, under) : repoDir;
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=f@example.com', '-c', 'user.name=fixture', ...args], { cwd: repoDir, encoding: 'utf8' });
+  const write = (files) => {
+    for (const [rel, contents] of Object.entries(files)) {
+      const full = join(projectDir, rel);
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, contents);
+    }
+  };
+  try {
+    git('init', '-q', '.');
+    git('symbolic-ref', 'HEAD', 'refs/heads/main');
+    write({ '.spec-flow/config.json': JSON.stringify(CONFIG, null, 2), ...base });
+    git('add', '-A');
+    git('commit', '-q', '-m', 'base');
+    git('checkout', '-q', '-b', 'feat');
+    for (const [i, commit] of (Array.isArray(branch) ? branch : [branch]).entries()) {
+      for (const [rel, contents] of Object.entries(commit)) if (contents === null) rmSync(join(projectDir, rel), { force: true });
+      write(Object.fromEntries(Object.entries(commit).filter(([, contents]) => contents !== null)));
+      git('add', '-A');
+      git('commit', '-q', '-m', `branch ${i}`);
+    }
+    write(uncommitted);
+    for (const dir of dirs) mkdirSync(join(projectDir, dir), { recursive: true });
+    write(Object.fromEntries(Object.entries(state).map(([name, text]) => [`.claude/state/${name}`, text])));
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: projectDir };
+    const res = await run('node', [SPEC_TRACE], { cwd: tmpdir(), env });
+    return await assert({ ...res, out: `${res.stdout}${res.stderr}` }, repoDir);
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+}
+
+const shippedSpec = (...deltaLines) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${deltaLines.map((l) => `- ${l}\n`).join('')}`;
+/** A SHIPPED change spec whose deltas section is `section`, as written. */
+const shippedWith = (section) => `# Spec — x\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n${section}`;
+const twoReqs = `${spec()}\n### REQ-USER-002 — the user can do another thing\n\nThe system does it.\n`;
+/** A branch that shipped run one's change, then started run two's: one commit each. */
+const twoRuns = [
+  { 'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+  {
+    'specflow/run-two/spec.md': '# Spec — run two\n\n## Requirement deltas\n- ADDED REQ-USER-003 — the user can import data\n',
+    'specflow/run-two/proposal.md': '# Proposal\n\nWhy.\n',
+  },
+];
+/** Run one's change, then its fold: a SHIPPED change whose ADDED id never reached specs/. */
+const ownFold = [
+  {
+    'specflow/run-one/spec.md': '# Spec — run one\n\n## Requirement deltas\n- ADDED REQ-USER-002 — the user can export their data\n',
+    'specflow/run-one/proposal.md': '# Proposal\n\nWhy.\n',
+  },
+  {
+    'specflow/run-one/spec.md': null,
+    'specflow/run-one/proposal.md': null,
+    'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+    'specflow/archive/run-one/proposal.md': '# Proposal\n\nWhy.\n',
+  },
+];
+const holdsOwnFold = (r) =>
+  r.status !== 0 && /^ {2}- REQ-USER-002 is ADDED by specflow\/archive\/run-one/m.test(r.out) && !/held from the fold's gate on/.test(r.out)
+    ? null
+    : `the fold's gate passed over the run's own drift: ${r.out}`;
 
 await Promise.all([
   // ==== proof comes from what the runner REPORTED as executed (ADR-001) ======
@@ -484,6 +558,653 @@ await Promise.all([
         if (/has no test/.test(r.out)) return `a broken report command read as an unproven requirement: ${r.out}`;
         return null;
       },
+    ),
+  ),
+
+  // ---- a SHIPPED change's deltas landed in specs/ ----------------------------
+  //
+  // The binding reads only specs/, so an ADDED the milestone never wrote there
+  // is bound to nothing and proven by nothing, and every gate and `done`
+  // passed over it. The stamp is what asserts the deltas landed.
+  check("an ADDED id a SHIPPED change of this branch never wrote into specs/ is reported", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+      (r) => {
+        if (r.status === 0) return `a shipped requirement no spec declares and no test proves passed: ${r.out}`;
+        return /REQ-USER-002 is ADDED by specflow\/archive\/add-export\/spec\.md/.test(r.out) ? null : `the failure does not name the id and the change: ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a REMOVED id a SHIPPED change of this branch left in specs/ is reported", () =>
+    withBranch(
+      {
+        'specs/user.md': twoReqs,
+        '.spec-flow/config.json': contract('tests/user.test.ts::REQ-USER-001 a', 'tests/user.test.ts::REQ-USER-002 b'),
+      },
+      { 'specflow/archive/drop-export/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone') },
+      (r) => {
+        if (r.status === 0) return `a removal that never reached specs/ passed: ${r.out}`;
+        return /REQ-USER-002 is REMOVED by specflow\/archive\/drop-export\/spec\.md/.test(r.out) ? null : `the failure does not name the id and the change: ${r.out}`;
+      },
+    ),
+  ),
+
+  // ADR-032: a change the base already has was judged on its own branch, and a
+  // run here does not answer for it.
+  check('a SHIPPED change the base branch already has is not held here', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status === 0 ? null : `this branch was blocked over a change it inherited: ${r.out}`),
+    ),
+  ),
+
+  // Ids are permanent, so one a later change of the branch REMOVED is retired.
+  check('an ADDED id another change of this branch REMOVED is retired, not missing', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/archive/drop-export/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone'),
+      },
+      (r) => (r.status === 0 ? null : `a requirement added and then retired on one branch was reported missing: ${r.out}`),
+    ),
+  ),
+
+  // Until a run's fold, its own change is live, so a SHIPPED change of the
+  // branch is an earlier run's: failing on it would route it to an implementer
+  // whose work order does not name it. From the fold on, the branch is held.
+  check('before the fold, a change the branch shipped earlier is said, not failed', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      twoRuns,
+      (r) => {
+        if (r.status !== 0) return `run two's milestone gate failed over run one's change: ${r.out}`;
+        if (!/held from the fold's gate on.*REQ-USER-002/s.test(r.out)) return `run one's drift went unsaid: ${r.out}`;
+        return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
+      },
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // The gate and `done` report nothing of a check that passed, so a drift said
+  // and not failed at the fold would reach no one.
+  check("from the fold on, an earlier run's change is held", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/run-one/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/archive/run-two/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer'),
+      },
+      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/run-one/.test(r.out) ? null : `the fold passed over run one's drift: ${r.out}`),
+      { state: { phase: 'implement', 'current-milestone': 'run-two M1 a-implementer' } },
+    ),
+  ),
+
+  // current-milestone is written best-effort at a spawn and cleared by nothing.
+  check("a stale current-milestone does not exempt the run's own change", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/run-one/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer'),
+        'specflow/archive/run-two/spec.md': shippedSpec('ADDED REQ-USER-003 — the user can import data'),
+      },
+      (r) => (r.status !== 0 && /REQ-USER-003 is ADDED by specflow\/archive\/run-two/.test(r.out) ? null : `the run's own change escaped under a stale milestone: ${r.out}`),
+      { state: { phase: 'implement', 'current-milestone': 'run-one M2 a-implementer' } },
+    ),
+  ),
+
+  // What makes a change an earlier run's is a live change created after it was
+  // archived. A folder is live with a spec in it, and only one the base lacks.
+  check("an empty folder its fold left does not make the run's own change an earlier run's", () =>
+    withBranch({ 'specs/user.md': spec() }, ownFold, holdsOwnFold, { state: { phase: 'implement' }, dirs: ['specflow/run-one'] }),
+  ),
+
+  check("a plan parked on the base does not make the run's own change an earlier run's", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/parked/spec.md': '# Spec — parked\n\n## Requirement deltas\n- none\n', 'specflow/parked/proposal.md': '# Proposal\n\nWhy.\n' },
+      ownFold,
+      holdsOwnFold,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  check("a live change created before the fold does not make the run's own change an earlier run's", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      [{ 'specflow/other/spec.md': '# Spec — other\n\n## Requirement deltas\n- none\n', 'specflow/other/proposal.md': '# Proposal\n\nWhy.\n' }, ...ownFold],
+      holdsOwnFold,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // A live change is as old as its first write: edited after the fold, it
+  // still started before it.
+  check('a live change edited after the fold is as old as its first write', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      [
+        { 'specflow/other/spec.md': '# Spec — other\n\n## Requirement deltas\n- none\n', 'specflow/other/proposal.md': '# Proposal\n\nWhy.\n' },
+        ...ownFold,
+        { 'specflow/other/spec.md': '# Spec — other\n\n## Requirement deltas\n- none — edited after the fold\n' },
+      ],
+      holdsOwnFold,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // A fold and the next run's spec in one commit — a squash, an amend — have no
+  // order between them, so the fold is held as this run's (ADR-048).
+  check('a fold committed with the next run is held as that run\'s', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      [{ ...twoRuns[0], ...twoRuns[1] }],
+      (r) =>
+        r.status !== 0 && /^ {2}- REQ-USER-002 is ADDED by specflow\/archive\/run-one/m.test(r.out) ? null : `a fold committed with the next run passed as an earlier run's: ${r.out}`,
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // Outside a run — CI, `check` — no change is an earlier run's.
+  check('outside a run, a change the branch shipped earlier is held', () =>
+    withBranch({ 'specs/user.md': spec() }, twoRuns, (r) =>
+      r.status !== 0 && /^ {2}- REQ-USER-002 is ADDED by specflow\/archive\/run-one/m.test(r.out) && !/held from the fold's gate on/.test(r.out)
+        ? null
+        : `outside a run, run one's drift was not held: ${r.out}`,
+    ),
+  ),
+
+  // Written since, even a typo fix not yet committed, an inherited change is the branch's.
+  check("an inherited change edited and not yet committed is this branch's", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/old/.test(r.out) ? null : `an edit not yet committed left the change inherited: ${r.out}`),
+      { uncommitted: { 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before, typo fixed') } },
+    ),
+  ),
+
+  // Mid-run, a milestone writes its delta when it delivers it; only the stamp claims all landed.
+  check('a live change is not held to its ADDED ids before it is SHIPPED', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/add-export/spec.md': '# Spec — add export\n\n## Requirement deltas\n- ADDED REQ-USER-002 — the user can export their data\n',
+        'specflow/add-export/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a milestone not yet delivered was blocked: ${r.out}`),
+    ),
+  ),
+
+  // `check` and the gate fail with no base; the checks that need one here fail with them.
+  check('with no base to resolve, a SHIPPED change and a nested spec fail alike, with the reason', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/archive/old/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer'),
+        'specflow/archive/old/old/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer still'),
+      },
+      (r) => {
+        if (r.status === 0) return `a repo with no base passed: ${r.out}`;
+        const said = /- (.*): whether these are this branch's or inherited needs the base, and no base branch could be resolved/.exec(r.out)?.[1] ?? '';
+        if (!said.includes('archive/add-export/spec.md') || !said.includes('archive/old/old/spec.md')) return `not both named, or not the reason: ${r.out}`;
+        if (!/fetch-depth: 0/.test(r.out) || !/refs\/heads\/\*:refs\/remotes\/origin\/\*/.test(r.out)) return `the failure does not say how to fetch the base: ${r.out}`;
+        return /every one proven/.test(r.out) ? `it still says every requirement is proven: ${r.out}` : null;
+      },
+    ),
+  ),
+
+  // Only the stamp claims the deltas landed: a change turned down or replaced asserts nothing.
+  check('a REJECTED or SUPERSEDED change of this branch is not held to its deltas', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/turned-down/spec.md': '# Spec — x\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — export\n',
+        'specflow/archive/replaced/spec.md': '# Spec — y\n\n**Status:** SUPERSEDED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-003 — import\n',
+      },
+      (r) => (r.status === 0 ? null : `a change that asserts nothing landed was held to its deltas: ${r.out}`),
+    ),
+  ),
+
+  check('an ADDED id a live change of this branch REMOVES is retired, not missing', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add-export/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data'),
+        'specflow/drop-export/spec.md': '# Spec — drop export\n\n## Requirement deltas\n- REMOVED REQ-USER-002 — export is gone\n',
+        'specflow/drop-export/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a requirement this branch is removing was reported missing: ${r.out}`),
+    ),
+  ),
+
+  // git quotes a name with a non-ASCII letter; read quoted, it matches no folder.
+  check('a SHIPPED change the base holds under a non-ASCII name is not held here', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/añadir-exportación/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status === 0 ? null : `this branch was blocked over a change it inherited: ${r.out}`),
+    ),
+  ),
+
+  // The folder name is the base's; the change in it is this branch's.
+  check('a SHIPPED change written over a folder the base archived is held here', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/fix-login/spec.md': shippedSpec('CHANGED REQ-USER-001 (wording) — clearer') },
+      { 'specflow/archive/fix-login/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can log in again') },
+      (r) => {
+        if (r.status === 0) return `a change this branch shipped escaped under a reused name: ${r.out}`;
+        return /REQ-USER-002 is ADDED by specflow\/archive\/fix-login\/spec\.md/.test(r.out) ? null : `the failure does not name the id: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a project below the repository top tells inherited changes from its own', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — from before') },
+      { 'specflow/archive/add-import/spec.md': shippedSpec('ADDED REQ-USER-003 — the user can import data') },
+      (r) => {
+        if (/REQ-USER-002/.test(r.out)) return `an inherited change was held: ${r.out}`;
+        return /REQ-USER-003 is ADDED/.test(r.out) ? null : `this branch's change was not held: ${r.out}`;
+      },
+      { under: 'pkg' },
+    ),
+  ),
+
+  // ---- every delta line is one the engine reads ------------------------------
+  //
+  // `deltas` reads `- VERB REQ-id` at the start of a line. A delta spelled any
+  // other way is read by a person and skipped by every check that binds it. A
+  // SHIPPED change of this branch is held to the spelling at the gate, since its
+  // deltas bind from its fold on; a live spec is held to it at spec time
+  // (spec-time.mjs), never at a milestone gate.
+  check('a SHIPPED change of this branch with a delta the engine does not read is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add/spec.md': shippedWith(
+          '  - ADDED REQ-USER-002 — indented\n- **ADDED** REQ-USER-003 — bold\n- ADDED: REQ-USER-004 — colon\n- ADDED `REQ-USER-005` — backticks\n' +
+            '| ADDED | REQ-USER-006 | table |\n- [ADDED] REQ-USER-007 — bracketed\n- REQ-USER-008 (ADDED) — after\n- [x] ADDED REQ-USER-009 — checkbox\n' +
+            '- added REQ-USER-010 — lowercase\n### ADDED\n- ADDED\n  REQ-USER-011 — wrapped\n',
+        ),
+      },
+      (r) => {
+        if (r.status === 0) return `deltas no check reads passed: ${r.out}`;
+        const missed = ['indented', 'bold', 'colon', 'backticks', 'table |', 'bracketed', 'after', 'checkbox', 'lowercase', 'wrapped'].filter(
+          (w) => !new RegExp(`${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" names REQ-USER-0\\d\\d, which no delta line`).test(r.out),
+        );
+        return missed.length ? `not reported: ${missed.join(', ')}. ${r.out}` : null;
+      },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch naming two ids, or a range, in one delta is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add/spec.md': shippedWith(
+          '- ADDED REQ-USER-002, REQ-USER-003 — export and import\n- ADDED REQ-USER-004 and REQ-USER-005 — sync\n- ADDED REQ-USER-006; REQ-USER-007 — reports\n' +
+            '- ADDED REQ-USER-008 to REQ-USER-009 — audit\n- ADDED REQ-USER-010–012 — archive\n- ADDED REQ-USER-013..REQ-USER-014 — restore\n- ADDED REQ-USER-015 - REQ-USER-016 purge\n',
+        ),
+      },
+      (r) => {
+        const missed = ['REQ-USER-002,', 'REQ-USER-004 and', 'REQ-USER-006;', 'REQ-USER-008 to', 'REQ-USER-010–012', 'REQ-USER-013..', 'REQ-USER-015 -'].filter(
+          (l) => !new RegExp(`"- ADDED ${l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*" names more than one id`).test(r.out),
+        );
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  // A line written as a delta starts with its verb; a verb later in a line is
+  // prose about one, a note need not be a delta, and a separator alone starts
+  // the text. Held as a SHIPPED change, so the check that refuses runs.
+  check('in a SHIPPED change, prose, notes, quotes, fences and an id in the text are not deltas', () =>
+    withBranch(
+      { 'specs/user.md': twoReqs },
+      {
+        'specflow/archive/tidy/spec.md': shippedWith(
+          '> What this change does to `specs/`.\n' +
+            '- CHANGED REQ-USER-001 (wording), tense fixed\n' +
+            '- CHANGED REQ-USER-002 (wording) — REQ-USER-001 says the rest\n' +
+            '  - Changed from the old phrasing, which read as two claims\n' +
+            '- ADDED REQ-USER-004 — the new flow\n' +
+            '  which replaces what the REMOVED REQ-USER-001 did\n' +
+            '- Added a note to the README\n' +
+            '- Changed: none\n' +
+            '> Note: the ADDED REQ-USER-002 is behind a flag.\n' +
+            '```\n- ADDED REQ-USER-099 — an example, not a delta\n| ADDED | REQ-USER-098 |\n```\n',
+        ),
+      },
+      (r) => {
+        if (/which no delta line|more than one id|REQ-USER-09[89]/.test(r.out)) return `a line that is not a delta was refused: ${r.out}`;
+        return /REQ-USER-004 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch with its deltas under another heading, or outside the section, is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/capital/spec.md': '# Spec — a\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement Deltas\n- ADDED REQ-USER-002 — export\n',
+        'specflow/archive/deeper/spec.md': '# Spec — b\n\n**Status:** SHIPPED 2026-10-17\n\n### Requirement deltas\n- ADDED REQ-USER-003 — import\n',
+        'specflow/archive/openspec/spec.md': '# Spec — c\n\n**Status:** SHIPPED 2026-10-17\n\n## ADDED Requirements\n### REQ-USER-004 — sync\n',
+        'specflow/archive/elsewhere/spec.md': '# Spec — d\n\n**Status:** SHIPPED 2026-10-17\n\n## Deltas\n- ADDED REQ-USER-005 — audit\n',
+      },
+      (r) => {
+        const missed = [
+          ['capital', 'has "## Requirement Deltas"'],
+          ['deeper', 'has "### Requirement deltas"'],
+          ['openspec', 'declares a delta outside `## Requirement deltas` ("## ADDED Requirements")'],
+          ['elsewhere', 'declares a delta outside `## Requirement deltas` ("- ADDED REQ-USER-005'],
+        ].filter(([slug, said]) => !r.out.includes(`specflow/archive/${slug}/spec.md ${said}`));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.map(([s]) => s).join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a SHIPPED change's example in a code fence declares nothing", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/infra/spec.md': shippedWith('- none — infrastructure only\n```\n- ADDED REQ-USER-099 — an example, not a delta\n```\n') },
+      (r) => (r.status === 0 ? null : `an example in a fence was held as a delta: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED change of this branch naming a second id after a space, or a second number, is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': shippedWith('- ADDED REQ-USER-002 REQ-USER-003 — export and import\n- ADDED REQ-USER-004, 005 — sync\n- ADDED REQ-USER-006 to 007 — reports\n') },
+      (r) => {
+        const missed = ['REQ-USER-002 REQ-USER-003', 'REQ-USER-004, 005', 'REQ-USER-006 to 007'].filter((l) => !r.out.includes(`"- ADDED ${l} — `) || !new RegExp(`"- ADDED ${l}[^"]*" names more than one id`).test(r.out));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch with its verb after the id, another bullet, a quote or another verb is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/add/spec.md': shippedWith(
+          '| REQ-USER-002 | Export to CSV | ADDED |\n- REQ-USER-003 ADDED — export\n– ADDED REQ-USER-004 — an en dash\n> - ADDED REQ-USER-005 — quoted\n' +
+            '- MODIFIED REQ-USER-001 — now also PDF\n- DELETED REQ-USER-001 — gone\n',
+        ),
+      },
+      (r) => {
+        const missed = ['Export to CSV | ADDED |', 'REQ-USER-003 ADDED — export', 'an en dash', 'quoted', 'now also PDF', 'gone'].filter((w) => !r.out.includes(`${w}" names REQ-USER-`));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  check("a SHIPPED change's comment, nested fence or indented example declares nothing", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/infra/spec.md': shippedWith(
+          '- none — infrastructure only\n<!--\n- ADDED REQ-USER-003 — dropped\n-->\n````md\n```\n- ADDED REQ-USER-099 — an example\n```\n````\n' +
+            '~~~\n```\n- ADDED REQ-USER-098 — an example\n```\n~~~\n\nFor example:\n\n    - ADDED REQ-USER-097 — an example\n',
+        ),
+      },
+      (r) => (r.status === 0 ? null : `an example was held as a delta: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED change of this branch with a fence never closed, or lines ended by CR alone, is still held', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/open/spec.md': shippedWith('```\n- ADDED REQ-USER-002 — export\n'),
+        'specflow/archive/cr/spec.md': shippedWith('- ADDED REQ-USER-003 — import\n').replace(/\n/g, '\r'),
+      },
+      (r) =>
+        r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/open/.test(r.out) && /REQ-USER-003 is ADDED by specflow\/archive\/cr/.test(r.out)
+          ? null
+          : `a delta went unread: ${r.out}`,
+    ),
+  ),
+
+  // Outside the section, a word in capitals that names no id is not a delta:
+  // a cart, a sync engine or an audit log names exactly these states.
+  check('outside its deltas, a SHIPPED change may lead a line with a word in capitals', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/cart/spec.md':
+          '# Spec — cart\n\n**Status:** SHIPPED 2026-10-17\n\n## Non-functional / constraints\n- `REMOVED` items never reappear after a sync\n\n## Notes\nADDED in response to issue #12.\n\n' +
+          '## Requirement deltas\n- ADDED REQ-USER-002 — the cart syncs\n',
+      },
+      (r) => {
+        if (/outside `## Requirement deltas`/.test(r.out)) return `a constraint was refused as a delta: ${r.out}`;
+        return /REQ-USER-002 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a SHIPPED change of this branch that names an id and has no deltas section is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': '# Spec — add\n\n**Status:** SHIPPED 2026-10-17\n\nThe user can export their data (REQ-USER-002).\n' },
+      (r) => (r.status !== 0 && /specflow\/archive\/add\/spec\.md has no `## Requirement deltas` section/.test(r.out) ? null : `a SHIPPED change with no deltas section passed: ${r.out}`),
+    ),
+  ),
+
+  // An id is what a check binds: a line naming one that no delta reads is
+  // refused, whatever case its verb is in.
+  check('a SHIPPED change of this branch with a table row in title case beside a delta is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': shippedWith('- ADDED REQ-USER-001 — import\n| REQ-USER-002 | Added | export to CSV |\n| added | REQ-USER-003 | sync |\n') },
+      (r) =>
+        r.status !== 0 && /"\| REQ-USER-002 \| Added \| export to CSV \|" names REQ-USER-002/.test(r.out) && /"\| added \| REQ-USER-003 \| sync \|" names REQ-USER-003/.test(r.out)
+          ? null
+          : `a row naming an id no delta reads passed: ${r.out}`,
+    ),
+  ),
+
+  check('a SHIPPED change whose delta text quotes a comment marker hides no delta', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/html/spec.md': shippedWith('- ADDED REQ-USER-001 — strips `<!--` from names\n- ADDED REQ-USER-002 — export\n- ADDED REQ-USER-003 — strips `-->` too\n') },
+      (r) =>
+        r.status !== 0 && /REQ-USER-002 is ADDED by specflow\/archive\/html/.test(r.out) && /REQ-USER-003 is ADDED by specflow\/archive\/html/.test(r.out)
+          ? null
+          : `deltas between two quoted comment markers went unread: ${r.out}`,
+    ),
+  ),
+
+  // Correct specs a verb-guessing grammar refused: an HTTP method or a state
+  // beside an id, CRUD headings, a number starting a delta's text. Held as a
+  // SHIPPED change with a drift, so the check that would refuse them runs.
+  check('in a SHIPPED change, HTTP words, CRUD headings and numbers in the text are not deltas', () =>
+    withBranch(
+      { 'specs/user.md': twoReqs },
+      {
+        'specflow/archive/api/spec.md':
+          '# Spec — api\n\n**Status:** SHIPPED 2026-10-17\n\n## Constraints\n| /users/:id | DELETE | REQ-USER-001 |\n- REQ-USER-001 (deleted users are hidden) is unchanged\n\n' +
+          '## Requirement deltas\n### Update\n- ADDED REQ-USER-002 - 404 or 410 for a deleted user\n  - REQ-USER-002 DELETE /users/:id answers 204\n  - UPDATE statements run in one transaction\n' +
+          '### Delete\n- ADDED REQ-USER-009 — the check runs\n',
+      },
+      (r) => {
+        if (/which no delta line|more than one id|outside `## Requirement deltas`/.test(r.out)) return `a correct line was refused: ${r.out}`;
+        return /REQ-USER-009 is ADDED by/.test(r.out) && !/REQ-USER-002 is ADDED by/.test(r.out) ? null : `the check that refuses never ran, so this proves nothing: ${r.out}`;
+      },
+    ),
+  ),
+
+  // An id numbered past 9 as `REQ-USER-10` is no id: copied into specs/ and a
+  // test, it binds nothing and every gate says all is proven.
+  check('a SHIPPED change of this branch with a malformed id in a delta line is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/add/spec.md': shippedWith('- ADDED REQ-USER-001 — import\n- ADDED REQ-USER-10 — export to CSV\n') },
+      (r) => (r.status !== 0 && /"- ADDED REQ-USER-10 — export to CSV" names REQ-USER-10, which no check reads as an id/.test(r.out) ? null : `a malformed id passed: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED change whose delta text starts with a dash and names another id holds one delta', () =>
+    withBranch(
+      { 'specs/user.md': twoReqs, '.spec-flow/config.json': contract('tests/user.test.ts::REQ-USER-001 a', 'tests/user.test.ts::REQ-USER-002 b') },
+      { 'specflow/archive/drop/spec.md': shippedWith('- REMOVED REQ-USER-003 – superseded by REQ-USER-002\n') },
+      (r) => (r.status === 0 ? null : `a delta whose text names an id after a dash was refused: ${r.out}`),
+    ),
+  ),
+
+  check('a SHIPPED fix brief that says it has no delta in other words passes', () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      { 'specflow/archive/fix-thing/spec.md': '# Fix — thing\n\n**Status:** SHIPPED 2026-10-17\n\n## Case\n2 WEAK-TEST\n\n## Requirement deltas\nNo change — REQ-USER-001 is right; its test missed a case\n' },
+      (r) => (r.status === 0 ? null : `a section that says it has no delta was refused: ${r.out}`),
+    ),
+  ),
+
+  // A run signed off before a spelling was refused builds on; its fold is held to it.
+  check('a live spec with a delta the engine does not read does not fail a milestone gate', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/add-io/spec.md': '# Spec — add io\n\n## Requirement deltas\n- ADDED REQ-USER-002, REQ-USER-003 — export and import\n- **ADDED** REQ-USER-004 — sync\n',
+        'specflow/add-io/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a milestone gate failed over a spelling its run was signed off with: ${r.out}`),
+    ),
+  ),
+
+  // Ids are permanent: what a later change removed stays removed, inherited or not.
+  check('an id an inherited change REMOVED later is retired, not missing', () =>
+    withBranch(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export'),
+        'specflow/archive/drop/spec.md': shippedSpec('REMOVED REQ-USER-002 — export is gone'),
+      },
+      { 'specflow/archive/old/spec.md': shippedSpec('ADDED REQ-USER-002 — the user can export their data') },
+      (r) => (r.status === 0 ? null : `a requirement a shipped change removed was reported missing: ${r.out}`),
+    ),
+  ),
+
+  check('an ADDED id an archived change retired in another spelling is a reused id', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/old/spec.md': shippedWith('- REMOVED REQ-USER-003, REQ-USER-004 — both gone\n') },
+      {
+        'specflow/again/spec.md': '# Spec — again\n\n## Requirement deltas\n- ADDED REQ-USER-004 — back again\n',
+        'specflow/again/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status !== 0 && /ADDs REQ-USER-004, which this spec or a shipped change REMOVED/.test(r.out) ? null : `a retired id was given to a new requirement: ${r.out}`),
+    ),
+  ),
+
+  // ---- a change has a folder of its own in the archive -----------------------
+  //
+  // The fold moves specflow/<slug>/ to specflow/archive/<slug>/. Onto a folder
+  // the archive already has, it lands inside that change, where no archive
+  // check reads it.
+  // A name the archive gains mid-run (a merge from the base) cannot be fixed by
+  // renaming a live folder that state, resume and the telemetry name: it is
+  // refused at spec time, and a fold onto it is caught as a nested folder.
+  check('a live change named like an archived one is not failed at a milestone gate', () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/fix-login/spec.md': '# Spec — fix login again\n\n## Requirement deltas\n- none\n',
+        'specflow/fix-login/proposal.md': '# Proposal\n\nWhy.\n',
+      },
+      (r) => (r.status === 0 ? null : `a milestone gate failed over a clash its run cannot rename its way out of: ${r.out}`),
+    ),
+  ),
+
+  check("a change folded inside another change's archive folder is reported", () =>
+    withBranch(
+      { 'specs/user.md': spec() },
+      {
+        'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — x\n',
+      },
+      (r) => {
+        if (r.status === 0) return `a change nested where no archive check reads it passed: ${r.out}`;
+        return /specflow\/archive\/fix-login\/fix-login\/ holds a change spec inside another change's folder/.test(r.out) ? null : `the failure does not name the nested folder: ${r.out}`;
+      },
+    ),
+  ),
+
+  check('a folder nested inside an archived change the base already had is not held here', () =>
+    withBranch(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/old/spec.md': '# Spec — old\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/archive/old/old/spec.md': '# Spec — old again\n\n**Status:** SHIPPED 2026-08-01\n\n## Requirement deltas\n- none\n',
+      },
+      { 'README.md': 'unrelated\n' },
+      (r) => (r.status === 0 ? null : `this branch was blocked over a fold it inherited: ${r.out}`),
+    ),
+  ),
+
+  check('a folder this branch nested inside an archived change the base had is reported', () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n' },
+      { 'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- none\n' },
+      (r) => (r.status !== 0 && /fix-login\/fix-login\/ holds a change spec/.test(r.out) ? null : `a fold this branch made inside another change passed: ${r.out}`),
+    ),
+  ),
+
+  // A fold an earlier run nested is that run's: said until this run's fold.
+  check("before the fold, a fold an earlier run of this branch nested is said, not failed", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/fix-login/spec.md': '# Fix — login\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n' },
+      [{ 'specflow/archive/fix-login/fix-login/spec.md': '# Fix — login again\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- none\n' }, twoRuns[1]],
+      (r) => {
+        if (r.status !== 0) return `run two's milestone gate failed over run one's fold: ${r.out}`;
+        return /held from the fold's gate on.*fix-login\/fix-login\/ holds a change spec/s.test(r.out) ? null : `the nested fold went unsaid: ${r.out}`;
+      },
+      { state: { phase: 'implement' } },
+    ),
+  ),
+
+  // The base's own change is still the base's when this branch nests a fold in it.
+  check("a fold nested inside the base's change does not make that change this branch's", () =>
+    withBranch(
+      { 'specs/user.md': spec(), 'specflow/archive/foo/spec.md': shippedSpec('ADDED REQ-USER-005 — drift from before') },
+      { 'specflow/archive/foo/foo/spec.md': '# Spec — foo again\n\n**Status:** REJECTED 2026-10-17\n\n## Requirement deltas\n- none\n' },
+      (r) => {
+        if (/REQ-USER-005/.test(r.out)) return `the base's change was blamed on this branch: ${r.out}`;
+        return /foo\/foo\/ holds a change spec/.test(r.out) ? null : `the nested fold was not reported: ${r.out}`;
+      },
+    ),
+  ),
+
+  // Only where a filesystem tells the two apart can both be written to test it.
+  check('two archived folders a case apart are reported, unless both are the base\'s', () => {
+    const probe = mkdtempSync(join(tmpdir(), 'spec-trace-case-'));
+    writeFileSync(join(probe, 'Aa'), '');
+    const folds = existsSync(join(probe, 'aA'));
+    rmSync(probe, { recursive: true, force: true });
+    if (folds) return null;
+    const archivedAs = (name) => ({ [`specflow/archive/${name}/spec.md`]: `# Fix — ${name}\n\n**Status:** REJECTED 2026-07-30\n\n## Requirement deltas\n- none\n` });
+    return Promise.all([
+      withBranch({ 'specs/user.md': spec(), ...archivedAs('Fix-Login') }, archivedAs('fix-login'), (r) =>
+        r.status !== 0 && /specflow\/archive\/Fix-Login\/ and specflow\/archive\/fix-login\/ differ only in case/.test(r.out) ? null : `a case-variant fold of this branch passed: ${r.out}`,
+      ),
+      withBranch({ 'specs/user.md': spec(), ...archivedAs('Fix-Login'), ...archivedAs('fix-login') }, { 'README.md': 'unrelated\n' }, (r) =>
+        r.status === 0 ? null : `this branch was blocked over a pair it inherited: ${r.out}`,
+      ),
+    ]).then((found) => found.filter(Boolean).join('\n') || null);
+  }),
+
+  check("an archived change's own milestones and telemetry are not changes", () =>
+    withRepo(
+      {
+        'specs/user.md': spec(),
+        'specflow/archive/add-users/spec.md': '# Spec — add users\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n',
+        'specflow/archive/add-users/milestones/M1.md': '# M1\n',
+        'specflow/archive/add-users/telemetry/run-trace.log': 'x\n',
+      },
+      (r) => (r.status === 0 ? null : `a change's own files were read as a nested change: ${r.out}`),
     ),
   ),
 
@@ -800,6 +1521,57 @@ await Promise.all([
       },
     ),
   ),
+
+  check('a heading shaped like a requirement and not read as one is reported', () =>
+    withRepo(
+      { 'specs/user.md': `${spec()}\n### REQ-USER-10 — export to CSV\n\nThe system exports.\n\n#### REQ-USER-011 — import\n\nThe system imports.\n` },
+      (r) => {
+        const missed = ['### REQ-USER-10 — export to CSV', '#### REQ-USER-011 — import'].filter((h) => !r.out.includes(`"${h}" is no requirement the engine reads`));
+        return r.status !== 0 && missed.length === 0 ? null : `not reported: ${missed.join(', ')}. ${r.out}`;
+      },
+    ),
+  ),
+
+  // A sub-heading under a requirement, a capability named like `Req-to-Pay`
+  // and an example in a fence are no requirement anyone misspelled.
+  check('a sub-heading naming a declared id, a word like req-, and a fenced example are not reported', () =>
+    withRepo(
+      { 'specs/user.md': `${spec()}\n#### REQ-USER-001 — examples\n\nGiven a user.\n\n## Req-to-Pay\n\nThe flow.\n\n\`\`\`\n### REQ-USER-10 — not like this\n\`\`\`\n` },
+      (r) => (r.status === 0 ? null : `a correct capability spec was refused: ${r.out}`),
+    ),
+  ),
+
+  // ADR-048: a heading the base already has was judged on its own branch, and
+  // renumbering it is a spec call. Failed here, it sent every gate of a run to
+  // an implementer whose milestone did not write it.
+  check('a malformed requirement heading the base branch already has is said, not failed', () =>
+    withBranch(
+      { 'specs/user.md': `${spec()}\n### REQ-USER-10 — legacy export\n\nThe system exports.\n` },
+      { 'README.md': 'unrelated\n' },
+      (r) => {
+        if (r.status !== 0) return `this branch was blocked over a heading it inherited: ${r.out}`;
+        return /not failed — the base branch already has it.*"### REQ-USER-10 — legacy export"/.test(r.out) ? null : `the inherited heading went unsaid: ${r.out}`;
+      },
+      { under: 'pkg' },
+    ),
+  ),
+
+  check('a malformed requirement heading this branch writes or rewrites fails, beside one it inherited', () => {
+    const legacy = `${spec()}\n### REQ-USER-10 — legacy export\n\nThe system exports.\n\n### REQ-USER-20 — legacy import\n\nThe system imports.\n`;
+    const renamed = legacy.replace('legacy import', 'legacy import, renamed');
+    return withBranch(
+      { 'specs/user.md': legacy },
+      { 'specs/user.md': renamed },
+      (r) => {
+        if (r.status === 0) return `headings this branch wrote passed: ${r.out}`;
+        const unnamed = ['"### REQ-USER-20 — legacy import, renamed"', '"#### REQ-USER-011 — sync"'].filter((h) => !r.out.includes(`${h} is no requirement`));
+        if (unnamed.length > 0) return `not reported: ${unnamed.join(', ')}. ${r.out}`;
+        const inherited = r.out.split('\n').filter((l) => l.includes('"### REQ-USER-10 — legacy export"'));
+        return inherited.length > 0 && inherited.every((l) => l.includes('not failed')) ? null : `the inherited heading was failed with them: ${r.out}`;
+      },
+      { uncommitted: { 'specs/user.md': `${renamed}\n#### REQ-USER-011 — sync\n\nThe system syncs.\n` } },
+    );
+  }),
 
   check('a requirement heading parses with an em dash, a hyphen or a colon', () =>
     withRepo(
@@ -1162,9 +1934,9 @@ await Promise.all([
   // rule. Re-stamping history to satisfy a check written later would rewrite
   // the record this engine keeps in order to be able to read it.
   check('an archived change keeps its bare CHANGED', () =>
-    withRepo(
+    withBranch(
+      { 'specs/user.md': spec() },
       {
-        'specs/user.md': spec(),
         'specflow/archive/old/spec.md':
           '# Spec — old\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — from before this rule\n',
         'specflow/archive/old/proposal.md': '# Proposal\n\nWhy.\n',

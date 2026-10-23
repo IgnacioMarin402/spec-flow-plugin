@@ -100,7 +100,8 @@ export function phaseOwnerPath(root = projectDir()) {
  * this flow's agents (ADR-040), and the traces the turn that wrote `done`
  * (ADR-043).
  */
-const ARMING = new Set(['spec', 'plan', 'review', 'implement', 'blocked']);
+export const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
+const ARMING = new Set(RUN_PHASES);
 
 /** The path as git spells it, for a pathspec: `join` would use `\` on Windows. */
 const PHASE_PATHSPEC = '.claude/state/phase';

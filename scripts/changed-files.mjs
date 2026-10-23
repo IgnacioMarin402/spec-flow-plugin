@@ -20,7 +20,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, realpathSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 function git(root, args, extra = {}) {
   return spawnSync('git', args, { cwd: root, encoding: 'utf8', ...extra });
@@ -129,6 +129,12 @@ function mergeBase(root, ref) {
   return res.status === 0 ? res.stdout.trim() : null;
 }
 
+// Declaring the base does not help here: the clone holds no branch or history
+// to find it in, and `--unshallow` alone fetches only the branch a
+// single-branch clone tracks.
+const SHALLOW =
+  "A shallow or single-branch clone holds no base, declared or not: fetch it first — `fetch-depth: 0` on actions/checkout; elsewhere `git fetch origin '+refs/heads/*:refs/remotes/origin/*'`, with `--unshallow` in a shallow clone.";
+
 /**
  * The commit this branch is judged against.
  *
@@ -164,8 +170,8 @@ export function resolveBase(root, config = undefined) {
     if (base) return base;
     throw new Error(
       `the contract declares verify.base_ref "${declared}", and git cannot resolve a merge-base between it and HEAD. ` +
-        `Either the ref does not exist in this clone (a shallow or single-branch fetch is the usual cause) or the name is wrong. ` +
-        `Refusing to fall back: a base this engine cannot resolve produces an EMPTY changed-file list, which reads as "nothing to check" rather than "I do not know what to check".`,
+        `Either the ref does not exist in this clone or the name is wrong. ${SHALLOW} ` +
+        `Refusing to fall back: with no base, nothing tells what this branch changed, and a check scoped to it reads "nothing to check" rather than "I do not know what to check".`,
     );
   }
 
@@ -182,8 +188,8 @@ export function resolveBase(root, config = undefined) {
 
   throw new Error(
     `no base branch could be resolved for this repo. Tried the contract's verify.base_ref (not set), refs/remotes/origin/HEAD (absent or unresolvable), and ${BASE_CANDIDATES.join(', ')}. ` +
-      `Declare the branch this work is judged against as "base_ref" under "verify" in .spec-flow/config.json — e.g. "base_ref": "origin/trunk". ` +
-      `This is a refusal to run, not a failed milestone: with no base, the changed-file list is empty for reasons that have nothing to do with the code, and every scoped check would report clean without ever running.`,
+      `Declare the branch this work is judged against as "base_ref" under "verify" in .spec-flow/config.json — e.g. "base_ref": "origin/trunk". ${SHALLOW} ` +
+      `This is a refusal to run, not a failed milestone: with no base, nothing tells what this branch changed, and every check scoped to it would report clean without ever running.`,
   );
 }
 
@@ -197,10 +203,67 @@ export function resolveBase(root, config = undefined) {
 export function changesAtBase(root, base) {
   const dir = join(root, 'specflow');
   if (!existsSync(dir)) return [];
-  const atBase = git(root, ['ls-tree', '-d', '--name-only', `${base}:specflow`]);
+  // -z: names unquoted, as readdirSync spells them; git quotes a non-ASCII one.
+  const atBase = git(root, ['ls-tree', '-d', '-z', '--name-only', `${base}:specflow`]);
   if (atBase.status !== 0) return []; // no specflow/ at the base
-  const there = new Set(atBase.stdout.split('\n').map((s) => s.trim()));
+  const there = new Set(atBase.stdout.split('\0'));
   return readdirSync(dir).filter((e) => e !== 'archive' && there.has(e) && statSync(join(dir, e)).isDirectory());
+}
+
+// Every change spec under `specflow/`, live, archived or nested in an archived
+// change: `:(glob)` so `**` alone crosses `/`.
+const CHANGE_SPECS = ':(glob)specflow/**/spec.md';
+
+/**
+ * The change specs `base` holds, as paths from `specflow/`: `<slug>/spec.md`,
+ * `archive/<slug>/spec.md`, `archive/<slug>/<entry>/spec.md`. What was there
+ * before this branch was written by no run of it (ADR-032, ADR-048).
+ */
+export function specsAtBase(root, base) {
+  // `./` with --full-tree reads the path from `root`, which spec-trace does not
+  // require to be the repository's top; -z leaves names unquoted.
+  const listed = git(root, ['ls-tree', '--full-tree', '-r', '-z', '--name-only', `${base}:./specflow`], { maxBuffer: 64 << 20 });
+  if (listed.status !== 0) return new Set(); // no specflow/ at the base
+  return new Set(listed.stdout.split('\0').filter((p) => p === 'spec.md' || p.endsWith('/spec.md')));
+}
+
+/**
+ * A file as `base` holds it, by its path from `root`; '' when the base has no
+ * such file.
+ */
+export function fileAtBase(root, base, rel) {
+  // `./` reads the path from `root`, which spec-trace does not require to be the repository's top.
+  const shown = git(root, ['show', `${base}:./${rel.split(sep).join('/')}`], { maxBuffer: 64 << 20 });
+  return shown.status === 0 ? shown.stdout : '';
+}
+
+/**
+ * The change specs this branch wrote since `base`, as paths from `root`, each
+ * with the place of the first commit that did, oldest 0 — a spec written and
+ * not yet committed, `Infinity`: the newest. One `git log`, read in commit
+ * order, for which run a change is: one archived before a live change was
+ * created belongs to an earlier run (ADR-048).
+ */
+export function branchWrites(root, base) {
+  const written = new Map();
+  const log = git(
+    root,
+    ['log', '--reverse', '--topo-order', '--no-renames', '--diff-filter=AM', '--format=%x00%H', '--name-only', '-z', '--relative', `${base}..HEAD`, '--', CHANGE_SPECS],
+    { maxBuffer: 64 << 20 },
+  );
+  if (log.status === 0) {
+    let commit = -1;
+    let previous = '';
+    for (const token of log.stdout.split('\0')) {
+      const path = token.replace(/^\n/, '');
+      if (previous === '' && /^[0-9a-f]{40,64}$/.test(token)) commit++;
+      else if (path && !written.has(path)) written.set(path, commit);
+      previous = token;
+    }
+  }
+  const uncommitted = git(root, ['diff', '--name-only', '-z', '--relative', '--no-renames', '--diff-filter=AM', 'HEAD', '--', CHANGE_SPECS]);
+  if (uncommitted.status === 0) for (const path of uncommitted.stdout.split('\0')) if (path && !written.has(path)) written.set(path, Infinity);
+  return written;
 }
 
 /**

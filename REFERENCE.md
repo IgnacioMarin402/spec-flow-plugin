@@ -133,14 +133,34 @@ The system sends a single-use link, valid for one hour.
 - The id prefix comes from the filename: `specs/user-profile.md` declares
   `REQ-USER-PROFILE-`.
 - Exactly three digits. Ids are permanent — never renumbered or reused.
-- The scope marker is required. Requirements are `###` headings, id first.
+- The scope marker is required. Requirements are `###` headings, id first; a
+  heading shaped like one and not read as one (`### REQ-USER-10`) fails on the
+  branch that writes it. One the base branch already has is said, not failed.
 
 ### Declaring a delta
 
 A change spec declares what it does to `specs/`. `ADDED` fails when the new id
 has no test that ran; `REMOVED` fails when a test still reports an id no spec
-declares. A claim that appears, disappears or changes is `REMOVED` + `ADDED` on
-a new id. `CHANGED` is only for edits that move no proof, and names which
+declares. Once a change of this branch is stamped SHIPPED, an `ADDED` id it
+never wrote into `specs/` fails unless a change `REMOVED` it, and so does a
+`REMOVED` id still there; during a run, from its fold on. Each archived change
+has a folder of its own: one folded inside another, or beside one a case apart,
+fails ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)).
+
+A delta is one line under `## Requirement deltas`, `- VERB REQ-<CAP>-0NN —
+<text>`: `ADDED`, `CHANGED` or `REMOVED` in capitals, and one id. Every other
+line of the section names only ids a delta line reads; a delta's own text, and
+`- none`'s, may name any id, but not after a verb in capitals; the text starts
+at ` — `, a colon, a parenthesis, or a dash before a word. A line naming
+another id — a table row, a heading, a note, a delta spelled another way — a
+second id or number before a delta's text, an id spelled another way
+(`REQ-USER-10`), a line led by `ADDED`, `CHANGED` or `REMOVED` that is no
+delta, deltas under another heading, and a section with neither a delta nor a
+`none` line are refused when the spec leaves `spec`, and in a SHIPPED change of
+this branch that names an id; never at a milestone gate. Code, and an HTML
+comment that starts a line, are not read. A claim that appears, disappears or
+changes is `REMOVED` + `ADDED` on a new id.
+`CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 
 ```markdown
@@ -213,13 +233,20 @@ Resolved in order: `verify.base_ref`, `refs/remotes/origin/HEAD`, then
 `origin/main`, `main`, `origin/master`, `master`, `origin/develop`, `develop`,
 `origin/trunk`, `trunk`.
 
-None resolves → `preflight` refuses the run, and the gate blocks one already
-underway. Resolves to **HEAD itself** → only the gate blocks (a fresh feature
-branch sits at its base until its first commit, so `preflight` cannot tell).
+None resolves → `preflight` refuses the run, the gate blocks one already
+underway, and `spec-trace` fails over an archived change it cannot tell as
+this branch's or inherited, so `spec-flow trace` in CI needs the base once a
+change is SHIPPED with an id. Resolves to **HEAD itself** → only the gate
+blocks (a fresh feature branch sits at its base until its first commit, so
+`preflight` cannot tell), and `spec-trace` reads every archived change as
+inherited.
 There is no fallback: comparing HEAD with itself is indistinguishable from
-"nothing changed". Declare `base_ref` for a release branch, a fork, or a
-shallow CI checkout. Both refusals write `fail:base`; `files=-` means the base
-could not be named, `files=0` means it resolved to HEAD.
+"nothing changed". Declare `base_ref` for a release branch or a fork. A shallow
+or single-branch clone holds no base, declared or not: check out with
+`fetch-depth: 0`, or run `git fetch origin '+refs/heads/*:refs/remotes/origin/*'`,
+with `--unshallow` in a shallow clone. Both refusals write `fail:base`;
+`files=-` means the base could not be named, `files=0` means it resolved to
+HEAD.
 
 ---
 
@@ -285,6 +312,8 @@ Code falls through to the git SHA and every push to `main` is an update
 **Installed** → **Update now**; a session keeps what it loaded until
 `/reload-plugins` or the next launch. `claude plugin marketplace update` without
 a name refreshes the listing and leaves the installed plugin where it is.
+An update reaches a run in flight: a check added since can fail its next gate
+or its fold.
 
 Background auto-update is off by default for third-party marketplaces. Once on,
 it runs once per interactive session, within ten minutes of the first message,
@@ -492,8 +521,10 @@ armed.
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
   `plan`, `review` or `implement` written from `spec` is denied while a live
   spec with no plan yet has no `## Assumptions` (a `/spec-fix` brief needs
-  none) or fails a check spec-trace makes of live changes. `arm-gate` holds
-  the implementer spawn that would leave `spec` to the same check
+  none), writes a delta no check reads, has the name of an archived change in
+  any case — its fold would land inside that change — or fails a check
+  spec-trace makes of live changes. `arm-gate` holds the implementer spawn
+  that would leave `spec` to the same check
   ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)).
 - **A case 3 waits for a person's answer**
   ([ADR-036](decisions/036-a-case-3-waits-for-a-persons-answer.md)). While a
@@ -528,7 +559,7 @@ Gitignored working files; delete one to reset that piece of state.
 |---|---|
 | `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
-| `current-milestone` | `<SLUG> <Mk> <implementer session>`, written at each implementer spawn; where `resume` positions the run |
+| `current-milestone` | `<SLUG> <Mk> [<implementer session>]`, written at each implementer spawn whose prompt names `specflow/<SLUG>/milestones/<Mk>.md`, the session when the spawn names one; where `resume` positions the run |
 | `opus_calls` / `architect_calls` | Planner calls / architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |

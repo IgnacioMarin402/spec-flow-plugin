@@ -26,7 +26,7 @@
  */
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, phasePath, readPhase, releasePhase, readFileOrDefault, writeFile, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, phasePath, readPhase, releasePhase, readFileOrDefault, writeFile, readPayload, run, RUN_PHASES } from './lib/io.mjs';
 
 const STALE_HOURS = 6;
 
@@ -50,7 +50,7 @@ await run(async () => {
   // Every phase that arms anything — see this file's header for why `spec`,
   // `plan` and `review` stopped being exempt. `idle`, `done` and an
   // unrecognized value arm nothing, so there is nothing to reset.
-  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return;
+  if (!RUN_PHASES.includes(phase)) return;
 
   const ageHours = (Date.now() - statSync(phaseFile).mtimeMs) / 3_600_000;
   if (ageHours < STALE_HOURS) return;
