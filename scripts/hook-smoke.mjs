@@ -19,7 +19,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync, existsSy
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn as spawnAsync, spawnSync } from 'node:child_process';
 
 const ENGINE = process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
@@ -867,6 +867,45 @@ t('run-trace reads a report handed back through SubagentHandback, not the line a
   }
   return null;
 });
+
+// A stop with no last message whose handback line the transcript does not
+// hold yet: the shape 2.1.310 delivers, the line landing tens of ms after the
+// stop fires (ADR-050). A second process appends it while the hook runs.
+const lateHandback = (transcript, message, afterMs) => {
+  writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } })}\n`);
+  const line = `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'SubagentHandback', input: { message } }] } })}\n`;
+  spawnAsync(process.execPath, ['-e', `setTimeout(() => require('fs').appendFileSync(${JSON.stringify(transcript)}, ${JSON.stringify(line)}), ${afterMs})`], { stdio: 'ignore' });
+};
+
+t('run-trace and agent-gate read a handback written after the stop fires', (repo) => {
+  const forTrace = join(repo, 'agent-trace.jsonl');
+  lateHandback(forTrace, 'STATUS: APPROVED\nNOTES: none', 300);
+  const r = runHook('run-trace.mjs', subagentStop({ agent_id: 'late1', agent_transcript_path: forTrace }), repo);
+  if (r.status !== 0) return `run-trace exit ${r.status}: ${r.stderr}`;
+  if (!/agent type=spec-flow:reviewer status=APPROVED .*agent_id=late1/.test(traceText(repo))) {
+    return `run-trace lost a return that landed 300 ms after the stop: ${traceText(repo) || '(no trace)'}`;
+  }
+
+  const forGate = join(repo, 'agent-gate.jsonl');
+  lateHandback(forGate, 'STATUS: APPROVED\nNOTES: none', 300);
+  const g = runHook('agent-gate.mjs', subagentStop({ agent_id: 'late2', agent_transcript_path: forGate }), repo);
+  if (g.status !== 0) return `agent-gate exit ${g.status}: ${g.stderr}`;
+  if (/agent-check .*why=empty agent_id=late2/.test(traceText(repo))) return `agent-gate skipped a return that landed 300 ms after the stop: ${traceText(repo)}`;
+  return null;
+}, { phase: 'review' });
+
+t('a handback that never comes is waited on for a bounded time, then read as empty', (repo) => {
+  const transcript = join(repo, 'agent-none.jsonl');
+  writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } })}\n`);
+  const started = Date.now();
+  const r = runHook('run-trace.mjs', subagentStop({ agent_id: 'never', agent_transcript_path: transcript }), repo);
+  const took = Date.now() - started;
+  if (r.status !== 0) return `exit ${r.status}: ${r.stderr}`;
+  if (took > 5000) return `run-trace held a stop ${took} ms for a handback that never came`;
+  if (/agent type=/.test(traceText(repo))) return `a line was written with no status to put on it: ${traceText(repo)}`;
+  const miss = join(repo, '.claude/state/run-trace-unmatched.log');
+  return existsSync(miss) && readFileSync(miss, 'utf8').includes('"report":"empty"') ? null : 'the empty return left no record of its shape';
+}, { phase: 'review' });
 
 t('run-trace writes one line per agent — a resumed session stops again under the same id', (repo) => {
   runHook('run-trace.mjs', subagentStop({ last_assistant_message: 'STATUS: CHANGES_REQUESTED' }), repo);

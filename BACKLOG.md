@@ -205,33 +205,19 @@ payload carries for an expanded command and for an unknown one. **Done:** a
 `hook-smoke` case for the unexpanded prompt, and the README naming the form a
 headless run needs.
 
-### B63 — a subagent's return is read before it is written
-
-On 2.1.310 (headless, `a64bd7a`) the `SubagentStop` payload carries no
-`last_assistant_message` — `run-trace-unmatched.log` lists its keys — so
-`handedBack` reads the `SubagentHandback` call from the agent's transcript, and
-at that moment the line is not always there; every transcript held it
-afterwards. On one run of 8 agents, `run-trace` recorded 5 returns (the
-reviewer's `CHANGES_REQUESTED`, the planner's revision and the fold's `FOLDED`
-are missing) and `agent-gate` logged `skip why=empty` for 4. `specflow-stats`
-then printed `reviewer: 1 APPROVED`, the row ADR-039 says will show whether the
-reviewer earns its tier. **Done:** a fixture whose handback line lands after the
-hook's first read, red on `a64bd7a`; on a real run, every spawned agent's
-return recorded.
-
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody
 
 Each fixture pins a payload shape measured once on one build: `background_tasks`
 on `Stop` (ADR-023), `agent_id` on tool calls (ADR-034), cache lifetimes read
-off transcripts (ADR-025), `CLAUDE_CODE_SESSION_ATTENDED` (ADR-023), the
-handback (B63), how a command name resolves (B62). B63 is one that moved, and
-every fixture stayed green. **Candidate:** a scheduled job, off the push
-workflow whose checks need no network (ADR-019), that runs one real
-`/spec-flow` under `claude -p` on a frozen throwaway repo with a canned
-requirement and canned answers, and asserts the telemetry: every phase
+off transcripts (ADR-025), `CLAUDE_CODE_SESSION_ATTENDED` (ADR-023), when
+the handback lands (ADR-050), how a command name resolves (B62). ADR-050's is
+one that moved, and every fixture stayed green. **Candidate:** a scheduled
+job, off the push workflow whose checks need no network (ADR-019), that
+runs one real `/spec-flow` under `claude -p` on a frozen throwaway repo with a
+canned requirement and canned answers, and asserts the telemetry: every phase
 reached, every spawn's return recorded, no `*-unmatched.log` line. It needs a
-key in CI and costs a run. **Done:** the job, red on a build where B63
-reproduces.
+key in CI and costs a run. **Done:** the job, red on the engine at `9298d2d`
+on a build that writes the handback after the stop.
 
 ### B65 — a spec defect found after sign-off reaches no person before code
 
