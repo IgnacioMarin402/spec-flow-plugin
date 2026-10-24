@@ -163,12 +163,12 @@ function alreadyTraced(traceFile, agentId) {
  * stops again under the same id, and `specflow-stats.mjs` reads every
  * `agent type=` line as a fresh spawn.
  */
-function traceReturn(payload, traceFile, missLog) {
+async function traceReturn(payload, traceFile, missLog) {
   const type = String(payload.agent_type ?? '?').replace(/\s+/g, '-');
   const agentId = typeof payload.agent_id === 'string' && /^[\w-]+$/.test(payload.agent_id) ? payload.agent_id : '';
   if (agentId && alreadyTraced(traceFile, agentId)) return '';
 
-  const text = handedBack(payload);
+  const text = await handedBack(payload);
   // The agent gate reads the same status through the same function.
   const status = parseReturn(text)?.status;
   if (status) {
@@ -243,7 +243,7 @@ await run(async () => {
   if (phase === 'done') {
     line = `closed tool=${tool}`;
   } else if (payload.hook_event_name === 'SubagentStop') {
-    line = traceReturn(payload, traceFile, missLog);
+    line = await traceReturn(payload, traceFile, missLog);
   } else if (/^(Write|Edit|MultiEdit)$/.test(tool)) {
     // `*.ts` -> `.ts`: the trace matches a suffix, the contract declares a
     // glob. No contract read -> no suffix to match, so this event traces

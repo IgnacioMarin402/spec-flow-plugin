@@ -216,7 +216,7 @@ await run(async () => {
   const traceFile = join(stateDir(root), 'run-trace.log');
   const trace = existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '';
 
-  const text = handedBack(payload);
+  const text = await handedBack(payload);
   const ret = parseReturn(text);
   let problems = [];
   let skips = [];
