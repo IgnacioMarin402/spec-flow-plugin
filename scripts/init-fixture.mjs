@@ -378,6 +378,27 @@ await Promise.all([
     }),
   ),
 
+  // B68: a lint script that writes its own fixes became lint_no_fix as is, so
+  // `spec-flow check --no-fix` rewrote a file and printed OK.
+  check('a lint script that already fixes is never the report-only variant', async () => {
+    for (const lint of ['eslint --fix .', 'eslint . --fix']) {
+      const problem = await withRepo({ ...COMPLETE, scripts: { test: 'vitest run', lint } }, async (dir) => {
+        const res = await run([], dir);
+        const c = readContract(dir);
+        if (c.verify.lint_no_fix.includes('--fix')) return `"${lint}": lint_no_fix carries the autofix flag: ${c.verify.lint_no_fix.join(' ')}`;
+        if (!c.verify.lint.includes('--fix')) return `"${lint}": lint lost the autofix the repo declared: ${c.verify.lint.join(' ')}`;
+        for (const [field, argv] of [['lint', c.verify.lint], ['lint_no_fix', c.verify.lint_no_fix]]) {
+          if (argv.includes('.')) return `"${lint}": verify.${field} kept the target "." after a flag that takes no value: ${argv.join(' ')}`;
+        }
+        if (!/REVIEW\s+verify\.lint_no_fix — the "lint" script carries --fix/.test(res.stdout)) return `"${lint}": the dropped flag was not reported: ${res.stdout}`;
+        if (/no autofix script was declared/.test(res.stdout)) return `"${lint}": init says no autofix was declared over a script that carries one`;
+        return null;
+      });
+      if (problem) return problem;
+    }
+    return null;
+  }),
+
   check('dropping a target is reported, never silent', () =>
     withRepo(COMPLETE, async (dir) => {
       const res = await run([], dir);
