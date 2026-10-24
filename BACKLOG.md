@@ -183,8 +183,8 @@ records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
 - **A length budget on the README.** It would be one more check on prose, and
   the goal is less prose. Shape is reviewed by people.
 - **A database for parameters or state.** The contract is committed so that a
-  change to it shows in a diff, which is how B35 could be closed; the
-  preferences file holds caps and routes; `.claude/state/` is one-word files
+  change to it shows in a diff, the only record ADR-046 leaves of one made
+  mid-run; the preferences file holds caps and routes; `.claude/state/` is one-word files
   every hook reads and a person resets with `printf`, and append-only logs whose
   archive is committed as text. `node:sqlite` is experimental on Node 22, a
   floor CI runs (ADR-019): flagged below 22.13, a release candidate only from
