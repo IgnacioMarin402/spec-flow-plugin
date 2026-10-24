@@ -119,6 +119,40 @@ naming a commit on every gate line. Compared on gate attempts per milestone,
 architect calls, test-first and cost. **Done:** the result
 recorded in `decisions/`, whichever way it goes.
 
+### B60 — milestones in parallel, each on a branch of its own (opt-in)
+
+A run implements M1..Mn one after another on one branch, and the gate judges
+one tree: the project directory's HEAD, at the orchestrator's stop
+(`hooks/lib/io.mjs`). The planner already writes each milestone's `Depends on`,
+so those that depend on nothing pending could each run in a worktree on its own
+branch (`Agent` takes `isolation: "worktree"`). Opt-in, in
+`.claude/spec-flow.config.json`, since every milestone leaves a branch behind
+for `done` to delete. Kept local, the branches never reach the remote, and a
+cloud container takes an unmerged one with it. What stands in the way:
+
+- **Green apart is not green merged.** The merge is a commit no gate has
+  judged, and `done` needs a pass on the current commit (ADR-022), so it is
+  gated either way; a gate per branch is an earlier signal, not the verdict.
+- **The specs conflict.** A milestone writes its requirements into
+  `specs/<capability>.md` with its test; two branches that each append one to
+  the same file conflict on merge (probed in a scratch repo). Resolving it is
+  writing, which the orchestrator does not do (ADR-034): an implementer pass.
+- **The run's state is single:** `phase`, `gate_attempts`, and
+  `current-milestone`, which `resume` reads (ADR-024). Unmeasured: whether a
+  hook fired in a worktree agent reads the worktree or the project directory,
+  where `lint-on-write` and `no-gate-cmds` read the phase that arms them.
+- **It saves time, not tokens.** Each implementer starts cold either way, and
+  suites run side by side share ports, databases (B48) and the Stop hook's
+  1800 s.
+
+**Needs data first:** in real plans, how many milestones after M1 depend on
+none before them; a chain gains nothing. **Then a decision:** a gate per branch
+(the gate learns to judge a tree other than the project directory) or parallel
+implementers and one gate on the merge (the gate unchanged, a failure routed
+to the milestone whose files it names). **Done:** the ADR, and a gate-fixture
+case in which two branches green apart are red merged and the run does not
+reach `done`.
+
 ### B15 — model-graded checks
 
 `claude plugin eval` is in early access. On 2.1.246 `--help` prints the full
@@ -148,3 +182,11 @@ records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
   page, loaded every session; a skill would restate it.
 - **A length budget on the README.** It would be one more check on prose, and
   the goal is less prose. Shape is reviewed by people.
+- **A database for parameters or state.** The contract is committed so that a
+  change to it shows in a diff, the only record ADR-046 leaves of one made
+  mid-run; the preferences file holds caps and routes; `.claude/state/` is one-word files
+  every hook reads and a person resets with `printf`, and append-only logs whose
+  archive is committed as text. `node:sqlite` is experimental on Node 22, a
+  floor CI runs (ADR-019): flagged below 22.13, a release candidate only from
+  24.15. A native package breaks "the plugin is the whole install". What weighs
+  is how many keys there are, not where they live: B39.
