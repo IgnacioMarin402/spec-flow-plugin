@@ -171,7 +171,7 @@ Two of four were wrong and were corrected by hand. Checking them needs
 `fetch-depth: 0` in CI — slower on every job — to guard four frozen records;
 records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
 
-### B60 — `init` copies the repo's `--fix` into `lint_no_fix`
+### B68 — `init` copies the repo's `--fix` into `lint_no_fix`
 
 A `lint` script that carries its own autofix (`eslint --fix .`) becomes
 `verify.lint_no_fix` as is, reported as detected, while the REVIEW line says no
