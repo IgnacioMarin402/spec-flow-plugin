@@ -2587,6 +2587,30 @@ t("orchestrator-scope lets the session's own Bash steps through", (repo) => {
   return null;
 });
 
+// B61: a quoted `>` read as a redirect denied a real run's milestone commit.
+t('orchestrator-scope reads quoted text as text, not as a redirect or a second command', (repo) => {
+  attributed(repo);
+  for (const command of [
+    'git add -A && git commit -m "map RETURNED_TO_SENDER -> RETURNED" && git push',
+    'git commit -m "feat: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nRefs: #12"',
+    "git commit -m 'run lint; rm lib/a.ts is not run' && git push",
+    'git commit -m "a | tee lib/a.ts, and a << b" && git push',
+  ]) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 0) return `\`${command}\` was denied (exit ${r.status}): ${r.stderr}`;
+  }
+  return null;
+});
+
+t('orchestrator-scope still denies a redirect into code after quoted text, and one whose target is quoted', (repo) => {
+  attributed(repo);
+  for (const command of ['git log -1 --format="%s -> %b" > lib/a.ts', 'echo hi > "lib/my file.ts"', 'printf "a > b" | tee lib/a.ts']) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 2) return `\`${command}\` went through (exit ${r.status})`;
+  }
+  return null;
+});
+
 t('orchestrator-scope stands down outside a run', (repo) => {
   attributed(repo);
   writeFileSync(join(repo, '.claude/state/phase'), 'idle');

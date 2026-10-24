@@ -41,9 +41,15 @@ function inRepo(root, path) {
 const under = (rel, prefixes) => prefixes.some((p) => rel === p.replace(/\/$/, '') || rel.startsWith(p));
 const readable = (rel) => under(rel, READABLE) || (!rel.includes('/') && rel.endsWith('.md'));
 
+// Inside quotes nothing is shell syntax: whitespace keeps an argument whole, and
+// a `>`, `|`, `&`, `;` or `<<` in a commit message is text, not a redirect or a
+// second command. Masked into the private-use range, restored on the way out.
+const mask = (text) => text.replace(/[\s<>|&;]/g, (c) => String.fromCharCode(0xe000 + c.charCodeAt(0)));
+const unmask = (text) => text.replace(/[-]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
+
 /** The paths a Bash command writes, moves or deletes, as far as its plain forms say. */
 function bashWrites(cmd) {
-  const command = cmd.split('<<')[0].replace(/"([^"]*)"|'([^']*)'/g, (_, a, b) => (a ?? b).replace(/\s/g, '\u0000'));
+  const command = cmd.replace(/"([^"]*)"|'([^']*)'/g, (_, a, b) => mask(a ?? b)).split('<<')[0];
   const paths = [];
   for (const m of command.matchAll(/(?:^|[^0-9&>])>>?\s*([^\s&|;<>]+)/g)) paths.push(m[1]);
   for (const part of command.split(/&&|\|\||;|\|/)) {
@@ -55,7 +61,7 @@ function bashWrites(cmd) {
     else if (t[0] === 'cp' && args.length) paths.push(args.at(-1));
     else if (t[0] === 'sed' && t.some((a) => /^-[a-zA-Z]*i/.test(a)) && args.length > 1) paths.push(args.at(-1));
   }
-  return paths.map((p) => p.replace(/\u0000/g, ' ')).filter((p) => p && !p.startsWith('&') && p !== '/dev/null');
+  return paths.map(unmask).filter((p) => p && !p.startsWith('&') && p !== '/dev/null');
 }
 
 function deny(message) {

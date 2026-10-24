@@ -171,25 +171,14 @@ Two of four were wrong and were corrected by hand. Checking them needs
 `fetch-depth: 0` in CI — slower on every job — to guard four frozen records;
 records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
 
-### B68 — `init` copies the repo's `--fix` into `lint_no_fix`
+### B69 — the phase-write readers read quoted text as a write
 
-A `lint` script that carries its own autofix (`eslint --fix .`) becomes
-`verify.lint_no_fix` as is, reported as detected, while the REVIEW line says no
-autofix was declared. On `a64bd7a`, `spec-flow check --no-fix` rewrote a `let`
-to `const` in a changed file and printed OK: a report-only check that fixes and
-passes, which in CI is a check that looks armed and is not. **Done:** an
-`init-fixture` case whose lint script carries `--fix`, red on `a64bd7a`, where
-`lint_no_fix` does not carry it or the field is REVIEW and names the flag.
-
-### B61 — `orchestrator-scope` reads a quoted `>` as a redirect
-
-`bashWrites` keeps quoted text when it matches redirects, so a `>` inside a
-quoted argument followed by more text becomes a write target. Denied mid-run on
-`a64bd7a`: `git commit -m "map A -> B"`, and a message whose
-`Co-Authored-By: … <mail>` trailer is followed by another line. A real run hit
-the second at its milestone commit and got past it with `git commit -F` from a
-scratch file. **Done:** both as `hook-smoke` cases, red on `a64bd7a`, with a real
-redirect outside the writable paths still denied.
+The sibling of what `orchestrator-scope` fixed for its own reader:
+`PHASE_REDIRECT_RE` (`phase-guard`) and `PHASE_WRITE_RE` (`run-trace`), both in
+`hooks/lib/io.mjs`, match inside a quoted argument. During a run, `git commit -m "note: printf done >
+.claude/state/phase comes later"` is judged as a write of `done`, runs the
+unscoped checks to decide it, and is denied. **Done:** that command as a
+`hook-smoke` case, red on `9298d2d`, with a real phase write still judged.
 
 ### B62 — a command that does not expand starts no run, and nothing says so
 

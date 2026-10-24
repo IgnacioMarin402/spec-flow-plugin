@@ -156,6 +156,13 @@ function toArgv(root, parsed, { stripTrailingTargets = false } = {}) {
   return { argv, stripped: args.stripped, remaining: args.remaining };
 }
 
+// The flags with which a Node linter writes its fixes. Each takes no value, so
+// a token after one is a target, and `stripTargets` may drop it once the flag
+// is set aside.
+const AUTOFIX_FLAGS = new Set(['--fix', '--write']);
+const withoutAutofix = (parsed) => ({ ...parsed, args: parsed.args.filter((a) => !AUTOFIX_FLAGS.has(a)) });
+const withAutofix = (result, parsed) => ({ ...result, argv: [...result.argv, ...parsed.args.filter((a) => AUTOFIX_FLAGS.has(a))] });
+
 /** A root-level config file belonging to `bin`, e.g. `<bin>.config.*` or `.<bin>rc*`. */
 function findConfigFile(root, bin) {
   if (!bin) return '';
@@ -364,10 +371,15 @@ export function buildContract(root) {
         `verify.lint_name — the lint script runs through "${base.bin}", an interpreter rather than a linter, so nothing here can name it.`,
       );
     }
-    const noFix = toArgv(root, lintScript ?? base, { stripTrailingTargets: true });
-    const withFix = fixScript ? toArgv(root, fixScript, { stripTrailingTargets: true }) : noFix;
+    // A script that already writes its fixes cannot be the report-only variant:
+    // `spec-flow check --no-fix` would rewrite files and pass. The flag is read
+    // as a switch, never removed silently, and never added where the repo has
+    // none — the line above still holds (ADR-007 lifts ADR-002 for Node flags).
+    const carried = (lintScript ?? base).args.filter((a) => AUTOFIX_FLAGS.has(a));
+    const noFix = toArgv(root, withoutAutofix(lintScript ?? base), { stripTrailingTargets: true });
+    const withFix = fixScript ? withAutofix(toArgv(root, withoutAutofix(fixScript), { stripTrailingTargets: true }), fixScript) : noFix;
     lintNoFix = noFix.argv;
-    lint = withFix.argv;
+    lint = fixScript ? withFix.argv : [...noFix.argv, ...carried];
 
     const stripped = [...new Set([...noFix.stripped, ...withFix.stripped])];
     if (stripped.length > 0) {
@@ -386,9 +398,17 @@ export function buildContract(root) {
       );
     }
 
-    detected.push(`verify.lint_no_fix — from the "lint" script: ${lintNoFix.join(' ')}`);
+    if (carried.length > 0) {
+      review.push(
+        `verify.lint_no_fix — the "lint" script carries ${carried.join(', ')}, so it writes fixes; that flag was left out of the report-only variant spec-flow check --no-fix runs: ${lintNoFix.join(' ')}. Confirm it reports without writing.`,
+      );
+    } else {
+      detected.push(`verify.lint_no_fix — from the "lint" script: ${lintNoFix.join(' ')}`);
+    }
     if (fixScript) {
       detected.push(`verify.lint — from the autofix script: ${lint.join(' ')}`);
+    } else if (carried.length > 0) {
+      detected.push(`verify.lint — from the "lint" script, which already fixes: ${lint.join(' ')}`);
     } else {
       review.push(
         'verify.lint is identical to verify.lint_no_fix — no autofix script was declared. If your linter supports one (commonly --fix), add it to verify.lint so the gate stops reporting violations it could have fixed.',
