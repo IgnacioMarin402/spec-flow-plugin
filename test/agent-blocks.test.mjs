@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { returnBlocks, unroutedFields, declaredStatuses, parseReturn, openQuestions } from '../scripts/agent-blocks.mjs';
 
 /**
@@ -80,4 +81,14 @@ test('openQuestions stops at the end of the list and counts numbered questions o
   assert.equal(openQuestions(trailing), 2);
   const flush = '```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n1. Which store?\n- Postgres\n- Redis\n2. Soft delete?\n- yes\n- no\n```';
   assert.equal(openQuestions(flush), 2);
+});
+
+// The live view shows a send-back as n/MAX_BLOCKS. A number of the gate's own
+// agrees with it until one is changed, and nothing fails while they agree.
+test('the agent gate and the live view count send-backs against one MAX_BLOCKS, declaring none of their own', () => {
+  for (const file of ['../hooks/agent-gate.mjs', '../hooks/live-view.tsx']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.match(source, /import \{[^}]*\bMAX_BLOCKS\b[^}]*\} from '\.\.\/scripts\/agent-blocks\.mjs'/, `${file} does not take MAX_BLOCKS from agent-blocks`);
+    assert.doesNotMatch(source, /\b(?:const|let|var)\s+MAX_BLOCKS\b/, `${file} declares a MAX_BLOCKS of its own`);
+  }
 });

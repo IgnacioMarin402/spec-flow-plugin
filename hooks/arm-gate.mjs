@@ -32,7 +32,7 @@
  * nothing checking what it writes, and every change the flow makes is a run
  * (ADR-044). A person's own agent named `implementer` is theirs.
  */
-import { projectDir, phasePath, readPhase, claimPhase, writeFile, readPayload, run, stateIsTracked } from './lib/io.mjs';
+import { projectDir, phasePath, readPhase, claimPhase, writeFile, readPayload, run, stateIsTracked, RUN_PHASES } from './lib/io.mjs';
 import { nameishFields, matchAgent, recipientType } from './lib/agent-name.mjs';
 import { recordDispatch } from './lib/dispatch.mjs';
 import { leavingSpecProblems } from '../scripts/spec-time.mjs';
@@ -58,7 +58,7 @@ await run(async () => {
     process.exit(2); // PreToolUse denial protocol
   }
   const phase = read || 'idle';
-  if (!['spec', 'plan', 'review', 'implement', 'blocked'].includes(phase)) return; // idle/done/unknown -> not our business
+  if (!RUN_PHASES.includes(phase)) return; // idle/done/unknown -> not our business
 
   const payload = await readPayload();
   const input = payload.tool_input ?? {};

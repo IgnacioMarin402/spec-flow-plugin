@@ -25,19 +25,14 @@
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join, dirname, isAbsolute, resolve, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { projectDir, stateDir, readPhase, readPayload, run } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, RUN_PHASES } from './lib/io.mjs';
 import { handedBack } from './lib/handback.mjs';
-import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS } from '../scripts/agent-blocks.mjs';
-import { deltas, declaredIds, capabilityOf } from '../scripts/spec-shape.mjs';
-import { specTimeProblems } from '../scripts/spec-time.mjs';
+import { declaredStatuses, parseReturn, openQuestions, MAX_OPEN_QUESTIONS, MAX_BLOCKS } from '../scripts/agent-blocks.mjs';
+import { deltas, declaredIds, capabilityOf, archiveClash } from '../scripts/spec-shape.mjs';
+import { specTimeProblems, archivedSlugsIn } from '../scripts/spec-time.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-/** Blocks per agent before its return goes through as it is. */
-const MAX_BLOCKS = 2;
-
-const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 
 /** The statuses `name`'s contract declares, its modes included; [] when it ships none. */
 function contractStatuses(name) {
@@ -90,11 +85,13 @@ function samePath(root, path) {
  * its spec-time checks, changes or removes only ids `specs/` declares, and —
  * for SPEC_READY — was written after reading `specs/README.md` and every
  * capability spec its deltas touch. The read check sees the Read tool only.
+ * Its name is held to the archive's in `spec` only: a re-triage mid-run
+ * works on a folder the run's milestone already names.
  *
  * `skips` name what could not be judged: no contract, or a trace whose reads
  * carry no agent id.
  */
-function specWriterProblems(ret, text, root, agentId, trace) {
+function specWriterProblems(ret, text, root, agentId, trace, phase) {
   const problems = [];
   const skips = [];
   if (ret.status === 'NEEDS_INPUT') {
@@ -110,8 +107,13 @@ function specWriterProblems(ret, text, root, agentId, trace) {
   }
   if (!['SPEC_READY', 'TRIAGED'].includes(ret.status)) return { problems, skips };
   // Case 5 is not a fix: the orchestrator stamps the brief REJECTED and
-  // archives it, so nothing builds from it.
-  if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) return { problems, skips };
+  // archives it, so nothing builds from it, and its name must be free (ADR-048).
+  if (ret.status === 'TRIAGED' && /^\W*5\b/.test(ret.fields.CASE ?? '')) {
+    const rejected = /^specflow\/([^/]+)\/spec\.md$/.exec(relative(root, resolve(root, pathIn(ret.fields.SPEC_PATH ?? ''))).split(sep).join('/'))?.[1];
+    const clash = rejected && rejected !== 'archive' && archiveClash(rejected, archivedSlugsIn(root));
+    if (clash) problems.push({ why: 'spec-shape', reason: clash });
+    return { problems, skips };
+  }
 
   // A fix has no planner, and the triage is the one who read the code: it
   // writes the work order, or the orchestrator would read that code again
@@ -133,7 +135,9 @@ function specWriterProblems(ret, text, root, agentId, trace) {
     return { problems, skips };
   }
 
-  const shape = specTimeProblems(root, [slug]);
+  // The name only in `spec`: mid-run, a re-triage's folder is named by the
+  // milestone, resume and the snapshot, and a rename would strand them (ADR-048).
+  const shape = specTimeProblems(root, [slug], { clash: phase === 'spec' });
   if (shape.length > 0) problems.push({ why: 'spec-shape', reason: `The spec is not ready to build from:\n${shape.map((p) => `- ${p}`).join('\n')}` });
 
   let config;
@@ -232,11 +236,12 @@ await run(async () => {
   } else {
     const found = problemWith(ret, statuses, root);
     if (found) problems.push(found);
-    else if (name === 'spec-writer') ({ problems, skips } = specWriterProblems(ret, text, root, agentId, trace));
+    else if (name === 'spec-writer') ({ problems, skips } = specWriterProblems(ret, text, root, agentId, trace, phase));
   }
 
   // `agent=`, not run-trace's `type=`: stats reads a `type=` line with an
-  // agent id as that agent's return.
+  // agent id as that agent's return. The live view reads `result= why=
+  // agent_id=` in this order (ADR-047).
   const record = (result, why) =>
     appendFileSync(
       traceFile,

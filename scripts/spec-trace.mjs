@@ -22,9 +22,12 @@
 //                                   declares, or a requirement was renamed
 //                                   and its test left behind.
 //
-// Plus one archive rule: every change parked under `specflow/archive/`
+// Plus the archive's rules: every change parked under `specflow/archive/`
 // declares what became of it (SHIPPED / REJECTED / SUPERSEDED), since an
-// archived change with no status cannot be told from an abandoned one.
+// archived change with no status cannot be told from an abandoned one; each has
+// a folder of its own; and one this branch stamped SHIPPED has its deltas in
+// `specs/` (ADR-048). Which archived changes are this branch's, and which run's,
+// it asks of git: the base, and the branch's history since it.
 //
 //   node scripts/spec-trace.mjs          # check, exit 1 on drift
 //   node scripts/spec-trace.mjs --list   # also print the requirement -> test matrix
@@ -40,13 +43,24 @@ import { join, relative, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadConfig } from './spec-flow-config.mjs';
 import { readReport } from './test-report.mjs';
+import { resolveBase, specsAtBase, branchWrites, fileAtBase } from './changed-files.mjs';
+import { RUN_PHASES, readPhase } from '../hooks/lib/io.mjs';
 import {
   REQ_HEADING,
   REQ_TAG,
   idsIn,
   ARCHIVE_STATUS,
+  isShipped,
   liveSpecProblems,
   expectedPrefix,
+  deltas,
+  deltasSectionProblem,
+  retiredIds,
+  unreadDeltas,
+  explainUnread,
+  withoutCode,
+  idShaped,
+  isId,
 } from './spec-shape.mjs';
 
 const LIST = process.argv.includes('--list');
@@ -138,6 +152,7 @@ const requirements = new Map();
 
 // ---- read the specs ---------------------------------------------------
 const NOT_A_CAPABILITY = new Set(CONFIG.trace.not_a_capability);
+const shapedHeadings = [];
 const specFiles = walk(SPECS_DIR, (f) => f.endsWith('.md') && !NOT_A_CAPABILITY.has(basename(f)));
 
 for (const file of specFiles) {
@@ -152,6 +167,14 @@ for (const file of specFiles) {
   }
 
   const prefix = expectedPrefix(file);
+  // Headings led by something shaped like an id, code aside: judged once every
+  // requirement is known, below.
+  for (const line of withoutCode(text).split('\n')) {
+    const heading = /^(#{1,6})\s+(\S+)/.exec(line.trim());
+    const token = heading && idShaped(heading[2])[0];
+    if (token && heading[2].startsWith(token)) shapedHeadings.push({ rel, line: line.trim(), level: heading[1].length, token });
+  }
+
   for (const line of text.split('\n')) {
     const match = REQ_HEADING.exec(line.trim());
     if (!match) continue;
@@ -325,6 +348,79 @@ for (const [id, files] of proofs) {
   }
 }
 
+// ---- whose each archived change is, and which run's -----------------------
+//
+// Asked of git once, and only when a check needs it: the base, the change specs
+// it holds — inherited, so not this branch's to answer for (ADR-048) — and when
+// this branch first wrote each one since.
+//
+// Outside a run every change of the branch is held. During one, a change the
+// branch archived before one of its live changes was created belongs to an
+// earlier run: said, not failed, or a milestone gate would route it to an
+// implementer whose work order does not name it. A run's fold archives its
+// change after each live one was created, and `done` allows none live, so from
+// the fold's gate on all of them are held. Read off the repository, never off
+// state a hook wrote.
+let scopeAnswer;
+const scope = () => {
+  if (scopeAnswer === undefined) {
+    try {
+      const ref = resolveBase(root, CONFIG);
+      scopeAnswer = { ref, atBase: specsAtBase(root, ref), written: branchWrites(root, ref) };
+    } catch (err) {
+      scopeAnswer = { err };
+    }
+  }
+  return scopeAnswer;
+};
+// What needed the base when none resolved: failed, as `check` and the gate fail without one.
+const unscoped = [];
+/** Whether a change spec, by its path from `specflow/`, is the base's and this branch never rewrote it. */
+const inherited = (spec) => scope().atBase.has(spec) && !scope().written.has(`specflow/${spec}`);
+/** When this branch first wrote a change spec: the newest when no commit has. */
+const writtenAt = (spec) => scope().written.get(`specflow/${spec}`) ?? Infinity;
+const SPECFLOW_DIR = join(root, 'specflow');
+const live = existsSync(SPECFLOW_DIR)
+  ? readdirSync(SPECFLOW_DIR).filter((entry) => entry !== 'archive' && statSync(join(SPECFLOW_DIR, entry)).isDirectory())
+  : [];
+let inRun;
+let liveSince;
+/** Whether the change spec this branch archived at `spec` is an earlier run's (see above). */
+const earlierRun = (spec) => {
+  inRun ??= RUN_PHASES.includes(readPhase(root));
+  if (!inRun) return false;
+  // Live: a spec on disk the base does not hold. An empty folder a fold left,
+  // or a plan parked on the base, starts no run.
+  liveSince ??= live
+    .filter((slug) => existsSync(join(SPECFLOW_DIR, slug, 'spec.md')) && !scope().atBase.has(`${slug}/spec.md`))
+    .map((slug) => writtenAt(`${slug}/spec.md`));
+  return liveSince.some((since) => since > writtenAt(spec));
+};
+const earlier = [];
+
+// ---- a heading shaped like a requirement is one ---------------------------
+//
+// One not read as one binds no test, and nothing else sees it: `### REQ-USER-10`,
+// `#### REQ-USER-011` when no `###` declares it. A sub-heading under a
+// requirement, `#### REQ-USER-001 — examples`, names one that is. One the base
+// already has is not this branch's (ADR-048): failed, it would turn every gate
+// of a run red, sent to an implementer whose milestone did not write it. With no
+// base, nothing tells whose it is, so it fails.
+const headingsAtBase = new Map();
+const baseHas = (rel, line) => {
+  if (!headingsAtBase.has(rel)) {
+    headingsAtBase.set(rel, new Set(withoutCode(fileAtBase(root, scope().ref, rel)).split('\n').map((l) => l.trim())));
+  }
+  return headingsAtBase.get(rel).has(line);
+};
+const inheritedHeadings = [];
+for (const { rel, line, level, token } of shapedHeadings) {
+  if (isId(token) && (level === 3 || requirements.has(token))) continue;
+  (!scope().err && baseHas(rel, line) ? inheritedHeadings : problems).push(
+    `${rel}: "${line}" is no requirement the engine reads, so no test is bound to it. A requirement is a \`### REQ-<CAP>-0NN — <title>\` heading: three hashes, the id in capitals, three digits.`,
+  );
+}
+
 // ---- the archive declares what became of each change -----------------------
 const archived = existsSync(ARCHIVE_DIR)
   ? readdirSync(ARCHIVE_DIR).filter((entry) => statSync(join(ARCHIVE_DIR, entry)).isDirectory())
@@ -333,6 +429,20 @@ const archived = existsSync(ARCHIVE_DIR)
 for (const slug of archived) {
   const specPath = join(ARCHIVE_DIR, slug, 'spec.md');
   const rel = relative(root, specPath);
+
+  // A change folded onto a folder the archive already had lands inside it.
+  for (const entry of readdirSync(join(ARCHIVE_DIR, slug))) {
+    const nested = `archive/${slug}/${entry}/spec.md`;
+    if (!existsSync(join(SPECFLOW_DIR, nested))) continue;
+    if (scope().err) {
+      unscoped.push(`specflow/${nested}`);
+      continue;
+    }
+    if (inherited(nested)) continue;
+    (earlierRun(nested) ? earlier : problems).push(
+      `specflow/archive/${slug}/${entry}/ holds a change spec inside another change's folder: a fold moved a change onto a name the archive already had, where no archive check reads it. Move it to specflow/archive/<a name of its own>/.`,
+    );
+  }
 
   if (!existsSync(specPath)) {
     problems.push(`specflow/archive/${slug}/ has no spec.md. An archived change with no spec is a folder nobody can interpret.`);
@@ -346,6 +456,24 @@ for (const slug of archived) {
   }
 }
 
+// Two archived folders a case apart are one on macOS and Windows: checked out
+// there, one change lies inside the other, and nothing nests on this disk.
+// Grouped by name in one pass: this runs at every gate, over the whole archive.
+const byName = new Map();
+for (const slug of archived) byName.set(slug.toLowerCase(), [...(byName.get(slug.toLowerCase()) ?? []), slug]);
+const caseApart = [...byName.values()].flatMap((same) => same.flatMap((a, i) => same.slice(i + 1).map((b) => [a, b])));
+for (const [a, b] of caseApart) {
+  if (scope().err) {
+    unscoped.push(`specflow/archive/${a}/`, `specflow/archive/${b}/`);
+    continue;
+  }
+  const ours = [a, b].filter((slug) => !inherited(`archive/${slug}/spec.md`));
+  if (ours.length === 0) continue;
+  (ours.every((slug) => earlierRun(`archive/${slug}/spec.md`)) ? earlier : problems).push(
+    `specflow/archive/${a}/ and specflow/archive/${b}/ differ only in case: on macOS and Windows they are one folder, where one change lands inside the other. Give one a name of its own.`,
+  );
+}
+
 // ---- a live change spec stays light -----------------------------------
 // Two files exist so the planner (reads on every fresh context) and the human
 // (reads once, at sign-off) each get the document shaped for them: spec.md is
@@ -356,12 +484,6 @@ for (const slug of archived) {
 //   - Fix briefs are exempt (`## Case` heading): the five-case triage IS the
 //     fix flow, so `/spec-fix` output has nowhere to split.
 //   - Headings only. Whether the rationale is any good is a reviewer's job.
-const SPECFLOW_DIR = join(root, 'specflow');
-
-const live = existsSync(SPECFLOW_DIR)
-  ? readdirSync(SPECFLOW_DIR).filter((entry) => entry !== 'archive' && statSync(join(SPECFLOW_DIR, entry)).isDirectory())
-  : [];
-
 // Read once for the reuse check below; a missing spec.md is reported above.
 const archivedBodies = archived
   .map((slug) => join(ARCHIVE_DIR, slug, 'spec.md'))
@@ -427,6 +549,61 @@ for (const slug of live) {
   }
 }
 
+// ---- a SHIPPED change's deltas landed in specs/ ----------------------------
+//
+// The stamp asserts it, and the binding above reads only `specs/`: an ADDED
+// that never reached it is bound to no test, so every gate and `done` would
+// pass over a requirement nothing proves. Only the changes this branch ships
+// (ADR-048). An empty `specs/` is the rule below's, which already fails a
+// SHIPPED claim.
+const shippedBodies = archived
+  .map((slug) => ({ slug, path: join(ARCHIVE_DIR, slug, 'spec.md') }))
+  .filter(({ path }) => existsSync(path))
+  .map(({ slug, path }) => ({ slug, body: readFileSync(path, 'utf8') }))
+  .filter(({ body }) => isShipped(body) && new RegExp(REQ_TAG.source).test(body));
+if (specFiles.length > 0 && shippedBodies.length > 0) {
+  if (scope().err) unscoped.push(...shippedBodies.map(({ slug }) => `specflow/archive/${slug}/spec.md`));
+  else {
+    const ours = shippedBodies.filter(({ slug }) => !inherited(`archive/${slug}/spec.md`));
+    const liveBodies = live.map((slug) => join(SPECFLOW_DIR, slug, 'spec.md')).filter((path) => existsSync(path)).map((path) => readFileSync(path, 'utf8'));
+    // Retired by any change, inherited ones too: what a later change removed is not missing.
+    const retired = new Set([...shippedBodies.map(({ body }) => body), ...liveBodies].flatMap(retiredIds));
+    for (const { slug, body } of ours) {
+      const rel = `specflow/archive/${slug}/spec.md`;
+      const found = earlierRun(`archive/${slug}/spec.md`) ? earlier : problems;
+      const section = deltasSectionProblem(body, { needed: true });
+      if (section) found.push(`${rel} ${section}`);
+      for (const unread of unreadDeltas(body)) found.push(`${rel}: ${explainUnread(unread)}`);
+      for (const { verb, id } of deltas(body)) {
+        if (verb === 'ADDED' && !requirements.has(id) && !retired.has(id)) {
+          found.push(
+            `${id} is ADDED by ${rel}, stamped SHIPPED, but no capability spec under ${CONFIG.trace.specs_dir}/ declares it — so no test is bound to it, and nothing proves it. ` +
+              `The milestone that delivers it writes it into ${CONFIG.trace.specs_dir}/<capability>.md with the test that proves it; a change that did not deliver it is not SHIPPED as written.`,
+          );
+        }
+        if (verb === 'REMOVED' && requirements.has(id)) {
+          found.push(
+            `${id} is REMOVED by ${rel}, stamped SHIPPED, but ${requirements.get(id).spec} still declares it. Delete it there, and the test that reports it.`,
+          );
+        }
+      }
+    }
+  }
+}
+
+if (unscoped.length > 0) {
+  problems.push(
+    `${unscoped.join(', ')}: whether ${unscoped.length > 1 ? 'these are' : 'this is'} this branch's or inherited needs the base, and ${scope().err.message}`,
+  );
+}
+
+for (const problem of earlier) {
+  console.log(`spec-trace: held from the fold's gate on, not before — an earlier run of this branch: ${problem}`);
+}
+for (const problem of inheritedHeadings) {
+  console.log(`spec-trace: not failed — the base branch already has it, so it is not this branch's: ${problem}`);
+}
+
 // ---- report -------------------------------------------------------------
 //
 // An empty `specs/` makes every check in this file vacuous: no requirements
@@ -457,7 +634,7 @@ const shipped = archived.filter((slug) => {
   // the `g` flag, which makes `.test()` stateful through `lastIndex` — across
   // this filter's iterations it would answer about where the previous slug's
   // match ended rather than about this file.
-  return /^\*\*Status:\*\*\s+SHIPPED\b/m.test(body) && new RegExp(REQ_TAG.source).test(body);
+  return isShipped(body) && new RegExp(REQ_TAG.source).test(body);
 });
 
 // The grace covers the REQUIREMENT BINDING and nothing else, and must NOT
@@ -510,7 +687,8 @@ if (problems.length > 0) {
 // tests ran, "every one proven" would be a claim over an unanswered question,
 // and it is reachable with a non-empty specs/ (a capability file holding no
 // `###` heading yet), which is where `graced` alone does not cover it.
-if (!graced && !unarmed) {
+// `earlier` too: an earlier run's ADDED id may be bound to nothing.
+if (!graced && !unarmed && earlier.length === 0) {
   console.log(
     `spec-trace: OK — ${requirements.size} requirement(s) across ${specFiles.length} capability spec(s), every one proven by a test; ` +
       `${archived.length} archived change(s), every one with a status.`,

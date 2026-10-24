@@ -49,10 +49,11 @@ const HEADINGS = {
 function deny(what, detail, { initHelps = false } = {}) {
   process.stderr.write(
     `[spec-flow] PREFLIGHT FAILED — ${what}\n\n${detail}\n\n` +
-      `Nothing has run yet, which is the point of checking here: the same problem would otherwise ` +
+      `At a run's first agent nothing has run yet, which is the point of checking here: the same problem would otherwise ` +
       `surface at the first gate, after the planner and an implementer had already been spent on a ` +
-      `milestone this engine could not have verified.\n\n` +
-      `Fix it, then start the run again.` +
+      `milestone this engine could not have verified. Past it, something changed under the run, and what it produced stands.\n\n` +
+      // Fires at every spawn, and nothing it reads tells the first from a later one.
+      `Fix it, then start the run again — or, past its first agent, pick it up with \`/spec-flow:resume\`.` +
       (initHelps ? ` \`spec-flow init\` regenerates the contract from this repo; \`spec-flow init --force\` overwrites an existing one.` : '') +
       `\n`,
   );
@@ -111,8 +112,8 @@ await run(async () => {
     return;
   }
 
-  // The same check `phase-guard` makes at the write that starts a run
-  // (ADR-028), and in the same order: the repository ahead of the contract,
+  // The check `phase-guard` makes at the write that starts a run (ADR-028),
+  // but the settings, and in the same order: the repository ahead of the contract,
   // because the contract at the wrong directory is the wrong contract or none,
   // and "could not be read" would send someone to write a second one where no
   // gate can run it (ADR-027).

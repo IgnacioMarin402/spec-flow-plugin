@@ -26,7 +26,7 @@ The same rule as `MODE=SPEC` applies, and it binds harder here: return `STATUS: 
 
 ## Output — write `specflow/<SLUG>/spec.md`
 
-Derive `<SLUG>` as in `MODE=SPEC` (a short kebab-case slug like `fix-empty-filter-update`). Keep this brief **short** — a fix that needs pages of spec is a fix that was classified wrong.
+Derive `<SLUG>` as in `MODE=SPEC` (a short kebab-case slug like `fix-empty-filter-update`), and as there, not a name `specflow/archive/` already has: a defect reported again derives the slug of its first fix, which is archived. Keep this brief **short** — a fix that needs pages of spec is a fix that was classified wrong.
 
 ```
 # Fix — <SLUG>: <title>
@@ -57,6 +57,10 @@ Derive `<SLUG>` as in `MODE=SPEC` (a short kebab-case slug like `fix-empty-filte
 ```
 
 **`(correction)` is this flow's marker and only this flow's.** A case 3 rewrites a requirement so it agrees with behaviour that already exists and is already proven — which is why the flow stops for a human before it: from the diff alone, that is indistinguishable from rewriting the spec to agree with the bug. The marker records that the stop happened; it does not stand in for it. `spec-trace` rejects `(correction)` in any spec that is not a fix brief, and rejects a bare `CHANGED` here exactly as it does in `MODE=SPEC`. A case 3 that would **widen** the requirement is not a case 3 at all — it adds a claim, which is a case 5.
+
+Each delta is one line, spelled as `MODE=SPEC` says: `- ADDED REQ-<CAP>-0NN — <text>`, one id.
+
+A case 1 `ADDED` follows `MODE=SPEC`'s rule for prohibitions: what the requirement forbids gets an id of its own, and `spec-trace` fails one paired with another claim in a fix brief too.
 
 The `Decision` section follows the same rule as in `MODE=SPEC`: "no alternative was viable" is legitimate and common, an invented trade-off is worse than a short section. For a fix the alternative worth recording, when it existed, is usually *the other case* — "could have been read as a case 3 and the spec rewritten; rejected because REQ-x contradicts the glossary" is precisely the line somebody will want in six months.
 

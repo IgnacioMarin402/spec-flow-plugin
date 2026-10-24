@@ -32,7 +32,10 @@ The requirement arrives as free text, inline, like a chat message. That text is
 the source of truth — there is no ticket to open and no tracker to query.
 
 Use `<SLUG>` as the artifact id: a short kebab-case slug you derive from the
-requirement (e.g. `add-refund-endpoint`).
+requirement (e.g. `add-refund-endpoint`), and not one a folder under
+`specflow/archive/` already has, in any case: the fold moves the change to
+`specflow/archive/<SLUG>/`, and onto a folder that exists it lands inside that
+change. The agent gate sends back a spec named so.
 
 ## Steps
 1. Ingest the requirement.
@@ -182,6 +185,8 @@ milestones is the planner's job, done once, with the codebase in front of it.
 The human signs off on scope and behaviour — user stories, deltas, decision —
 not on an implementation roadmap that a second agent would then redo.
 
+**A delta is one line under `## Requirement deltas`, spelled so:** a dash, `ADDED`, `CHANGED` or `REMOVED` in capitals, one id, then its text — `- ADDED REQ-<CAP>-0NN — <text>`. Every check that binds a delta reads that line and nothing else, so **every other line of the section names only ids its delta lines read**: a table row, a heading, a note or prose naming another id is bound by no check, and neither is a second id or number before a delta's text, an id spelled any other way (`REQ-USER-10`, `REQ_USER_010`: an id has three digits), or a line led by `ADDED`, `CHANGED` or `REMOVED` that is not a delta. A delta's own text — after ` — `, a colon, a parenthesis, or a dash before a word — and a `- none — <why>` line may name any id, but not after a verb in capitals, which starts another delta. Leaving `spec` is refused over each of these, over deltas under another heading, and over a section with neither a delta nor a `none` line; the agent gate sends the spec back. Code, and an HTML comment that starts a line, are not read.
+
 Rules for the deltas: every user story maps to at least one delta, and every delta is behaviour that a test under the contract's proof surface (`trace.proof_dir` in `.spec-flow/config.json`) can prove. If you cannot state a requirement as something a test could check, it is not a requirement yet — sharpen it or drop it. A change that only touches wiring or bootstrap code outside that surface legitimately has **no deltas**; say so explicitly (`- none — infrastructure only`) rather than inventing one.
 
 **A behaviour change is never a `CHANGED`.** `ADDED` and `REMOVED` are both proven by `spec-trace`: a new id with no test that ran fails the gate, and a test naming an id no spec declares fails it too. `CHANGED` is proven by nothing — the id already exists and already has a test, so that binding holds before your edit and after it, whatever the body now says.
@@ -189,5 +194,7 @@ Rules for the deltas: every user story maps to at least one delta, and every del
 The suite covers most of the difference on its own: change the behaviour, change the code, and a test asserting the old behaviour goes red. One case slips past both, and it is the one to watch for — a `CHANGED` that **widens**. Add a clause to an existing requirement and nothing breaks, because nothing that used to pass stopped passing; the clause is now claimed by `specs/` and proven by nobody. Written as `ADDED`, that same clause fails the gate on sight.
 
 So a claim that appears, disappears or changes is `REMOVED` on the old id plus `ADDED` on a new one. Ids are permanent, which is exactly what makes retiring one safe, and both halves are checked. That leaves `CHANGED` with the single edit that moves no proof, and it has to say so: `CHANGED REQ-X-0NN (wording)`. `spec-trace` fails a `CHANGED` carrying no kind. See ADR-009.
+
+**A prohibition gets an id of its own.** `spec-trace` binds an id to a test that ran under its name, so "filters by A and B, never by C" on one id is proven by a test that asserts A and B and never tries C. Give what the requirement forbids an `ADDED` of its own — `filters by A and B` on one id, `never filters by C` on the next — and the gate stays red until a test named for it runs. `spec-trace` fails an `ADDED` that pairs `cannot`, `must not`, `never` or `only` with another claim. See ADR-045.
 
 Rules for the decision: `- Chosen: <x>. No alternative was viable — <one line why>` is a legitimate answer and the common one. Do **not** pad this section with alternatives nobody considered; an invented trade-off is worse than a short section, because it makes the real ones harder to trust. What is never acceptable is silence: if you weighed two options, the one you discarded is the single most useful line in this file six months from now, when somebody asks why it works this way. Reserve it for choices that outlive the change — a boundary, a shape other modules will copy, a behaviour being removed. Not for naming or file placement.

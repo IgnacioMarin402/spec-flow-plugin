@@ -80,12 +80,12 @@ node <the plugin's path>/scripts/init.mjs   # writes .spec-flow/config.json
 node <the plugin's path>/scripts/check-changed.mjs
 ```
 
-`init` reads your test and lint commands from `package.json`, adds your
-runner's reporter flag so the suite writes a report of what ran, and marks
-anything it inferred `REVIEW` and anything it could not read `MISSING`. If it
-leaves `MISSING` lines, ask Claude Code to set up spec-flow: the plugin's setup
-skill fills them and proves the result with `check-changed`. Green there means
-green at the gate. Every field is in
+`init` reads your test, lint, build and typecheck commands from
+`package.json`, adds your runner's reporter flag so the suite writes a report
+of what ran, and marks anything it inferred `REVIEW` and anything it could not
+read `MISSING`. If it leaves `MISSING` lines, ask Claude Code to set up
+spec-flow: the plugin's setup skill fills them and proves the result with
+`check-changed`. Green there means green at the gate. Every field is in
 [REFERENCE](REFERENCE.md#what-makes-a-requirement-proven).
 
 Before the first run, write down how a module is built in this repo — in
@@ -105,8 +105,9 @@ nothing is published to npm, and `spec-flow` on npm is someone else's package
 /spec-flow users can reset their password by email
 ```
 
-1. The run refuses to start if the contract does not load or the base branch
-   does not resolve.
+1. The run refuses to start if the contract does not load, the base branch
+   does not resolve, or `.claude/spec-flow.config.json` holds a setting the
+   hooks cannot apply.
 2. The spec-writer asks you questions if the requirement is ambiguous.
 3. **You sign off** on the requirement deltas and the decision. A "no" is
    archived with its reason.

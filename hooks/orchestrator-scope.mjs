@@ -22,9 +22,8 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute, sep } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, run, resolveCd } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, resolveCd, RUN_PHASES } from './lib/io.mjs';
 
-const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
 const WRITABLE = ['.claude/state/', 'specflow/'];
 const READABLE = [...WRITABLE, 'specs/', '.spec-flow/', '.claude/'];
 // The hooks' own record, which hooks decide on: a pass in gate-history.log

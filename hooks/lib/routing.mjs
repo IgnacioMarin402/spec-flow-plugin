@@ -16,6 +16,7 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { projectConfig } from './project-config.mjs';
 
 /**
  * The tiers a spawn may be routed to.
@@ -104,18 +105,16 @@ export function projectRouting(root, shipped = shippedRouting()) {
   const problems = [];
   if (!existsSync(path)) return { routing: {}, problems };
 
-  let config;
+  // A file that does not parse routes nothing, as it caps nothing: a run does
+  // not start over it (can-run.mjs), and mid-run every reader falls back to the
+  // defaults rather than one hook denying over a file the others tolerate.
+  let text;
   try {
-    config = JSON.parse(readFileSync(path, 'utf8'));
+    text = readFileSync(path, 'utf8');
   } catch {
-    // Not this hook's failure to report: `max_opus_calls` reads the same file
-    // and already falls back to its default on malformed JSON. Routing does
-    // the same rather than denying every spawn over a file another hook
-    // tolerates.
     return { routing: {}, problems };
   }
-
-  const declared = config.agents;
+  const declared = projectConfig(text).settings.agents;
   if (declared === undefined) return { routing: {}, problems };
   if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
     problems.push('"agents" is not an object mapping an agent name to a tier, so nothing in it can be applied.');

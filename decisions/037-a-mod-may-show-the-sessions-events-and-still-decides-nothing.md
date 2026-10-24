@@ -1,6 +1,6 @@
 # ADR-037 — a mod may show the session's own events, and still decides nothing
 
-**Date:** 2026-10-11 · **Status:** accepted; the closing turn's charge refined by [ADR-043](043-the-turn-that-writes-done-is-the-runs-last.md) · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/hooks.json`, `.claude-plugin/plugin.json`, `.github/workflows/ci.yml`, `scripts/plugin-paths.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-029 (what a mod may show) · **Related:** ADR-004, ADR-016, ADR-017, ADR-019, ADR-023, ADR-035, ADR-036
+**Date:** 2026-10-11 · **Status:** accepted; the closing turn's charge refined by [ADR-043](043-the-turn-that-writes-done-is-the-runs-last.md); what a mod may read amended by [ADR-047](047-an-observer-stays-a-command-hook-and-the-live-view-shows-its-record.md) · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/hooks.json`, `.claude-plugin/plugin.json`, `.github/workflows/ci.yml`, `scripts/plugin-paths.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-029 (what a mod may show) · **Related:** ADR-004, ADR-016, ADR-017, ADR-019, ADR-023, ADR-035, ADR-036
 
 **Question.** A person watching a run wants to see each agent while it works:
 its role, how long it has run, its tool calls, its tokens, and what it handed

@@ -50,6 +50,9 @@ export function unroutedFields(fields, commandsText, exempt = {}) {
   return fields.filter((f) => !(f in exempt) && !new RegExp(`(?<![A-Za-z0-9_])${f}(?![A-Za-z0-9_])`).test(commandsText));
 }
 
+/** Blocks per agent before the agent gate lets its return through as it is. The live view shows a send-back against the same number. */
+export const MAX_BLOCKS = 2;
+
 /** How many questions one `NEEDS_INPUT` round may ask. The spec-writer's contract must state the same number, and the agent gate holds a NEEDS_INPUT to it (ADR-030). */
 export const MAX_OPEN_QUESTIONS = 3;
 

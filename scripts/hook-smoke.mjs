@@ -389,6 +389,39 @@ t('opus-budget reads max_architect_calls from the config', (repo) => {
   return r.status === 2 ? null : `max_architect_calls 1 let a second call through (exit ${r.status})`;
 });
 
+// A cap that is not a number compared false against every count, so the
+// budget never denied. A wrong value in this file denies, as `agents` does.
+t('opus-budget denies an escalation while its cap is not a number of calls', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 'six' }));
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'planner' } }, repo);
+  if (r.status !== 2) return `a planner spawn went through under a cap no count can reach — exit ${r.status}`;
+  return r.stderr.includes('max_opus_calls') ? null : `the denial does not name the key to fix: ${r.stderr}`;
+});
+
+t('opus-budget denies an architect spawn while its cap is not a number of calls, and charges nothing', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: 'three' }));
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'spec-flow:architect' } }, repo);
+  if (r.status !== 2) return `an architect spawn went through under a cap no count can reach — exit ${r.status}`;
+  if (existsSync(join(repo, '.claude/state/architect_calls'))) return 'a denied spawn was charged';
+  return r.stderr.includes('max_architect_calls') ? null : `the denial does not name the key to fix: ${r.stderr}`;
+});
+
+t('opus-budget reads a cap written as a numeric string', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: '1' }));
+  writeFileSync(join(repo, '.claude/state/architect_calls'), '1');
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'architect' } }, repo);
+  return r.status === 2 && r.stderr.includes('budget exhausted') ? null : `a cap of "1" did not stop a second call (exit ${r.status}): ${r.stderr}`;
+});
+
+// Some editors open a JSON file with a byte-order mark. Every reader of this
+// file drops it the same way, so the pane shows the cap this hook denies at.
+t('opus-budget reads a cap written after a byte-order mark', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), `\uFEFF${JSON.stringify({ max_architect_calls: 1 })}`);
+  writeFileSync(join(repo, '.claude/state/architect_calls'), '1');
+  const r = runHook('opus-budget.mjs', { tool_name: 'Task', tool_input: { subagent_type: 'architect' } }, repo);
+  return r.status === 2 && r.stderr.includes('budget exhausted') ? null : `a cap of 1 behind a byte-order mark let a second call through (exit ${r.status}): ${r.stderr}`;
+});
+
 t('register-agent records an Opus session id', (repo) => {
   const r = runHook(
     'register-agent.mjs',
@@ -711,6 +744,43 @@ t('agent-gate lets a case 5 brief through: it is rejected, not built', (repo) =>
   writeChange(repo, '# Fix — my-change\n\n## Case\n5 NOT-A-FIX\n\n## Requirement deltas\n- CHANGED REQ-USER-001 — would stop cascading\n', { proposal: false });
   const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: 'STATUS: TRIAGED\nCASE: 5 NOT-A-FIX\nSPEC_PATH: specflow/my-change/spec.md' });
   return blocked(r) ? `a case 5 brief was held to "ready to build": ${r.stdout}` : null;
+}, { phase: 'spec' });
+
+// A case 5 is archived too: under a name the archive has, inside that change.
+t('agent-gate sends back a case 5 brief named like an archived change', (repo) => {
+  writerRepo(repo);
+  writeChange(repo, '# Fix — my-change\n\n## Case\n5 NOT-A-FIX\n\n## Requirement deltas\n- none\n', { proposal: false });
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Fix — my-change\n\n**Status:** REJECTED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  const r = gateReturn(repo, { agent_type: 'spec-flow:spec-writer', last_assistant_message: 'STATUS: TRIAGED\nCASE: 5 NOT-A-FIX\nSPEC_PATH: specflow/my-change/spec.md' });
+  return blocked(r) && /has the name of an archived change/.test(r.stdout) ? null : `a case 5 the orchestrator would archive inside another change went through: ${r.stdout}`;
+}, { phase: 'spec' });
+
+// A re-triage mid-run works on the folder the run's milestone names: a rename
+// would strand current-milestone, resume and the snapshot.
+const retriage = (repo) => {
+  writerRepo(repo);
+  writeChange(repo, '# Fix — my-change\n\n## Case\n2 WEAK-TEST\n\n## Requirement deltas\n- none — the test was incomplete\n', { proposal: false });
+  mkdirSync(join(repo, 'specflow', 'my-change', 'milestones'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'my-change', 'plan.md'), '# Plan\n\none milestone: M1\n');
+  writeFileSync(join(repo, 'specflow', 'my-change', 'milestones', 'M1.md'), '# M1\n');
+  mkdirSync(join(repo, 'specflow', 'archive', 'My-Change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'My-Change', 'spec.md'), '# Fix — My-Change\n\n**Status:** REJECTED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  return gateReturn(repo, {
+    agent_type: 'spec-flow:spec-writer',
+    last_assistant_message:
+      'STATUS: TRIAGED\nCASE: 2 WEAK-TEST\nSPEC_PATH: specflow/my-change/spec.md\nPLAN_PATH: specflow/my-change/plan.md\nWORK_ORDER_PATH: specflow/my-change/milestones/M1.md',
+  });
+};
+
+t('agent-gate does not send a re-triage mid-run to rename the folder its milestone names', (repo) => {
+  const r = retriage(repo);
+  return blocked(r) ? `a re-triage during implement was sent back: ${r.stdout}` : null;
+}, { phase: 'implement' });
+
+t('agent-gate sends back a triage in spec named like an archived change', (repo) => {
+  const r = retriage(repo);
+  return blocked(r) && /has the name of an archived change/.test(r.stdout) ? null : `a brief the fold would move inside another change went through: ${r.stdout}`;
 }, { phase: 'spec' });
 
 t('agent-gate does not judge reads it cannot attribute, and says so', (repo) => {
@@ -1233,6 +1303,39 @@ t('register-agent records the milestone and session an implementer was given', (
   return null;
 });
 
+// The spawn names the milestone however the session spells a path, and names
+// it whether or not the response carries an id: a position left at the last
+// milestone sends a resume back to work already done.
+t('register-agent records the milestone from a Windows path, and with no id in the response', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'implement');
+  const at = join(repo, '.claude/state/current-milestone');
+  writeFileSync(at, 'add-users M1 abc123def4567890a');
+  const spawn = (prompt, tool_response) => runHook('register-agent.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer', prompt }, tool_response }, repo);
+  spawn('implement C:\\repo\\specflow\\add-users\\milestones\\M2.md per the plan', { session_id: 'abc123def4567890b' });
+  const windows = readFileSync(at, 'utf8').trim();
+  if (windows !== 'add-users M2 abc123def4567890b') return `a backslashed path left "${windows}"`;
+  spawn('implement specflow/add-users/milestones/M3.md per the plan', {});
+  const unnamed = readFileSync(at, 'utf8').trim();
+  return unnamed === 'add-users M3' ? null : `a response with no id left "${unnamed}"`;
+});
+
+// The live view finds the agent this record names by the milestone it read
+// off the same spawn, so both read its prompt, one way.
+t('register-agent records the work order its prompt names, not a milestone its description or another path names', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'implement');
+  const at = join(repo, '.claude/state/current-milestone');
+  const spawn = (tool_input) => runHook('register-agent.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer', ...tool_input }, tool_response: {} }, repo);
+  spawn({ description: 'redo specflow/add-users/milestones/M1.md', prompt: 'implement specflow/add-users/milestones/M2.md per the plan' });
+  const described = readFileSync(at, 'utf8').trim();
+  if (described !== 'add-users M2') return `a description naming M1 left "${described}"`;
+  spawn({ prompt: 'see docs/milestones/M1.md, then implement specflow/add-users/milestones/M3.md' });
+  const pathed = readFileSync(at, 'utf8').trim();
+  if (pathed !== 'add-users M3') return `a milestone file named before the work order left "${pathed}"`;
+  spawn({ prompt: 'resume, with plan.md and milestones/M4.md' });
+  const bare = readFileSync(at, 'utf8').trim();
+  return bare === 'add-users M3' ? null : `a work order naming no change left "${bare}"`;
+});
+
 t('a stale-phase reset disarms the run without forgetting where it was', (repo) => {
   const pf = join(repo, '.claude/state/phase');
   writeFileSync(pf, 'implement');
@@ -1380,6 +1483,80 @@ t(
   { phase: '' },
 );
 
+// git quotes a non-ASCII name; read quoted, the base's folder matches nothing here.
+t(
+  'phase-guard refuses to start a run over a change the base branch has under a non-ASCII name',
+  (repo) => {
+    parkedOnBase(repo, 'añadir-exportación');
+    const r = startRun(repo);
+    return r.status === 2 ? null : `a run started over specflow/añadir-exportación/ inherited from the base — exit ${r.status}`;
+  },
+  { phase: '' },
+);
+
+// A setting a hook would refuse mid-run is refused before anything is armed:
+// a cap that is no number of calls otherwise waits for the architect's first
+// consult, mid-implement, to deny anything.
+for (const [what, text, says] of [
+  ['a cap that is not a whole number of calls', JSON.stringify({ max_architect_calls: 'three' }), 'max_architect_calls'],
+  ['a cap of null', JSON.stringify({ max_opus_calls: null }), 'max_opus_calls'],
+  ['a file that does not parse', '{ "max_opus_calls": 2, }', 'does not parse as JSON'],
+  ['a route to an agent this plugin does not ship', JSON.stringify({ agents: { plannr: 'sonnet' } }), 'plannr'],
+]) {
+  t(
+    `phase-guard refuses to start a run over ${what} in .claude/spec-flow.config.json`,
+    (repo) => {
+      writeFileSync(join(repo, '.claude/spec-flow.config.json'), text);
+      const r = startRun(repo);
+      if (r.status !== 2) return `a run started over ${what} — exit ${r.status}`;
+      if (!r.stderr.includes(says)) return `the refusal does not name what to fix: ${r.stderr}`;
+      if (r.stderr.includes('spec-flow init')) return `the refusal sends the human to init, which does not write this file: ${r.stderr}`;
+      return existsSync(join(repo, '.claude/state/phase.session')) ? 'a refused start sealed the phase anyway' : null;
+    },
+    { phase: '' },
+  );
+}
+
+t(
+  'phase-guard refuses to start a run over a .claude/spec-flow.config.json it cannot read',
+  (repo) => {
+    mkdirSync(join(repo, '.claude/spec-flow.config.json'), { recursive: true });
+    const r = startRun(repo);
+    if (r.status !== 2) return `a run started over a settings file no hook can read — exit ${r.status}`;
+    return r.stderr.includes('could not be read') ? null : `the refusal does not say the file could not be read: ${r.stderr}`;
+  },
+  { phase: '' },
+);
+
+// Mid-run each hook applies what it can and denies what it cannot: a refusal
+// at every spawn would stop every agent in the repository (ADR-028, ADR-049).
+t(
+  'mid-run, a settings file that cannot be applied stops only what a hook cannot apply',
+  (repo) => {
+    const spawn = (hook, subagent_type) => runHook(hook, { tool_name: 'Agent', tool_input: { subagent_type } }, repo);
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), '{ "max_opus_calls": 8, }');
+    for (const agent of ['spec-flow:implementer', 'Explore']) {
+      const r = spawn('preflight.mjs', agent);
+      if (r.status !== 0) return `preflight denied ${agent} over a file every hook reads as the defaults — exit ${r.status}: ${r.stderr.slice(0, 200)}`;
+    }
+    if (spawn('opus-budget.mjs', 'planner').status !== 0) return 'the planner was denied under the default cap';
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_architect_calls: 'three' }));
+    if (spawn('preflight.mjs', 'Explore').status !== 0) return 'preflight denied an unrelated agent over the architect\'s cap';
+    return spawn('opus-budget.mjs', 'architect').status === 2 ? null : 'the architect went through under a cap no count can reach';
+  },
+  { phase: 'implement' },
+);
+
+t(
+  'phase-guard lets a run start with caps and a routing every hook can apply',
+  (repo) => {
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), `\uFEFF${JSON.stringify({ max_opus_calls: '4', max_architect_calls: 0, agents: { architect: 'fable' } })}`);
+    const r = startRun(repo);
+    return r.status === 0 ? null : `a run was refused over settings every hook applies — exit ${r.status}: ${r.stderr}`;
+  },
+  { phase: '' },
+);
+
 t(
   'preflight refuses a spawn while a change the base branch has is live — the start it backstops',
   (repo) => {
@@ -1391,12 +1568,56 @@ t(
   { phase: 'plan' },
 );
 
+t(
+  "preflight's refusal past a run's first agent says how to pick the run up",
+  (repo) => {
+    parkedOnBase(repo);
+    const r = runHook('preflight.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'implementer' } }, repo);
+    if (r.status !== 2) return `a spawn went through with specflow/parked/ from the base live — exit ${r.status}`;
+    if (!r.stderr.includes('/spec-flow:resume')) return `a run under way is told only to start again, over what it already did: ${r.stderr}`;
+    return /^Nothing has run yet/m.test(r.stderr) ? `it says nothing has run, mid-run: ${r.stderr}` : null;
+  },
+  { phase: 'implement' },
+);
+
 t("phase-guard's done refusal says a change the base branch has is not this run's to fold", (repo) => {
   parkedOnBase(repo);
   seedGateHistory(repo, 'pass');
   const r = runHook('phase-guard.mjs', { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
   if (r.status !== 2) return `done was allowed over an unarchived change — exit ${r.status}`;
   return r.stderr.includes("parked (the base branch has it: not this run's change)") ? null : `the refusal does not say the folder is not this run's, so it routes it to a FOLD: ${r.stderr}`;
+});
+
+// ---- a SHIPPED change's deltas landed in specs/ ----------------------------
+//
+// spec-trace binds only what specs/ declares, so an ADDED never written there is
+// bound to no test unless the SHIPPED stamp is held to it (ADR-048).
+/** This branch ships `add-export`, ADDING REQ-USER-002; specs/ declares `ids`, and a test ran for each. */
+const shippedExport = (repo, ids) => {
+  gitIn(repo, 'checkout', '-q', '-b', 'feature');
+  const contract = JSON.parse(contractJson());
+  contract.trace.executed_tests = ['node', '-e', `console.log(${JSON.stringify(ids.map((id) => `tests/user.spec.ts::${id} x`).join('\n'))})`];
+  writeFileSync(join(repo, '.spec-flow/config.json'), JSON.stringify(contract));
+  mkdirSync(join(repo, 'specs'), { recursive: true });
+  writeFileSync(join(repo, 'specs/user.md'), `<!-- spec-scope: modules/user -->\n\n# User\n\n${ids.map((id) => `### ${id} — a thing\n`).join('\n')}`);
+  mkdirSync(join(repo, 'specflow/archive/add-export'), { recursive: true });
+  writeFileSync(
+    join(repo, 'specflow/archive/add-export/spec.md'),
+    '# Spec — add export\n\n**Status:** SHIPPED 2026-10-17\n\n## Requirement deltas\n- ADDED REQ-USER-002 — the user can export their data\n',
+  );
+  seedGateHistory(repo, 'pass');
+  return runHook('phase-guard.mjs', { tool_name: 'Write', tool_input: { file_path: join(repo, '.claude/state/phase'), content: 'done' } }, repo);
+};
+
+t('phase-guard refuses done over a SHIPPED change of this branch whose ADDED id never reached specs/', (repo) => {
+  const r = shippedExport(repo, ['REQ-USER-001']);
+  if (r.status !== 2) return `done was allowed over a shipped requirement no spec declares and no test proves — exit ${r.status}`;
+  return r.stderr.includes('REQ-USER-002 is ADDED by specflow/archive/add-export/spec.md') ? null : `the refusal does not name the id and the change: ${r.stderr}`;
+});
+
+t('phase-guard allows done once the ADDED id is in specs/ with a test that ran', (repo) => {
+  const r = shippedExport(repo, ['REQ-USER-001', 'REQ-USER-002']);
+  return r.status === 0 ? null : `a run whose shipped requirement is declared and proven was refused — exit ${r.status}: ${r.stderr}`;
 });
 
 t('phase-guard leaves the phase file\'s siblings alone', (repo) => {
@@ -1685,6 +1906,72 @@ t('phase-guard denies plan from spec over what spec-trace would reject at the fi
   if (r.status !== 2) return `plan was allowed over a spec carrying ## Decision with no proposal.md (exit ${r.status})`;
   if (!/## Decision/.test(r.stderr) || !/no proposal\.md/.test(r.stderr)) return `the denial misses one of the two problems: ${r.stderr.slice(0, 400)}`;
   return null;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over an ADDED that pairs a prohibition with another claim', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('a thing', 'filters by A and B, never by C'));
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a prohibition sharing its id with what it allows (exit ${r.status})`;
+  if (!/REQ-USER-001/.test(r.stderr) || !/id of its own/.test(r.stderr)) return `the denial does not name the delta and the split: ${r.stderr.slice(0, 400)}`;
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over a delta line the engine does not read', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', '- **ADDED** REQ-USER-001 — a thing'));
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a delta no check reads (exit ${r.status})`;
+  return /names REQ-USER-001, which no delta line/.test(r.stderr) ? null : `the denial does not quote the line: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over deltas under a heading spelled another way, or outside their section', (repo) => {
+  for (const [body, says] of [
+    [SIGNED_SPEC.replace('## Requirement deltas', '## Requirement Deltas'), 'has "## Requirement Deltas"'],
+    [SIGNED_SPEC.replace('## Requirement deltas\n- ADDED REQ-USER-001 — a thing', '## ADDED Requirements\n### REQ-USER-001 — a thing'), 'declares a delta outside'],
+  ]) {
+    writeChange(repo, body);
+    const r = writePhase(repo, 'plan');
+    if (r.status !== 2) return `plan was allowed over deltas no check reads (exit ${r.status}): ${says}`;
+    if (!r.stderr.includes(says)) return `the denial does not say where the deltas are: ${r.stderr.slice(0, 300)}`;
+  }
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over a spec that says nothing of its deltas', (repo) => {
+  for (const [body, says] of [
+    [SIGNED_SPEC.replace('## Requirement deltas\n- ADDED REQ-USER-001 — a thing\n', ''), 'has no `## Requirement deltas` section'],
+    [SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', 'This change adds the export.'), 'says nothing the engine reads'],
+  ]) {
+    writeChange(repo, body);
+    const r = writePhase(repo, 'plan');
+    if (r.status !== 2) return `plan was allowed over a spec whose deltas no check reads (exit ${r.status}): ${says}`;
+    if (!r.stderr.includes(says)) return `the denial does not say what is missing: ${r.stderr.slice(0, 300)}`;
+  }
+  return null;
+}, { phase: 'spec' });
+
+t('phase-guard denies plan from spec over a change named like an archived one', (repo) => {
+  writeChange(repo, SIGNED_SPEC);
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Spec — my-change\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a change the fold would move inside another (exit ${r.status})`;
+  return /has the name of an archived change/.test(r.stderr) ? null : `the denial does not name the clash: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
+// On a case-insensitive filesystem the fold moves My-Change into my-change.
+t('phase-guard denies plan from spec over a name the archive has in another case', (repo) => {
+  writeChange(repo, SIGNED_SPEC, { slug: 'My-Change' });
+  mkdirSync(join(repo, 'specflow', 'archive', 'my-change'), { recursive: true });
+  writeFileSync(join(repo, 'specflow', 'archive', 'my-change', 'spec.md'), '# Spec — my-change\n\n**Status:** SHIPPED 2026-07-30\n\n## Requirement deltas\n- none\n');
+  const r = writePhase(repo, 'plan');
+  if (r.status !== 2) return `plan was allowed over a name that differs from an archived one only in case (exit ${r.status})`;
+  return /has the name of an archived change/.test(r.stderr) ? null : `the denial does not name the clash: ${r.stderr.slice(0, 300)}`;
+}, { phase: 'spec' });
+
+t('phase-guard allows leaving spec with each prohibition on its own id', (repo) => {
+  writeChange(repo, SIGNED_SPEC.replace('- ADDED REQ-USER-001 — a thing', '- ADDED REQ-USER-001 — filters by A and B\n- ADDED REQ-USER-002 — never filters by C'));
+  const r = writePhase(repo, 'plan');
+  return r.status === 0 ? null : `a prohibition on its own id was denied (exit ${r.status}): ${r.stderr.slice(0, 300)}`;
 }, { phase: 'spec' });
 
 t('phase-guard denies implement from spec over a fix brief whose CHANGED says no kind', (repo) => {
@@ -2086,6 +2373,23 @@ t('model-route denies a full model id, where the tool call would have', (repo) =
   return null;
 });
 
+t('model-route reads a routing written after a byte-order mark, and denies the entry that is wrong', (repo) => {
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), `\uFEFF${JSON.stringify({ agents: { reviwer: 'sonnet' } })}`);
+  const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+  if (r.status !== 2) return `exit ${r.status}, expected 2 — behind a byte-order mark the routing was never read, so the typo routed nothing, silently`;
+  return r.stderr.includes('reviwer') ? null : 'denied without naming the entry that is wrong';
+});
+
+t('model-route reads a file that is not a JSON object as no routing, and does not crash on it', (repo) => {
+  for (const text of ['null', '[]', '6']) {
+    writeFileSync(join(repo, '.claude/spec-flow.config.json'), text);
+    const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'reviewer' } }, repo);
+    if (r.status !== 0) return `${text}: exit ${r.status}, expected 0`;
+    if (r.stderr.includes('hook error')) return `${text}: the hook crashed, and a crash allows the spawn with nothing applied: ${r.stderr.slice(0, 200)}`;
+  }
+  return null;
+});
+
 t('model-route passes through an agent this plugin does not ship', (repo) => {
   withRouting(repo, { reviewer: REVIEWER_ELSEWHERE });
   const r = runHook('model-route.mjs', { tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose' } }, repo);
@@ -2190,6 +2494,13 @@ t('opus-budget charges a warm planner resume and not one stale-resume denies', (
   if (count() !== '0') return `a resume stale-resume denies was charged (${count()}): the fresh spawn replacing it bills the same consult twice`;
   runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
   return count() === '1' ? null : `a warm planner resume was charged ${count()}, want 1`;
+});
+
+t('opus-budget denies a warm planner resume while its cap is not a number of calls', (repo) => {
+  writeFileSync(join(repo, '.claude/state/agent-registry'), 'a0123456789abcdef planner\n');
+  writeFileSync(join(repo, '.claude/spec-flow.config.json'), JSON.stringify({ max_opus_calls: 'six' }));
+  const r = runHook('opus-budget.mjs', subagentOnDisk(repo, { ageMin: 1, type: 'spec-flow:planner' }), repo);
+  return r.status === 2 && r.stderr.includes('max_opus_calls') ? null : `a resume went through under a cap no count can reach — exit ${r.status}: ${r.stderr}`;
 });
 
 // ---- the orchestrator routes, and a hook keeps it routing (ADR-034) ------

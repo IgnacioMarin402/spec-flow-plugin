@@ -12,10 +12,42 @@
  * `{ config, base }` otherwise.
  *
  * Not the Node floor: that is a fact about the engine's host, not about the
- * repository, and `preflight` keeps it.
+ * repository, and `preflight` keeps it. Not the settings either: those are
+ * `assertCanStart`'s.
  */
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadConfig } from '../../scripts/spec-flow-config.mjs';
 import { resolveBase, assertRepoRoot, changesAtBase } from '../../scripts/changed-files.mjs';
+import { BUDGETS, budgetCap } from './budgets.mjs';
+import { projectConfig } from './project-config.mjs';
+import { projectRouting } from './routing.mjs';
+
+/**
+ * What in `.claude/spec-flow.config.json` cannot be applied: a cap
+ * `opus-budget` denies every call at, a route `model-route` denies every spawn
+ * over, or a file none of whose settings apply. Refused at the start, a bad
+ * cap does not wait for the architect's first consult, mid-implement.
+ *
+ * @param {string} root
+ * @returns {string[]}
+ */
+export function settingsProblems(root) {
+  const path = join(root, '.claude', 'spec-flow.config.json');
+  if (!existsSync(path)) return [];
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (err) {
+    return [`could not be read (${err.message}), so none of its settings apply`];
+  }
+  const { settings, problem } = projectConfig(text);
+  if (problem) return [problem];
+  const caps = Object.entries(BUDGETS)
+    .filter(([role]) => Number.isNaN(budgetCap(text, role)))
+    .map(([role, b]) => `"${b.key}": ${JSON.stringify(settings[b.key])} is not a whole number of calls, so opus-budget would deny every ${role} call.`);
+  return [...caps, ...projectRouting(root).problems];
+}
 
 export function assertCanRun(root) {
   assertRepoRoot(root);
@@ -50,4 +82,25 @@ export function assertCanRun(root) {
     );
   }
   return { config, base };
+}
+
+/**
+ * `assertCanRun`, and a setting a hook cannot apply (`kind: 'settings'`): what
+ * `phase-guard` asks of the write that starts a run. Not `preflight` at each
+ * spawn: mid-run each hook applies what it can and denies what it cannot, and
+ * a refusal there would stop every spawn in the repository (ADR-049).
+ */
+export function assertCanStart(root) {
+  const found = assertCanRun(root);
+  const settings = settingsProblems(root);
+  if (settings.length > 0) {
+    throw Object.assign(
+      new Error(
+        `.claude/spec-flow.config.json cannot be applied:\n${settings.map((p) => `  - ${p}`).join('\n')}\n` +
+          `Fix each, or remove the setting to take its default.`,
+      ),
+      { kind: 'settings' },
+    );
+  }
+  return found;
 }

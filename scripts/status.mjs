@@ -43,7 +43,7 @@ if (!phase || ['idle', 'done'].includes(phase)) {
   say(`  phase: ${phase}${owner ? ` (owned by session ${owner})` : ''}`);
 }
 
-// `<SLUG> <Mk> <session>`, written by register-agent.mjs from an implementer
+// `<SLUG> <Mk> [<session>]`, written by register-agent.mjs from an implementer
 // spawn — the only place the run's position is recorded at all.
 const milestone = read('current-milestone').split(/\s+/).filter(Boolean);
 if (milestone.length >= 2) {

@@ -40,6 +40,11 @@ the contract as the engine reads it:
 node <plugin-or-clone>/scripts/spec-flow-config.mjs
 ```
 
+A run does not freeze it. A change to `.spec-flow/`, or to a script or config
+it runs through, made during a run changes what the gate judges with, and only
+the diff shows it
+([ADR-046](decisions/046-the-contract-is-not-frozen-during-a-run.md)).
+
 ### `verify`
 
 | key | required | what it is |
@@ -128,14 +133,34 @@ The system sends a single-use link, valid for one hour.
 - The id prefix comes from the filename: `specs/user-profile.md` declares
   `REQ-USER-PROFILE-`.
 - Exactly three digits. Ids are permanent — never renumbered or reused.
-- The scope marker is required. Requirements are `###` headings, id first.
+- The scope marker is required. Requirements are `###` headings, id first; a
+  heading shaped like one and not read as one (`### REQ-USER-10`) fails on the
+  branch that writes it. One the base branch already has is said, not failed.
 
 ### Declaring a delta
 
 A change spec declares what it does to `specs/`. `ADDED` fails when the new id
 has no test that ran; `REMOVED` fails when a test still reports an id no spec
-declares. A claim that appears, disappears or changes is `REMOVED` + `ADDED` on
-a new id. `CHANGED` is only for edits that move no proof, and names which
+declares. Once a change of this branch is stamped SHIPPED, an `ADDED` id it
+never wrote into `specs/` fails unless a change `REMOVED` it, and so does a
+`REMOVED` id still there; during a run, from its fold on. Each archived change
+has a folder of its own: one folded inside another, or beside one a case apart,
+fails ([ADR-048](decisions/048-a-shipped-changes-deltas-are-held-to-specs.md)).
+
+A delta is one line under `## Requirement deltas`, `- VERB REQ-<CAP>-0NN —
+<text>`: `ADDED`, `CHANGED` or `REMOVED` in capitals, and one id. Every other
+line of the section names only ids a delta line reads; a delta's own text, and
+`- none`'s, may name any id, but not after a verb in capitals; the text starts
+at ` — `, a colon, a parenthesis, or a dash before a word. A line naming
+another id — a table row, a heading, a note, a delta spelled another way — a
+second id or number before a delta's text, an id spelled another way
+(`REQ-USER-10`), a line led by `ADDED`, `CHANGED` or `REMOVED` that is no
+delta, deltas under another heading, and a section with neither a delta nor a
+`none` line are refused when the spec leaves `spec`, and in a SHIPPED change of
+this branch that names an id; never at a milestone gate. Code, and an HTML
+comment that starts a line, are not read. A claim that appears, disappears or
+changes is `REMOVED` + `ADDED` on a new id.
+`CHANGED` is only for edits that move no proof, and names which
 ([ADR-009](decisions/009-a-changed-delta-says-which-kind-it-is.md)):
 
 ```markdown
@@ -145,6 +170,11 @@ a new id. `CHANGED` is only for edits that move no proof, and names which
 ```
 
 `(correction)` is legal only in a `/spec-fix` brief (case 3).
+
+An `ADDED` that pairs a prohibition with another claim, such as "filters by A
+and B, never by C", fails: a test of what it allows would prove it. What it
+forbids takes an id of its own
+([ADR-045](decisions/045-a-prohibition-has-an-id-of-its-own.md)).
 
 ### `extra_checks`
 
@@ -160,7 +190,8 @@ Your own checks, run at every gate and again at `done`.
 | `class` | no | `"lint/trace"` (route as an edit, default) or `"behaviour"` (route as a re-plan) |
 
 A `cmd` naming a repo-local script that does not exist yet is skipped, not
-failed.
+failed; one naming a file under `node_modules/` that is not installed fails.
+`init` offers the repo's `build` and `typecheck` scripts as entries.
 
 ### `unscoped_denied`
 
@@ -202,13 +233,20 @@ Resolved in order: `verify.base_ref`, `refs/remotes/origin/HEAD`, then
 `origin/main`, `main`, `origin/master`, `master`, `origin/develop`, `develop`,
 `origin/trunk`, `trunk`.
 
-None resolves → `preflight` refuses the run, and the gate blocks one already
-underway. Resolves to **HEAD itself** → only the gate blocks (a fresh feature
-branch sits at its base until its first commit, so `preflight` cannot tell).
+None resolves → `preflight` refuses the run, the gate blocks one already
+underway, and `spec-trace` fails over an archived change it cannot tell as
+this branch's or inherited, so `spec-flow trace` in CI needs the base once a
+change is SHIPPED with an id. Resolves to **HEAD itself** → only the gate
+blocks (a fresh feature branch sits at its base until its first commit, so
+`preflight` cannot tell), and `spec-trace` reads every archived change as
+inherited.
 There is no fallback: comparing HEAD with itself is indistinguishable from
-"nothing changed". Declare `base_ref` for a release branch, a fork, or a
-shallow CI checkout. Both refusals write `fail:base`; `files=-` means the base
-could not be named, `files=0` means it resolved to HEAD.
+"nothing changed". Declare `base_ref` for a release branch or a fork. A shallow
+or single-branch clone holds no base, declared or not: check out with
+`fetch-depth: 0`, or run `git fetch origin '+refs/heads/*:refs/remotes/origin/*'`,
+with `--unshallow` in a shallow clone. Both refusals write `fail:base`;
+`files=-` means the base could not be named, `files=0` means it resolved to
+HEAD.
 
 ---
 
@@ -222,9 +260,9 @@ could not be named, `files=0` means it resolved to HEAD.
 
 - **`max_opus_calls`** (default 6) caps planner calls per run, and
   **`max_architect_calls`** (default 3) caps architect calls, each by role,
-  whatever tier it runs on. Past a cap the spawn is denied and the orchestrator
-  summarises for a human. Counters: `.claude/state/opus_calls` and
-  `.claude/state/architect_calls`
+  whatever tier it runs on. Past a cap the spawn is denied and the
+  orchestrator summarises for a human. Counters: `.claude/state/opus_calls`
+  and `.claude/state/architect_calls`
   ([ADR-038](decisions/038-the-architect-answers-the-implementer-and-a-re-plan-needs-a-wrong-plan.md)).
 - **`agents`** re-routes an agent to a tier: `opus`, `sonnet`, `haiku` or
   `fable`. The architect advisor runs on Opus unless routed;
@@ -240,6 +278,13 @@ could not be named, `files=0` means it resolved to HEAD.
 - **A concrete model version** is session-wide, set in the project's
   `.claude/settings.json` as `{"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "<id>"}}`
   ([ADR-013](decisions/013-an-agent-names-a-tier-not-a-version.md)).
+- **A run does not start** over a file that does not parse or is not a JSON
+  object, a cap that is not a whole number of calls (`null` included), or a
+  route to an unknown agent or tier
+  ([ADR-049](decisions/049-a-setting-the-hooks-cannot-apply-refuses-a-runs-start.md)).
+  Mid-run each hook applies what it can: a file that does not parse gives the
+  defaults, which the live view says; a cap no count can reach denies that
+  role's calls; a route that cannot be applied denies this plugin's spawns.
 
 `spec-flow models` prints what each agent will run on and which layer decided
 it, through the same code the spawn hook uses. None of this resets between
@@ -267,6 +312,8 @@ Code falls through to the git SHA and every push to `main` is an update
 **Installed** → **Update now**; a session keeps what it loaded until
 `/reload-plugins` or the next launch. `claude plugin marketplace update` without
 a name refreshes the listing and leaves the installed plugin where it is.
+An update reaches a run in flight: a check added since can fail its next gate
+or its fold.
 
 Background auto-update is off by default for third-party marketplaces. Once on,
 it runs once per interactive session, within ten minutes of the first message,
@@ -386,7 +433,7 @@ Without it, run the same scripts by path, from your repo's root:
 | `human-turn` | `UserPromptSubmit`, `Stop`, `PostToolUse` | `AskUserQuestion` (`PostToolUse`) | Records when the session's turn ends and when a person answers — never what they said — for the case 3 check ([ADR-036](decisions/036-a-case-3-waits-for-a-persons-answer.md)). Enforces nothing |
 | `preflight` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Refuses a run whose project directory is not the repository root, whose contract does not load, whose base does not resolve, that has a live change folder the base already has, or whose Node is below the floor |
 | `no-gate-cmds` | `PreToolUse` | `Bash` | Denies whole-repo lint/test runs while implementing |
-| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run, and leaving `spec` while a live spec is not ready to build from, or a case 3 brief has no person's answer since it was written |
+| `phase-guard` | `PreToolUse` | `Bash`, `Write`, `Edit` | Denies a phase outside the closed set, an unearned `done` or `idle`, a `blocked` the gate did not write, the phase write that would start a run where the engine cannot run or over a setting in `.claude/spec-flow.config.json` the hooks cannot apply, and leaving `spec` while a live spec is not ready to build from, or a case 3 brief has no person's answer since it was written |
 | `orchestrator-scope` | `PreToolUse` | `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` | During a run, denies the session itself — not a subagent — reading a repository file outside `specflow/`, `specs/`, `.spec-flow/`, `.claude/` and the root's `*.md`, or writing, moving or deleting one outside `.claude/state/` and `specflow/`, or a log under `.claude/state/` ([ADR-034](decisions/034-the-orchestrator-routes-and-a-hook-keeps-it-routing.md)) |
 | `opus-budget` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Counts planner and architect calls, each against its own cap, and denies past it |
 | `arm-gate` | `PreToolUse` | `Task`, `Agent`, `SendMessage` | Writes `implement` when the implementer is engaged without it, by type, name or a message to its id; from `spec`, denies the spawn instead while a live spec is not ready to build from; in any run phase, denies it while a case 3 brief has no person's answer since it was written; on `done` or `idle`, denies this flow's implementer, which works only inside a run ([ADR-044](decisions/044-the-implementer-works-only-inside-a-run.md)) |
@@ -421,9 +468,13 @@ It shows a pane with one box per spec-flow agent while the agent works: model,
 effort, time, requests, how many tools and skills it called, the advisor's
 consultations and their time, its tokens split into cache read, fresh and
 output, and the last tool. When the agent finishes, its box shows the
-`STATUS:` it handed back. The orchestrator, the phase and the last gate sit
-above the boxes, the run line totals them with what the session cost as
-`/cost` counts it, and the status line names the phase and who is running.
+`STATUS:` it handed back, and a box the agent gate sent back says how often
+and why. Above the boxes sit the orchestrator, the phase, the last gate with the
+checks it failed, the planner's and the architect's calls against their caps,
+and any check whose own log says it stood down during this run
+([ADR-047](decisions/047-an-observer-stays-a-command-hook-and-the-live-view-shows-its-record.md)).
+The run line totals them with what the session cost as `/cost` counts it, and
+the status line names the phase and who is running.
 
 - `/spec-flow-live` opens the pane, even mid-turn. The pane also opens by
   itself at the first spawn, if there is room beside the transcript.
@@ -459,16 +510,21 @@ armed.
 - **A run that cannot run here does not start**
   ([ADR-028](decisions/028-a-run-that-cannot-run-here-does-not-start.md)). The
   first run phase written while no run is in progress is denied unless the
-  directory is a repository root, the contract loads, the base resolves and no
+  directory is a repository root, the contract loads, the base resolves, no
   live change folder is one the base already has
-  ([ADR-032](decisions/032-a-change-the-base-already-has-is-not-this-runs.md));
-  nothing is armed by a refused start.
+  ([ADR-032](decisions/032-a-change-the-base-already-has-is-not-this-runs.md))
+  and every setting in `.claude/spec-flow.config.json` can be applied
+  ([ADR-049](decisions/049-a-setting-the-hooks-cannot-apply-refuses-a-runs-start.md));
+  nothing is armed by a refused start. A start phase-guard cannot read is met
+  by `preflight` at the first spawn, which checks all of it but the settings.
 - **A phase write leaving `spec` needs a spec its first gate would accept**
   ([ADR-030](decisions/030-a-spec-states-what-it-assumed-and-asks-at-most-three.md)).
   `plan`, `review` or `implement` written from `spec` is denied while a live
   spec with no plan yet has no `## Assumptions` (a `/spec-fix` brief needs
-  none) or fails a check spec-trace makes of live changes. `arm-gate` holds
-  the implementer spawn that would leave `spec` to the same check
+  none), writes a delta no check reads, has the name of an archived change in
+  any case — its fold would land inside that change — or fails a check
+  spec-trace makes of live changes. `arm-gate` holds the implementer spawn
+  that would leave `spec` to the same check
   ([ADR-035](decisions/035-a-dispatch-is-recorded-before-it-is-denied.md)).
 - **A case 3 waits for a person's answer**
   ([ADR-036](decisions/036-a-case-3-waits-for-a-persons-answer.md)). While a
@@ -503,7 +559,7 @@ Gitignored working files; delete one to reset that piece of state.
 |---|---|
 | `phase` / `phase.session` | The current phase, and the session that owns it |
 | `gate_attempts` | Consecutive gate failures. Reset on pass, capped at 5 |
-| `current-milestone` | `<SLUG> <Mk> <implementer session>`, written at each implementer spawn; where `resume` positions the run |
+| `current-milestone` | `<SLUG> <Mk> [<implementer session>]`, written at each implementer spawn whose prompt names `specflow/<SLUG>/milestones/<Mk>.md`, the session when the spawn names one; where `resume` positions the run |
 | `opus_calls` / `architect_calls` | Planner calls / architect calls this run |
 | `gate-history.log` | One line per gate invocation; a surviving `running` line means that invocation was killed |
 | `gate-failure.log` / `.full.log` | Last failure, truncated for the planner / whole for a human |

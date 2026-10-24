@@ -191,6 +191,36 @@ describe('resolveLocalBin', () => {
     });
   });
 
+  // npm names the target as the package declares it, and typescript declares
+  // `bin/tsc`. The shim runs it with node, so it is the entrypoint.
+  test('an extensionless entrypoint the shim runs with node resolves', () => {
+    withDir((dir) => {
+      packageEntry(dir, 'typescript', 'bin/tsc');
+      writeFileSync(
+        join(dir, 'node_modules', '.bin', 'tsc'),
+        '#!/bin/sh\nbasedir=$(dirname "$0")\n' +
+          'if [ -x "$basedir/node" ]; then\n' +
+          '  exec "$basedir/node"  "$basedir/../typescript/bin/tsc" "$@"\n' +
+          'else \n' +
+          '  exec node  "$basedir/../typescript/bin/tsc" "$@"\n' +
+          'fi\n',
+      );
+      assert.equal(resolveLocalBin(dir, 'tsc'), 'node_modules/typescript/bin/tsc');
+    });
+  });
+
+  // A shebang's node flags sit between the interpreter and the target.
+  test('a shim passing node flags still resolves to the entrypoint', () => {
+    withDir((dir) => {
+      packageEntry(dir, 'x', 'bin/x.js');
+      writeFileSync(
+        join(dir, 'node_modules', '.bin', 'x'),
+        '#!/bin/sh\nexec node --no-warnings --max-old-space-size=4096 "$basedir/../x/bin/x.js" "$@"\n',
+      );
+      assert.equal(resolveLocalBin(dir, 'x'), 'node_modules/x/bin/x.js');
+    });
+  });
+
   test('the POSIX shape resolves through the symlink', (t) => {
     withDir((dir) => {
       packageEntry(dir, 'eslint', 'bin/eslint.js');

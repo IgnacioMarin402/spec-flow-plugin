@@ -26,9 +26,10 @@
  *   4. A write that STARTS a run — a run phase while no run is in progress —
  *      is refused where this engine cannot run: not a repository root, no
  *      contract that loads, no base that resolves (ADR-028), a live change
- *      folder the base already has (ADR-032). Nothing is armed
- *      then, so a refused start leaves nothing for `session-start` to reset
- *      and denies no later spawn in that repository.
+ *      folder the base already has (ADR-032), a setting in
+ *      `.claude/spec-flow.config.json` the hooks cannot apply (ADR-049).
+ *      Nothing is armed then, so a refused start leaves nothing for
+ *      `session-start` to reset and denies no later spawn in that repository.
  *   5. A write that LEAVES `spec` needs every live spec with no plan yet to
  *      pass what spec-trace will check of it at the first gate, and to state
  *      its assumptions (ADR-030); and a fix brief that corrects a requirement
@@ -50,10 +51,10 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd, RUN_PHASES } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
-import { assertCanRun } from './lib/can-run.mjs';
+import { assertCanStart } from './lib/can-run.mjs';
 import { resolveBase, changesAtBase } from '../scripts/changed-files.mjs';
 import { leavingSpecProblems } from '../scripts/spec-time.mjs';
 import { unconfirmedCorrections, correctionDenial } from './lib/human-turn.mjs';
@@ -89,10 +90,7 @@ function deny(message) {
  * The whole vocabulary. Kept here as the one executable copy — the tables in
  * README, REFERENCE and both commands describe it, and descriptions drift.
  */
-const PHASES = ['spec', 'plan', 'review', 'implement', 'blocked', 'done', 'idle'];
-
-/** The phases a run is IN — the ones that arm a hook. */
-const RUN_PHASES = ['spec', 'plan', 'review', 'implement', 'blocked'];
+const PHASES = [...RUN_PHASES, 'done', 'idle'];
 
 /** The phases a tool may write to START a run; `blocked` is the gate's alone. */
 const STARTS_A_RUN = ['spec', 'plan', 'review', 'implement'];
@@ -196,7 +194,8 @@ await run(async () => {
     // In or out of a run: a command writing into `.claude/state/phase` creates
     // that directory itself, so recording it there leaves nothing behind that
     // the command did not — and a start this hook could not read is the one
-    // `preflight` has to catch, which is worth a line saying so.
+    // `preflight` has to catch, but for the settings (ADR-049), which is worth
+    // a line saying so.
     if (!written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
   } else {
     const filePath = String(input.file_path ?? input.filePath ?? '');
@@ -225,15 +224,16 @@ await run(async () => {
     if (!STARTS_A_RUN.includes(written)) return;
 
     // The checks `preflight` makes at the first spawn, made at the first
-    // write: a run refused here leaves no phase behind, while one refused
+    // write, and the settings, which only this write is refused over
+    // (ADR-049): a run refused here leaves no phase behind, while one refused
     // there had already armed every hook that reads the phase.
     try {
-      assertCanRun(root);
+      assertCanStart(root);
     } catch (err) {
       deny(
         `starting a run by writing '${written}' into .claude/state/phase, and this engine cannot run in this repository: ${err.message}\n\n` +
           `Nothing has started and nothing is armed. Fix that first, then start the run again` +
-          (err.kind === 'foreign-change' ? '.' : ` — \`spec-flow init\`, run from the repository root, writes the contract.`),
+          (['foreign-change', 'settings'].includes(err.kind) ? '.' : ` — \`spec-flow init\`, run from the repository root, writes the contract.`),
       );
     }
     claimPhase(root, payload.session_id);

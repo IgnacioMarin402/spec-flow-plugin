@@ -23,6 +23,7 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDir, stateDir, readPhase, readPayload, writeFile, run } from './lib/io.mjs';
 import { matchAgent } from './lib/agent-name.mjs';
+import { milestoneRef } from './lib/milestone-ref.mjs';
 
 const ID_RE = /^[0-9a-f]{16,32}$/; // observed ids: 17 hex chars
 
@@ -102,28 +103,30 @@ await run(async () => {
     id = labeled ? labeled[1] : bare ? bare[0] : '';
   }
 
+  // ---- the run's resumable position, for an implementer spawn ---------------
+  //
+  // `phase` and `gate_attempts` survive a crash; without this, which
+  // MILESTONE they refer to does not, so a dead orchestrator leaves an armed
+  // gate and nothing able to say what was being implemented.
+  //
+  // Written from the SPAWN rather than asked of the orchestrator, for the
+  // reason preflight is a hook: state the model has to remember to write is
+  // not state. The milestone comes out of the spawn's prompt because that is
+  // where it already is, by the one reading of it (lib/milestone-ref.mjs). A
+  // work order is what names the change; a bare `milestones/<Mk>.md` leaves
+  // the position as it was. With no id in the response the position is still
+  // the spawn's, and the implementer is left unnamed.
+  //
+  // A follow-up `SendMessage` does not pass through here, and must not: it
+  // carries no milestone, and rewriting this from one would blank the
+  // position at the first lint retry.
+  if (agent === 'implementer') {
+    const at = milestoneRef(input.prompt);
+    if (at?.change) writeFile(join(state, 'current-milestone'), `${at.change} ${at.milestone}${id ? ` ${id}` : ''}`);
+  }
+
   if (id) {
     appendUnique(registry, `${id} ${agent}`);
-
-    // ---- the run's resumable position, for an implementer spawn -------------
-    //
-    // `phase` and `gate_attempts` survive a crash; without this, which
-    // MILESTONE they refer to does not, so a dead orchestrator leaves an armed
-    // gate and nothing able to say what was being implemented.
-    //
-    // Written from the SPAWN rather than asked of the orchestrator, for the
-    // reason preflight is a hook: state the model has to remember to write is
-    // not state. The milestone comes out of the spawn's own input because that
-    // is where it already is.
-    //
-    // A follow-up `SendMessage` does not pass through here, and must not: it
-    // carries no milestone, and rewriting this from one would blank the
-    // position at the first lint retry.
-    if (agent === 'implementer') {
-      const text = JSON.stringify(input ?? '');
-      const at = /specflow[\\/]([^"\\/]+)[\\/]milestones[\\/](M\d+)\.md/.exec(text);
-      if (at) writeFile(join(state, 'current-milestone'), `${at[1]} ${at[2]} ${id}`);
-    }
     return;
   }
 
