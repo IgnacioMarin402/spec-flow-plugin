@@ -51,7 +51,8 @@
     "unit:check": "node --test",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
-    "init:check": "node scripts/init-fixture.mjs"
+    "init:check": "node scripts/init-fixture.mjs",
+    "evals": "claude plugin eval . --scaffold --allow-tools Write Edit --output-dir ${TMPDIR:-/tmp}/spec-flow-evals"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
