@@ -26,7 +26,7 @@
  * where a list would be convenient.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, appendFileSync } from 'node:fs';
-import { join, extname, sep } from 'node:path';
+import { join, extname, sep, posix } from 'node:path';
 import { resolveBase, assertRepoRoot } from './changed-files.mjs';
 import { RUNTIMES, stripTargets, resolveLocalBin } from './argv.mjs';
 
@@ -79,65 +79,53 @@ function readJson(path) {
 }
 
 /**
- * `"vitest run --reporter dot"` -> `{ bin: 'vitest', args: ['run', ...] }`.
- * Wrapper prefixes are stripped, so a script written as `npm exec -- vitest
- * run` yields the same answer as one written as `vitest run`.
- */
-/**
- * The words a shell would hand the runner, its quotes removed, or null when
- * only a shell could say: an unbalanced quote, or a `$`, backquote or
- * backslash inside double quotes, which a shell expands first. A word quoted
- * whole stays one argv token, so a quoted glob reaches the runner unexpanded,
- * as it does through a shell.
+ * The words a shell would hand the runner, its quotes removed: `{ words }`, or
+ * `{ why }` when only a shell can say. A word quoted whole stays one argv
+ * token, so a quoted glob reaches the runner unexpanded, as through a shell.
+ *
+ * The reasons are told apart because the remedies differ: a chain has to be
+ * split by a human, an expansion or a variable written out by one. A message
+ * naming the wrong one sends someone to edit the wrong thing. Keeping the
+ * quote characters is the failure that reads as working: `--spec
+ * "test/**\/*.spec.js"` reaches the runner as literal text, matches no file,
+ * and on a runner that exits 0 for an empty match is a green gate over zero
+ * executed tests.
  */
 function shellWords(script) {
   const words = [];
   let word = null;
-  const re = /\s+|'([^']*)'|"([^"]*)"|[^\s'"]+|(["'])/g;
-  for (const m of script.matchAll(re)) {
-    if (m[3] || (m[2] !== undefined && /[$`\\]/.test(m[2]))) return null;
-    if (/^\s/.test(m[0])) {
+  for (const [token, single, double] of script.matchAll(/[^\S\n]+|'([^']*)'|"([^"]*)"|[^\s'"]+|[\s\S]/g)) {
+    if (single === undefined && double === undefined && /^[^\S\n]+$/.test(token)) {
       if (word !== null) words.push(word);
       word = null;
-    } else {
-      word = (word ?? '') + (m[1] ?? m[2] ?? m[0]);
+      continue;
     }
+    const unquoted = single === undefined && double === undefined;
+    if (unquoted && /[&|;<>()\n]/.test(token)) return { why: 'it chains or redirects commands, so it is not one runner invocation' };
+    if (/^["']$/.test(token) || /[$`\\]/.test(unquoted ? token : (double ?? '')) || (unquoted && word === null && token.startsWith('#'))) {
+      return { why: 'it expands something only a shell can: a $, a backquote, a backslash, a comment or a quote that does not close' };
+    }
+    word = (word ?? '') + (single ?? double ?? token);
   }
   if (word !== null) words.push(word);
-  return words;
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0] ?? '')) {
+    return { why: 'it sets an environment variable ahead of the command, which takes a shell' };
+  }
+  return { words };
 }
+
+/** Why a script cannot become a contract argv, or null when it can. */
+const shellOnly = (script) => (script ? (shellWords(script).why ?? null) : null);
 
 /**
- * Why a script cannot become a contract argv, or null when it can.
- *
- * Both answers are the same kind of thing — something only a SHELL resolves,
- * in a field this engine spawns without one — and they are reported apart
- * because the remedies differ: a chain has to be split by a human, a quote
- * only a shell can read has to be written out by one. A message naming the
- * wrong one sends someone to edit the wrong thing.
- *
- * Quoting is the half that reads as working. Splitting on whitespace KEEPS
- * the quote characters, so `--spec "test/**\/*.spec.js"` reaches the runner
- * as literal text, matches no file, and on any runner that exits 0 for an
- * empty match becomes a green gate over zero executed tests — so quotes are
- * removed by `shellWords`, never kept.
+ * `"vitest run --reporter dot"` -> `{ bin: 'vitest', args: ['run', ...] }`.
+ * Wrapper prefixes are stripped, so a script written as `npm exec -- vitest
+ * run` yields the same answer as one written as `vitest run`. Anything a
+ * shell would have had to resolve first is left to the human (`shellWords`).
  */
-function shellOnly(script) {
-  if (!script) return null;
-  if (/[&|;><]/.test(script)) return 'it chains or redirects commands, so it is not one runner invocation';
-  if (!shellWords(script)) {
-    return 'it quotes an argument in a way only a shell can read (an unbalanced quote, or a $, backquote or backslash inside double quotes)';
-  }
-  return null;
-}
-
 function parseScript(script) {
-  if (!script) return null;
-  // The engine needs a single argv it can spawn. Anything a shell would have
-  // had to resolve first is left to the human — see `shellOnly`.
-  if (shellOnly(script)) return null;
-
-  const tokens = shellWords(script.trim());
+  const tokens = script ? shellWords(script).words : null;
+  if (!tokens) return null;
 
   if (tokens[0] === 'npx') tokens.shift();
   if (PACKAGE_MANAGERS.has(tokens[0]) && SUBCOMMANDS.has(tokens[1])) tokens.splice(0, 2);
@@ -152,6 +140,30 @@ function parseScript(script) {
   const named = !RUNTIMES.has(bin) || args[0] === 'test';
 
   return { bin, args, named };
+}
+
+/**
+ * Why a parsed script hands off to scripts a shell runs, or null. A package
+ * manager, or another script's name (`npm run test:unit` parses to
+ * `test:unit`), spawned with no shell fails at every gate. A runtime that is
+ * its own runner (`bun test`) hands off nothing.
+ */
+function delegates(parsed, scripts) {
+  return (PACKAGE_MANAGERS.has(parsed.bin) && !RUNTIMES.has(parsed.bin)) || Object.hasOwn(scripts, parsed.bin)
+    ? 'it runs a package script through the package manager, and this engine spawns one command with no shell'
+    : null;
+}
+
+/** The script `name`, parsed for the contract: `{ parsed }`, or `{ why }` it cannot be. */
+function readScript(scripts, name) {
+  const script = scripts[name];
+  if (!script) return {};
+  const why = shellOnly(script);
+  if (why) return { why };
+  const parsed = parseScript(script);
+  if (!parsed) return { why: 'it names no command' };
+  const hands = delegates(parsed, scripts);
+  return hands ? { why: hands } : { parsed };
 }
 
 /**
@@ -275,18 +287,6 @@ function detectPackageManager(root) {
 // ---- build the contract ----------------------------------------------------
 
 /**
- * The report path a test command already names, or null.
- *
- * Deliberately looks for a PATH and not for a flag. `--junitxml=`, `--reporter`
- * and `--reporters` are each one runner's spelling, and a table of them is the
- * rotting stack list ADR-002 refused; an argv token ending in `.xml` is a fact
- * about this repo's own command. It is reported as REVIEW either way, because
- * a command may name an XML file for some other reason entirely.
- *
- * `=`-joined forms are split first, so `--junitxml=reports/x.xml` yields the
- * path without this function knowing what the left-hand side means.
- */
-/**
  * How each supported runner is told to write a report, keyed by the name `init`
  * already read off the `test` script.
  *
@@ -301,21 +301,36 @@ function detectPackageManager(root) {
  * runner and reading the file that appeared. An unknown runner is not a
  * failure — it falls through to the same REVIEW line this table replaced.
  *
- * `argv` returns tokens appended to the test command. `packageKey` is the
- * `package.json` key a runner reads its report's path from, added where the
- * file has none. `note` says what a flag alone cannot express, and exists for exactly one reason: not every runner can
- * be configured from argv, and pretending otherwise would write a command that
- * runs clean and produces no file — a check that looks armed and is not.
+ * `argv` returns tokens appended to the test command. `path` is where a runner
+ * whose output is not set from argv writes, read from the repo's own settings
+ * so nothing of the repo's changes; `unreadable` says when it cannot be. `note`
+ * says what a flag alone cannot express, and exists for exactly one reason:
+ * not every runner can be configured from argv, and pretending otherwise
+ * would write a command that runs clean and produces no file — a check that
+ * looks armed and is not.
  */
+/**
+ * Where jest-junit writes when the gate runs it from the repository root: its
+ * "jest-junit" key in package.json, else junit.xml there. Null when the key
+ * names a path only jest resolves.
+ */
+function jestJunitPath(pkg) {
+  const options = pkg['jest-junit'] ?? {};
+  if (String(options.uniqueOutputName) === 'true') return null;
+  const path = String(options.outputFile ?? posix.join(String(options.outputDirectory ?? '.'), String(options.outputName ?? 'junit.xml')));
+  return path.includes('<rootDir>') ? null : posix.normalize(path.replace(/\\/g, '/'));
+}
+
 const REPORTER_FLAGS = {
   vitest: { argv: (path) => ['--reporter=junit', `--outputFile=${path}`] },
   mocha: { argv: (path) => ['--reporter', 'xunit', '--reporter-option', `output=${path}`] },
   node: { argv: (path) => ['--test-reporter=junit', `--test-reporter-destination=${path}`] },
   jest: {
     argv: () => ['--reporters=default', '--reporters=jest-junit'],
-    packageKey: (path) => ['jest-junit', { outputFile: path }],
+    path: jestJunitPath,
+    unreadable: 'the "jest-junit" key in package.json names a path only jest resolves (<rootDir>, or a unique name)',
     note: (path) =>
-      `jest reports through a separate package: install jest-junit as a devDependency. Its output is read from the "jest-junit" key in package.json, which init adds pointing at "${path}" where the file has none; one already there must point at "${path}". ` +
+      `jest reports through a separate package: install jest-junit as a devDependency. "${path}" is where it writes as this repo sets it — its "jest-junit" key in package.json, or junit.xml where jest runs — so the repo's own runs report where they did. ` +
       `The flag alone will not write the file, which is why this is the one entry that cannot be finished from argv.`,
   },
 };
@@ -334,6 +349,18 @@ function reporterKey(testArgv, testName) {
   return null;
 }
 
+/**
+ * The report path a test command already names, or null.
+ *
+ * Deliberately looks for a PATH and not for a flag. `--junitxml=`, `--reporter`
+ * and `--reporters` are each one runner's spelling, and a table of them is the
+ * rotting stack list ADR-002 refused; an argv token ending in `.xml` is a fact
+ * about this repo's own command. It is reported as REVIEW either way, because
+ * a command may name an XML file for some other reason entirely.
+ *
+ * `=`-joined forms are split first, so `--junitxml=reports/x.xml` yields the
+ * path without this function knowing what the left-hand side means.
+ */
 function detectReportPath(testArgv) {
   for (const token of testArgv ?? []) {
     const value = token.includes('=') ? token.slice(token.indexOf('=') + 1) : token;
@@ -353,7 +380,7 @@ export function buildContract(root) {
   const pm = detectPackageManager(root);
 
   // --- test runner
-  const testScript = parseScript(scripts.test);
+  const { parsed: testScript, why: testWhy } = readScript(scripts, 'test');
   let test = [];
   let testName = '';
   if (testScript) {
@@ -373,10 +400,9 @@ export function buildContract(root) {
       );
     }
   } else {
-    const why = shellOnly(scripts.test);
     missing.push(
-      why
-        ? `verify.test and verify.test_name — the "test" script (${scripts.test}) could not be read: ${why}. Write the argv by hand, one token per array element and no quotes around any of them.`
+      testWhy
+        ? `verify.test and verify.test_name — the "test" script (${scripts.test}) could not be read: ${testWhy}. Write the argv by hand, one token per array element and no quotes around any of them.`
         : 'verify.test and verify.test_name — no single-command "test" script to read them from.',
     );
   }
@@ -384,17 +410,23 @@ export function buildContract(root) {
   // --- linter. An autofix variant is used when the repo declares one; it is
   // never invented, because `--fix` is not universal and a flag this file
   // guessed would fail at the first gate rather than here.
-  const lintScript = parseScript(scripts.lint);
-  const declaredFix = parseScript(scripts['lint:fix'] ?? scripts.format);
-  // Another tool is not the linter's autofix: `prettier --write` taken from
-  // `format` would run at every gate in the linter's place.
-  const otherTool = declaredFix && lintScript && declaredFix.bin !== lintScript.bin;
-  const fixScript = otherTool ? null : declaredFix;
+  const { parsed: lintScript, why: lintWhy } = readScript(scripts, 'lint');
+  const fixName = scripts['lint:fix'] ? 'lint:fix' : scripts.format ? 'format' : '';
+  const { parsed: declaredFix, why: fixWhy } = fixName ? readScript(scripts, fixName) : {};
+  // A fix script is the linter's autofix only when it runs the lint script's
+  // own command, autofix flags and targets aside: a formatter in "format", or
+  // `biome format` beside `biome lint`, would run at every gate in the
+  // linter's place. With no lint script to compare, only "lint:fix" says it is
+  // the linter.
+  const command = (parsed) => [parsed.bin, ...stripTargets(withoutAutofix(parsed).args, root).argv].join('\0');
+  const fixScript =
+    declaredFix && (lintScript ? command(declaredFix) === command(lintScript) : fixName === 'lint:fix') ? declaredFix : null;
+  const base = lintScript ?? fixScript;
+  const baseName = lintScript ? 'lint' : fixName;
   let lint = [];
   let lintNoFix = [];
   let lintName = '';
-  if (lintScript || fixScript) {
-    const base = lintScript ?? fixScript;
+  if (base) {
     if (base.named) {
       lintName = base.bin;
     } else {
@@ -406,8 +438,8 @@ export function buildContract(root) {
     // `spec-flow check --no-fix` would rewrite files and pass. The flag is read
     // as a switch, never removed silently, and never added where the repo has
     // none — the line above still holds (ADR-007 lifts ADR-002 for Node flags).
-    const carried = (lintScript ?? base).args.filter((a) => AUTOFIX_FLAGS.has(a));
-    const noFix = toArgv(root, withoutAutofix(lintScript ?? base), { stripTrailingTargets: true });
+    const carried = base.args.filter((a) => AUTOFIX_FLAGS.has(a));
+    const noFix = toArgv(root, withoutAutofix(base), { stripTrailingTargets: true });
     const withFix = fixScript ? withAutofix(toArgv(root, withoutAutofix(fixScript), { stripTrailingTargets: true }), fixScript) : noFix;
     lintNoFix = noFix.argv;
     lint = fixScript ? withFix.argv : [...noFix.argv, ...carried];
@@ -431,30 +463,32 @@ export function buildContract(root) {
 
     if (carried.length > 0) {
       review.push(
-        `verify.lint_no_fix — the "lint" script carries ${carried.join(', ')}, so it writes fixes; that flag was left out of the report-only variant spec-flow check --no-fix runs: ${lintNoFix.join(' ')}. Confirm it reports without writing.`,
+        `verify.lint_no_fix — the "${baseName}" script carries ${carried.join(', ')}, so it writes fixes; that flag was left out of the report-only variant spec-flow check --no-fix runs: ${lintNoFix.join(' ')}. Confirm it reports without writing.`,
       );
     } else {
-      detected.push(`verify.lint_no_fix — from the "lint" script: ${lintNoFix.join(' ')}`);
+      detected.push(`verify.lint_no_fix — from the "${baseName}" script: ${lintNoFix.join(' ')}`);
     }
-    if (otherTool) {
+    if (fixName === 'lint:fix' && fixWhy) {
+      review.push(`verify.lint — the "lint:fix" script (${scripts['lint:fix']}) could not be read as the autofix: ${fixWhy}. Add the flag to verify.lint by hand if it is one.`);
+    } else if (declaredFix && !fixScript) {
       review.push(
-        `verify.lint — the "${scripts['lint:fix'] ? 'lint:fix' : 'format'}" script runs ${declaredFix.bin}, not ${lintScript.bin}, so it was not taken as the linter's autofix: ${lint.join(' ')}.`,
+        `verify.lint — the "${fixName}" script (${scripts[fixName]}) is not the "lint" script with an autofix flag, so it was not taken as the linter's autofix: ${lint.join(' ')}.`,
       );
-    } else if (fixScript) {
+    } else if (fixScript && fixScript !== base) {
       detected.push(`verify.lint — from the autofix script: ${lint.join(' ')}`);
     } else if (carried.length > 0) {
-      detected.push(`verify.lint — from the "lint" script, which already fixes: ${lint.join(' ')}`);
+      detected.push(`verify.lint — from the "${baseName}" script, which already fixes: ${lint.join(' ')}`);
     } else {
       review.push(
         'verify.lint is identical to verify.lint_no_fix — no autofix script was declared. If your linter supports one (commonly --fix), add it to verify.lint so the gate stops reporting violations it could have fixed.',
       );
     }
   } else {
-    const why = shellOnly(scripts.lint) ?? shellOnly(scripts['lint:fix'] ?? scripts.format);
+    const why = lintWhy ?? (fixName === 'lint:fix' ? fixWhy : undefined);
     missing.push(
       why
         ? `verify.lint, verify.lint_no_fix and verify.lint_name — the lint script could not be read: ${why}. Write the argv by hand, one token per array element and no quotes around any of them.`
-        : 'verify.lint, verify.lint_no_fix and verify.lint_name — no single-command "lint" script to read them from.',
+        : `verify.lint, verify.lint_no_fix and verify.lint_name — no single-command "lint" script to read them from${fixName === 'format' ? ' ("format" is not read as one: it may run a formatter)' : ''}.`,
     );
   }
 
@@ -473,16 +507,9 @@ export function buildContract(root) {
   const extraChecks = [];
   for (const name of ['build', 'typecheck']) {
     if (!scripts[name]) continue;
-    const parsed = parseScript(scripts[name]);
-    // A package manager, or another script's name (`npm run build:lib` parses
-    // to `build:lib`), hands off to scripts a shell runs. Spawned with none it
-    // fails at every gate, and an optional check that cannot run is worse
-    // than none.
-    const delegates = parsed && (PACKAGE_MANAGERS.has(parsed.bin) || Object.hasOwn(scripts, parsed.bin));
-    if (!parsed || delegates) {
-      const why =
-        shellOnly(scripts[name]) ??
-        (delegates ? 'it runs a package script through the package manager, and this engine spawns one command with no shell' : 'it names no command');
+    // An optional check that cannot run is worse than none.
+    const { parsed, why } = readScript(scripts, name);
+    if (!parsed) {
       review.push(
         `extra_checks — the "${name}" script (${scripts[name]}) was not offered: ${why}. Nothing runs it during a run; to have one, add an entry by hand, one argv token per array element and no quotes around any of them.`,
       );
@@ -544,9 +571,13 @@ export function buildContract(root) {
   // nothing at all. `init` exiting non-zero over it would refuse to finish
   // setting up a repo whose gate would already run clean.
   const namedReport = detectReportPath(test);
-  const reportPath = namedReport ?? 'reports/junit.xml';
   const runner = namedReport ? null : reporterKey(test, testName);
   const flag = runner ? REPORTER_FLAGS[runner] : null;
+  const runnerPath = flag?.path ? flag.path(pkg) : undefined;
+  const reportPath = namedReport ?? runnerPath ?? 'reports/junit.xml';
+  if (runnerPath === null) {
+    missing.push(`trace.report.path — ${flag.unreadable}, so nothing here can read where the report lands. Set it to the file ${runner} writes.`);
+  }
 
   if (namedReport) {
     review.push(
@@ -619,7 +650,7 @@ export function buildContract(root) {
 
   if (baseRef) contract.verify.base_ref = baseRef;
 
-  return { contract, detected, review, missing, packageKey: flag?.packageKey?.(reportPath) ?? null };
+  return { contract, detected, review, missing };
 }
 
 /**
@@ -814,38 +845,14 @@ function ensureCheckScript(root) {
 }
 
 /**
- * Adds the `package.json` key a runner reads its report's path from. Never
- * replaces one the repo wrote, on the same rule as the `check` script.
- */
-function ensurePackageKey(root, [name, value]) {
-  const path = join(root, 'package.json');
-  let raw;
-  let pkg;
-  try {
-    raw = readFileSync(path, 'utf8');
-    pkg = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (Object.hasOwn(pkg, name)) return null;
-  const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? '  ';
-  try {
-    writeFileSync(path, `${JSON.stringify({ ...pkg, [name]: value }, null, indent)}\n`);
-  } catch {
-    return null;
-  }
-  return `added a "${name}" key to package.json: ${JSON.stringify(value)}`;
-}
-
-/**
- * Creates the directories, the specs contract, the gitignore lines, the
- * `check` alias and the runner's report key. Returns what it changed.
+ * Creates the directories, the specs contract, the gitignore lines and the
+ * `check` alias. Returns what it changed.
  *
  * `reportPath` is `trace.report.path` from the contract just written, and it
  * is a parameter rather than a re-read because the caller has the contract in
  * hand and a second reader of it could disagree with the first.
  */
-export function scaffold(root, reportPath = '', packageKey = null) {
+export function scaffold(root, reportPath = '') {
   const done = [];
 
   for (const dir of ['specs', join('specflow', 'archive')]) {
@@ -894,8 +901,6 @@ export function scaffold(root, reportPath = '', packageKey = null) {
 
   const checkScript = ensureCheckScript(root);
   if (checkScript) done.push(checkScript);
-  const reportKey = packageKey && ensurePackageKey(root, packageKey);
-  if (reportKey) done.push(reportKey);
 
   return done;
 }
@@ -928,7 +933,7 @@ if (isMain) {
     process.exit(0);
   }
 
-  const { contract, detected, review, missing, packageKey } = buildContract(root);
+  const { contract, detected, review, missing } = buildContract(root);
 
   mkdirSync(join(root, '.spec-flow'), { recursive: true });
   writeFileSync(configPath, `${JSON.stringify(contract, null, 2)}\n`);
@@ -955,7 +960,7 @@ if (isMain) {
     );
   }
 
-  for (const line of scaffold(root, contract.trace.report?.path, packageKey)) console.log(`  ${line}`);
+  for (const line of scaffold(root, contract.trace.report?.path)) console.log(`  ${line}`);
   if (detected.length > 0) console.log('');
 
   for (const line of detected) console.log(`  detected  ${line}`);

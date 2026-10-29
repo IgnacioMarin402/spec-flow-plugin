@@ -240,13 +240,13 @@ anything leans on it.
 
 ### B67 — a framework scaffold reaches a green check, measured by nobody
 
-`init` now reads a scaffold's quoted lint script, skips a formatter as the
-linter's autofix, and points `jest-junit` at the report; what is left to the
-adopter is installing `jest-junit`, `scope_globs` on a scaffold with fewer than
-three files of an extension, and confirming the offered `build`. That route has
-not been run to green: `cold-start` installs nothing, and a scaffold's suite
-needs its runner installed. **Done:** a scaffold, installed, from `init` to a
-green `spec-flow check`, with what the adopter still had to supply recorded.
+`init` reads a scaffold's quoted lint script and takes the report path from
+where `jest-junit` writes. What it leaves to the adopter is installing
+`jest-junit`, `scope_globs` on a scaffold too small to infer them from, and
+confirming the offered `build`. That route has not been run to green:
+`cold-start` installs nothing, and a scaffold's suite needs its runner
+installed. **Done:** a scaffold, installed, from `init` to a green `spec-flow
+check`, with what the adopter still had to supply recorded.
 
 ## Deliberately not doing
 

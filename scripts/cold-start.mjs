@@ -65,14 +65,6 @@ try {
         // Through an interpreter on purpose. It is the zero-dependency Node
         // setup, and the bin (`node`) names no runner, so it proves both the
         // runner name and the reporter flag are read from the argv.
-        //
-        // `lint` runs a script FILE rather than `node -e "…"`, and the
-        // difference is not cosmetic. A quoted `-e` body cannot survive the
-        // trip into a contract: the argv is spawned with no shell, so the
-        // quotes reach node as part of the value and it evaluates a string
-        // literal — measured, a body of `process.exit(1)` exited 0. This
-        // fixture's linter was green by construction for as long as it was
-        // written that way, which is the one thing a cold start must not be.
         scripts: { test: 'node --test', lint: 'node lint.js' },
       },
       null,
