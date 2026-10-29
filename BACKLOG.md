@@ -171,15 +171,6 @@ Two of four were wrong and were corrected by hand. Checking them needs
 `fetch-depth: 0` in CI — slower on every job — to guard four frozen records;
 records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
 
-### B69 — the phase-write readers read quoted text as a write
-
-The sibling of what `orchestrator-scope` fixed for its own reader:
-`PHASE_REDIRECT_RE` (`phase-guard`) and `PHASE_WRITE_RE` (`run-trace`), both in
-`hooks/lib/io.mjs`, match inside a quoted argument. During a run, `git commit -m "note: printf done >
-.claude/state/phase comes later"` is judged as a write of `done`, runs the
-unscoped checks to decide it, and is denied. **Done:** that command as a
-`hook-smoke` case, red on `9298d2d`, with a real phase write still judged.
-
 ### B62 — a command that does not expand starts no run, and nothing says so
 
 Under `claude -p` on 2.1.310, with the plugin loaded by `--plugin-dir`, the

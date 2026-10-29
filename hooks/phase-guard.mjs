@@ -51,7 +51,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, resolveCd, RUN_PHASES } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, quotedAsText, resolveCd, RUN_PHASES } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanStart } from './lib/can-run.mjs';
@@ -108,9 +108,10 @@ const LEAVES_SPEC = ['plan', 'review', 'implement'];
  */
 function bashWrittenValue(cmd) {
   if (!PHASE_FILE_RE.test(cmd)) return null;
-  if (!PHASE_REDIRECT_RE.test(cmd)) return null;
+  const text = quotedAsText(cmd);
+  if (!PHASE_REDIRECT_RE.test(text)) return null;
 
-  const source = cmd.split('>')[0];
+  const source = cmd.slice(0, text.indexOf('>'));
   const producer = /(?:^|[;&|]|\s)(printf|echo)\s+(.*)$/.exec(source);
   if (!producer) return null;
 
@@ -147,7 +148,7 @@ function bashWrittenValue(cmd) {
  */
 function recordUnreadableWrite(root, cmd) {
   try {
-    const redirects = PHASE_REDIRECT_RE.test(cmd);
+    const redirects = PHASE_REDIRECT_RE.test(quotedAsText(cmd));
 
     // The pipeline SEGMENT that names the file is the one touching it; in
     // `printf x | tee <phase>` the command's own first token is the producer,

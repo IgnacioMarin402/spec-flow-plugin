@@ -1839,6 +1839,34 @@ t('phase-guard reads a phase write made after a cd', (repo) => {
   return null;
 });
 
+// B69: the phase-write readers matched inside a quoted argument, so a commit
+// message naming a phase write was judged as one and denied.
+t('phase-guard reads quoted text as text, and a quoted target as the path written', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  for (const command of [
+    'git commit -m "note: printf done > .claude/state/phase comes later"',
+    "git commit -m 'printf done | tee .claude/state/phase' && git push",
+    'git commit -m "a > b" -m "then printf done > .claude/state/phase"',
+  ]) {
+    const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
+    if (r.status !== 0) return `\`${command}\` was denied as a phase write: ${r.stderr.slice(0, 200)}`;
+  }
+  for (const command of ['git commit -m "x > y" && printf done > .claude/state/phase', 'printf "done" > ".claude/state/phase"']) {
+    const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
+    if (r.status !== 2) return `\`${command}\` wrote an unearned done (exit ${r.status})`;
+  }
+  return null;
+});
+
+t('run-trace does not close a run on a commit message that names a phase write', (repo) => {
+  writeFileSync(join(repo, '.claude/state/phase'), 'done');
+  const post = (command) => runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command } }, repo);
+  post('git commit -m "note: printf done > .claude/state/phase comes later"');
+  if (traceText(repo)) return `a quoted phase write closed the run:\n${traceText(repo)}`;
+  post('git commit -m "x > y" && printf done > ".claude/state/phase"');
+  return / phase=done session=s closed tool=Bash$/m.test(traceText(repo)) ? null : `no line for a real write after quoted text:\n${traceText(repo)}`;
+});
+
 t('a cd makes no other file named phase, nor another state file, a phase write', (repo) => {
   seedGateHistory(repo, 'fail:behaviour');
   for (const command of ['cd .claude/state && printf 0 > gate_attempts', 'cd docs && printf done > phase', 'echo cd .claude/state && printf done > phase', 'cd .claude/state && cat phase > /tmp/p']) {

@@ -48,6 +48,24 @@ export const PHASE_REDIRECT_RE = new RegExp(`>>?\\|?${INTO_PHASE}`);
 export const PHASE_WRITE_RE = new RegExp(`(?:>>?\\|?|\\btee(?:\\s+-a)?)${INTO_PHASE}`);
 
 /**
+ * `cmd` with the text inside quotes masked, so a commit message that names a
+ * phase write is not read as one. A quoted redirect or `tee` target stays: it
+ * is the path written. One code unit per masked one, so an index into the
+ * result is an index into `cmd`.
+ */
+export function quotedAsText(cmd) {
+  let out = '';
+  let last = 0;
+  for (const m of cmd.matchAll(/"[^"]*"|'[^']*'/g)) {
+    out += cmd.slice(last, m.index);
+    const target = /(?:>>?\|?|\btee(?:\s+-a)?)\s*[^\s|;&<>]*$/.test(out);
+    out += target ? m[0] : m[0][0] + '\uE000'.repeat(m[0].length - 2) + m[0][0];
+    last = m.index + m[0].length;
+  }
+  return out + cmd.slice(last);
+}
+
+/**
  * `cmd` with each relative redirect or `tee` target after a `cd` written under
  * that directory, so `cd .claude/state && printf done > phase` names the phase
  * file as the hooks read it. Linear: a `cd` inside a subshell is taken as
