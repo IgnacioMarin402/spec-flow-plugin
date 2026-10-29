@@ -51,7 +51,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, quotedAsText, resolveCd, RUN_PHASES } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, claimPhase, readPayload, readLinesDeduped, readFileOrDefault, appendLine, run, PHASE_FILE_RE, PHASE_REDIRECT_RE, phaseWriteText, RUN_PHASES } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { runUnscopedChecks } from '../scripts/unscoped-checks.mjs';
 import { assertCanStart } from './lib/can-run.mjs';
@@ -104,18 +104,21 @@ const LEAVES_SPEC = ['plan', 'review', 'implement'];
  *
  * Requires all three: a redirect into the phase file, a `printf`/`echo`
  * producing it, and a single readable argument. Anything looser starts
- * guessing, and this hook denies.
+ * guessing, and this hook denies. Read off `phaseWriteText`: matched on
+ * `text`, the value taken from `cmd`.
  */
-function bashWrittenValue(cmd) {
-  if (!PHASE_FILE_RE.test(cmd)) return null;
-  const text = quotedAsText(cmd);
-  if (!PHASE_REDIRECT_RE.test(text)) return null;
+function bashWrittenValue({ cmd, text }) {
+  const redirect = PHASE_REDIRECT_RE.exec(text);
+  if (!redirect) return null;
 
-  const source = cmd.slice(0, text.indexOf('>'));
-  const producer = /(?:^|[;&|]|\s)(printf|echo)\s+(.*)$/.exec(source);
+  // The producer is the command the redirect belongs to, from the separator
+  // before it: another command's `echo` in the chain is not what is written.
+  const start = text.slice(0, redirect.index).search(/[^;&|\n(`]*$/);
+  const producer = /(?:^|\s)(?:printf|echo)\s+/.exec(text.slice(start, redirect.index));
   if (!producer) return null;
 
-  const args = producer[2]
+  const args = cmd
+    .slice(start + producer.index + producer[0].length, redirect.index)
     .trim()
     .split(/\s+/)
     .filter((a) => !a.startsWith('-')) // `echo -n`, `printf --`
@@ -125,6 +128,18 @@ function bashWrittenValue(cmd) {
   // `printf '%s' implement` and friends: a format string is not the value.
   const values = args.filter((a) => !/%/.test(a));
   return values.length === 1 ? values[0] : null;
+}
+
+/** `[start, end)` of each piece of `text` between matches of `sep`. */
+function pieces(text, sep, from = 0, to = text.length) {
+  const found = [];
+  let at = from;
+  for (const m of text.slice(from, to).matchAll(sep)) {
+    found.push([at, from + m.index]);
+    at = from + m.index + m[0].length;
+  }
+  found.push([at, to]);
+  return found;
 }
 
 /**
@@ -146,24 +161,26 @@ function bashWrittenValue(cmd) {
  * The program only, never the arguments: this file has no business copying a
  * command's content into a log.
  */
-function recordUnreadableWrite(root, cmd) {
+function recordUnreadableWrite(root, { cmd, text }) {
   try {
-    const redirects = PHASE_REDIRECT_RE.test(quotedAsText(cmd));
+    const redirects = PHASE_REDIRECT_RE.test(text);
 
     // The pipeline SEGMENT that names the file is the one touching it; in
     // `printf x | tee <phase>` the command's own first token is the producer,
     // which is not what got past. Within the command of a chain that names it:
-    // after `cd .claude/state &&`, the writer is not `cd`.
-    const command = cmd.split(/&&|\|\||;|\n/).find((part) => PHASE_FILE_RE.test(part)) ?? cmd;
-    const segments = command.split('|');
-    const at = segments.findIndex((s) => PHASE_FILE_RE.test(s));
+    // after `cd .claude/state &&`, the writer is not `cd`. Found in `text`, so
+    // a path, `;` or `|` inside quotes names and splits nothing.
+    const part = pieces(text, /&&|\|\||;|\n/g).find(([a, b]) => PHASE_FILE_RE.test(text.slice(a, b)));
+    if (!part) return;
+    const segments = pieces(text, /(?<!>)\|/g, ...part);
+    const at = segments.findIndex(([a, b]) => PHASE_FILE_RE.test(text.slice(a, b)));
 
     // Something must be flowing INTO the file. A redirect says so outright; a
     // pipe says so only when the file is downstream of it, since
     // `cat <phase> | grep x` is a read that happens to contain a pipe.
     if (!redirects && at < 1) return;
 
-    const program = (segments[at === -1 ? 0 : at].trim().split(/\s+/)[0] ?? '').replace(/^.*[\\/]/, '');
+    const program = (cmd.slice(...segments[at]).trim().split(/\s+/)[0] ?? '').replace(/^.*[\\/]/, '');
     if (!program) return;
 
     const path = join(stateDir(root), 'phase-guard-unmatched.log');
@@ -190,14 +207,14 @@ await run(async () => {
 
   let written = null;
   if (String(payload.tool_name ?? '') === 'Bash') {
-    const cmd = resolveCd(String(input.command ?? ''));
-    written = bashWrittenValue(cmd);
+    const command = phaseWriteText(String(input.command ?? ''));
+    written = bashWrittenValue(command);
     // In or out of a run: a command writing into `.claude/state/phase` creates
     // that directory itself, so recording it there leaves nothing behind that
     // the command did not — and a start this hook could not read is the one
     // `preflight` has to catch, but for the settings (ADR-049), which is worth
     // a line saying so.
-    if (!written && PHASE_FILE_RE.test(cmd)) recordUnreadableWrite(root, cmd);
+    if (!written && PHASE_FILE_RE.test(command.cmd)) recordUnreadableWrite(root, command);
   } else {
     const filePath = String(input.file_path ?? input.filePath ?? '');
     if (PHASE_FILE_RE.test(filePath)) {

@@ -1840,31 +1840,79 @@ t('phase-guard reads a phase write made after a cd', (repo) => {
 });
 
 // B69: the phase-write readers matched inside a quoted argument, so a commit
-// message naming a phase write was judged as one and denied.
-t('phase-guard reads quoted text as text, and a quoted target as the path written', (repo) => {
+// message naming a phase write was judged as one and denied — and, read with a
+// regex that pairs quotes, an escape or a heredoc hid a real write next to it.
+const unmatched = (repo) => {
+  const log = join(repo, '.claude/state/phase-guard-unmatched.log');
+  return existsSync(log) ? readFileSync(log, 'utf8').trim() : '';
+};
+
+t('phase-guard reads quoted text, a heredoc body and a comment as text', (repo) => {
   seedGateHistory(repo, 'fail:behaviour');
   for (const command of [
     'git commit -m "note: printf done > .claude/state/phase comes later"',
     "git commit -m 'printf done | tee .claude/state/phase' && git push",
     'git commit -m "a > b" -m "then printf done > .claude/state/phase"',
+    'git commit -m "$(cat <<\'EOF\'\nnote: printf done >\n.claude/state/phase comes later\nEOF\n)"',
+    "git commit -F - <<'EOF'\nnote: printf done > .claude/state/phase\nEOF",
+    'git commit -m "step 1; cd .claude/state" && printf done > phase',
+    'echo checked # then printf done > .claude/state/phase',
   ]) {
     const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
     if (r.status !== 0) return `\`${command}\` was denied as a phase write: ${r.stderr.slice(0, 200)}`;
   }
-  for (const command of ['git commit -m "x > y" && printf done > .claude/state/phase', 'printf "done" > ".claude/state/phase"']) {
+  return unmatched(repo) ? `text was logged as a write that got past: ${unmatched(repo)}` : null;
+});
+
+t('phase-guard reads a phase write the quoting beside it does not hide', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  for (const command of [
+    'git commit -m "x > y" && printf done > .claude/state/phase',
+    'printf "done" > ".claude/state/phase"',
+    'printf done > "$CLAUDE_PROJECT_DIR"/.claude/state/phase',
+    "git commit -m 'it'\\''s done' && printf done > .claude/state/phase",
+    'git commit -m "a \\"b" && printf done > .claude/state/phase && echo "c"',
+    'git commit -m "$(cat <<\'EOF\'\nfix: the "reviewer\'s" verdict\nEOF\n)" && printf done > .claude/state/phase',
+    'echo "M3 -> done" && printf done > .claude/state/phase',
+    'echo implement > /tmp/note && printf done > .claude/state/phase',
+    'x="$(printf done > .claude/state/phase)"',
+    "bash <<'EOF'\nprintf done > .claude/state/phase\nEOF",
+    'x=$((1 << 2))\nprintf done > .claude/state/phase',
+  ]) {
     const r = runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
     if (r.status !== 2) return `\`${command}\` wrote an unearned done (exit ${r.status})`;
   }
   return null;
 });
 
-t('run-trace does not close a run on a commit message that names a phase write', (repo) => {
+t('phase-guard logs a phase write handed to a shell as text', (repo) => {
+  seedGateHistory(repo, 'fail:behaviour');
+  for (const command of ["sh -c 'printf done > .claude/state/phase'", "eval 'printf done > .claude/state/phase'"]) {
+    runHook('phase-guard.mjs', { tool_name: 'Bash', tool_input: { command } }, repo);
+  }
+  return unmatched(repo) === 'sh\neval' ? null : `want sh and eval logged as writes that got past, got "${unmatched(repo)}"`;
+});
+
+t('run-trace closes a run on a phase write, never on text that names one', (repo) => {
   writeFileSync(join(repo, '.claude/state/phase'), 'done');
   const post = (command) => runHook('run-trace.mjs', { session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command } }, repo);
-  post('git commit -m "note: printf done > .claude/state/phase comes later"');
-  if (traceText(repo)) return `a quoted phase write closed the run:\n${traceText(repo)}`;
-  post('git commit -m "x > y" && printf done > ".claude/state/phase"');
-  return / phase=done session=s closed tool=Bash$/m.test(traceText(repo)) ? null : `no line for a real write after quoted text:\n${traceText(repo)}`;
+  for (const command of [
+    'git commit -m "note: printf done > .claude/state/phase comes later"',
+    "git commit -F - <<'EOF'\nnote: printf done > .claude/state/phase\nEOF",
+  ]) {
+    post(command);
+    if (traceText(repo)) return `\`${command}\` closed the run:\n${traceText(repo)}`;
+  }
+  for (const command of [
+    'git commit -m "x > y" && printf done > ".claude/state/phase"',
+    'printf done > "$CLAUDE_PROJECT_DIR"/.claude/state/phase',
+    "sh -c 'printf done > .claude/state/phase'",
+  ]) {
+    rmSync(join(repo, '.claude/state/run-trace.log'), { force: true });
+    post(command);
+    if (!/ phase=done session=s closed tool=Bash$/m.test(traceText(repo))) return `\`${command}\` left no closing line:\n${traceText(repo)}`;
+  }
+  return null;
 });
 
 t('a cd makes no other file named phase, nor another state file, a phase write', (repo) => {
@@ -2674,6 +2722,35 @@ t('orchestrator-scope still denies a redirect into code after quoted text, and o
   for (const command of ['git log -1 --format="%s -> %b" > lib/a.ts', 'echo hi > "lib/my file.ts"', 'printf "a > b" | tee lib/a.ts']) {
     const r = sessionBash(repo, command);
     if (r.status !== 2) return `\`${command}\` went through (exit ${r.status})`;
+  }
+  return null;
+});
+
+// The quoting B61 read as text hid a write: code handed to a shell, a quote
+// mark escaped inside a message, a command after a heredoc.
+t('orchestrator-scope reads a write to code handed to a shell, past an escaped quote or after a heredoc', (repo) => {
+  attributed(repo);
+  for (const command of [
+    "sh -c 'echo x > lib/a.ts'",
+    'eval "echo x > lib/a.ts"',
+    'git commit -m "a \\"b" && echo x > lib/a.ts && echo "c"',
+    "cat > specflow/notes.md <<'EOF'\nnotes\nEOF\necho x > lib/a.ts",
+  ]) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 2) return `\`${command}\` went through (exit ${r.status})`;
+  }
+  return null;
+});
+
+t('orchestrator-scope reads a heredoc body and a comment as text', (repo) => {
+  attributed(repo);
+  for (const command of [
+    "git commit -F - <<'EOF'\nmap RETURNED_TO_SENDER -> RETURNED\nEOF",
+    "tee specflow/notes.md <<'EOF'\nrm lib/a.ts; echo x > lib/b.ts\nEOF",
+    'git status # then echo x > lib/a.ts',
+  ]) {
+    const r = sessionBash(repo, command);
+    if (r.status !== 0) return `\`${command}\` was denied (exit ${r.status}): ${r.stderr}`;
   }
   return null;
 });

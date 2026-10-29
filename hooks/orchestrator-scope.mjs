@@ -22,7 +22,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute, sep } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, run, resolveCd, RUN_PHASES } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, resolveCd, shellKinds, CODE, QUOTING, DATA, RUN_PHASES } from './lib/io.mjs';
 
 const WRITABLE = ['.claude/state/', 'specflow/'];
 const READABLE = [...WRITABLE, 'specs/', '.spec-flow/', '.claude/'];
@@ -41,15 +41,18 @@ function inRepo(root, path) {
 const under = (rel, prefixes) => prefixes.some((p) => rel === p.replace(/\/$/, '') || rel.startsWith(p));
 const readable = (rel) => under(rel, READABLE) || (!rel.includes('/') && rel.endsWith('.md'));
 
-// Inside quotes nothing is shell syntax: whitespace keeps an argument whole, and
-// a `>`, `|`, `&`, `;` or `<<` in a commit message is text, not a redirect or a
-// second command. Masked into the private-use range, restored on the way out.
-const mask = (text) => text.replace(/[\s<>|&;]/g, (c) => String.fromCharCode(0xe000 + c.charCodeAt(0)));
-const unmask = (text) => text.replace(/[-]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
+// A shell's text is not its syntax: in a quoted or escaped word, whitespace
+// keeps the word whole and `> | & ; <` are characters, so a `>` in a commit
+// message is no redirect. Masked into the private-use range, restored on the
+// way out; quote marks, comments and heredocs are dropped. A command that runs
+// text as code is read whole (`shellKinds`).
+const mask = (c) => (/[\s<>|&;]/.test(c) ? String.fromCharCode(0xe000 + c.charCodeAt(0)) : c);
+const unmask = (text) => text.replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
 
 /** The paths a Bash command writes, moves or deletes, as far as its plain forms say. */
 function bashWrites(cmd) {
-  const command = cmd.replace(/"([^"]*)"|'([^']*)'/g, (_, a, b) => mask(a ?? b)).split('<<')[0];
+  const kinds = shellKinds(cmd);
+  const command = kinds ? cmd.replace(/[\s\S]/g, (c, k) => (kinds[k] === QUOTING || kinds[k] === DATA ? '' : kinds[k] === CODE ? c : mask(c))) : cmd;
   const paths = [];
   for (const m of command.matchAll(/(?:^|[^0-9&>])>>?\s*([^\s&|;<>]+)/g)) paths.push(m[1]);
   for (const part of command.split(/&&|\|\||;|\|/)) {

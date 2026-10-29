@@ -21,7 +21,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectDir, stateDir, readPhase, readPayload, run, stateIsTracked, PHASE_FILE_RE, PHASE_WRITE_RE, quotedAsText, resolveCd } from './lib/io.mjs';
+import { projectDir, stateDir, readPhase, readPayload, run, stateIsTracked, PHASE_FILE_RE, PHASE_WRITE_RE, phaseWriteText } from './lib/io.mjs';
 import { loadConfig } from '../scripts/spec-flow-config.mjs';
 import { parseReturn } from '../scripts/agent-blocks.mjs';
 import { handedBack } from './lib/handback.mjs';
@@ -212,7 +212,7 @@ async function traceReturn(payload, traceFile, missLog) {
  */
 function wrotePhase(tool, input) {
   if (/^(Write|Edit|MultiEdit)$/.test(tool)) return PHASE_FILE_RE.test(String(input.file_path ?? input.filePath ?? ''));
-  return tool === 'Bash' && PHASE_WRITE_RE.test(quotedAsText(resolveCd(String(input.command ?? ''))));
+  return tool === 'Bash' && PHASE_WRITE_RE.test(phaseWriteText(String(input.command ?? '')).text);
 }
 
 await run(async () => {
