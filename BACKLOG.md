@@ -159,14 +159,10 @@ reach `done`.
 
 ### B15 — model-graded checks
 
-`evals/` holds the reviewer's two verdicts and the five `/spec-fix` triage
-cases; `npm run evals` runs them, and nothing runs them in CI (a key per run,
-as B64). First run, 2.1.310, 3 runs a case: every case 1.00 with the plugin;
-without it the triage cases score 0 to 0.67, the reviewer's 1.00 — Claude
-alone sees what the flawed plan misses, so those cases do not yet show what
-the reviewer adds. **Open:** a reviewer case only its checklist catches (a
-`CHANGED (wording)` whose milestone changes behaviour), and the orchestrator
-refusing to write code.
+`evals/` holds cases for the reviewer's verdicts and the `/spec-fix` triage;
+`npm run evals` runs them, and nothing runs them in CI (a key per run, as
+B64). **Open:** the orchestrator refusing to write code, and triage run under
+a phase, so `agent-gate` judges the return as it does in a run.
 
 ### B33 — `Record:` shas in `decisions/` are unchecked
 

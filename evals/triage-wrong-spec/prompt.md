@@ -1,5 +1,5 @@
 ---
-description: The /spec-fix triage files this report as case 3 WRONG-SPEC.
+description: The spec-writer, triaging as /spec-fix does first, files this report as case 3 WRONG-SPEC and writes the brief and work order the fix runs from. With no phase written, agent-gate does not judge the return.
 max_turns: 20
 timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Agent]

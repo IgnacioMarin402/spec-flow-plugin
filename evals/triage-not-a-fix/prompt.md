@@ -1,5 +1,5 @@
 ---
-description: The /spec-fix triage files this report as case 5 NOT-A-FIX.
+description: The spec-writer, triaging as /spec-fix does first, files this report as case 5 NOT-A-FIX and writes the brief, with no work order. With no phase written, agent-gate does not judge the return.
 max_turns: 20
 timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Agent]

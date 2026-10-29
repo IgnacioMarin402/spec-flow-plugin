@@ -3,7 +3,11 @@
 # reviewer should approve; `flawed` drops a delta, names tests by path only,
 # omits the Skills field and answers its risk with a verdict.
 set -euo pipefail
-variant="$1"
+variant="${1:-}"
+case "$variant" in
+  sound | flawed) ;;
+  *) echo "remove-item-change.sh: want sound or flawed, got '$variant'" >&2; exit 2 ;;
+esac
 dir=specflow/remove-item
 mkdir -p "$dir/milestones"
 
@@ -28,6 +32,21 @@ cat > "$dir/spec.md" <<'MD'
 - Removing every unit of a line at once.
 MD
 
+cat > "$dir/proposal.md" <<'MD'
+# Proposal — remove-item: removing an item from the cart
+
+## Source
+Shoppers need to take an item back out of the cart.
+
+## Context
+`removeItem` in `lib/cart.js` lowers a quantity but throws on a sku the cart
+does not hold: `findIndex` returns -1 and the line it reads is undefined.
+
+## Decision
+- **Chosen:** guard the index, so an absent sku leaves the cart as it was.
+- **Rejected: throw a named error** — the caller has nothing to do with it; the cart is already right.
+MD
+
 cat > "$dir/plan.md" <<'MD'
 # Plan — remove-item
 
@@ -50,7 +69,7 @@ cat > "$dir/milestones/M1.md" <<'MD'
 - Objective: `removeItem` lowers a quantity, drops a line at zero, and ignores an absent sku.
 - Skills: none — the change is one function and its tests; this repo ships no skill that applies.
 - Files to add/change: `lib/cart.js`, `test/cart.test.js`, `specs/cart.md`
-- Steps: guard the index `findIndex` returns before touching the line; append both requirements to `specs/cart.md`.
+- Steps: write both REQ-named tests first and see them fail; append both requirements to `specs/cart.md`; then guard the index `findIndex` returns before touching the line.
 - Spec deltas:
   - ADDED REQ-CART-004 — removing an item lowers its quantity by one, and drops the line at zero
   - ADDED REQ-CART-005 — removing an item that is not in the cart leaves the cart unchanged
