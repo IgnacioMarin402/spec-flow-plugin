@@ -114,18 +114,13 @@ function shellWords(script) {
   return { words };
 }
 
-/** Why a script cannot become a contract argv, or null when it can. */
-const shellOnly = (script) => (script ? (shellWords(script).why ?? null) : null);
-
 /**
- * `"vitest run --reporter dot"` -> `{ bin: 'vitest', args: ['run', ...] }`.
- * Wrapper prefixes are stripped, so a script written as `npm exec -- vitest
- * run` yields the same answer as one written as `vitest run`. Anything a
- * shell would have had to resolve first is left to the human (`shellWords`).
+ * The words of `"vitest run --reporter dot"` -> `{ bin: 'vitest', args:
+ * ['run', ...] }`. Wrapper prefixes are stripped, so a script written as `npm
+ * exec -- vitest run` yields the same answer as one written as `vitest run`.
  */
-function parseScript(script) {
-  const tokens = script ? shellWords(script).words : null;
-  if (!tokens) return null;
+function parseScript(words) {
+  const tokens = [...words];
 
   if (tokens[0] === 'npx') tokens.shift();
   if (PACKAGE_MANAGERS.has(tokens[0]) && SUBCOMMANDS.has(tokens[1])) tokens.splice(0, 2);
@@ -158,9 +153,9 @@ function delegates(parsed, scripts) {
 function readScript(scripts, name) {
   const script = scripts[name];
   if (!script) return {};
-  const why = shellOnly(script);
+  const { words, why } = shellWords(script);
   if (why) return { why };
-  const parsed = parseScript(script);
+  const parsed = parseScript(words);
   if (!parsed) return { why: 'it names no command' };
   const hands = delegates(parsed, scripts);
   return hands ? { why: hands } : { parsed };
