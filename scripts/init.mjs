@@ -84,24 +84,49 @@ function readJson(path) {
  * run` yields the same answer as one written as `vitest run`.
  */
 /**
+ * The words a shell would hand the runner, its quotes removed, or null when
+ * only a shell could say: an unbalanced quote, or a `$`, backquote or
+ * backslash inside double quotes, which a shell expands first. A word quoted
+ * whole stays one argv token, so a quoted glob reaches the runner unexpanded,
+ * as it does through a shell.
+ */
+function shellWords(script) {
+  const words = [];
+  let word = null;
+  const re = /\s+|'([^']*)'|"([^"]*)"|[^\s'"]+|(["'])/g;
+  for (const m of script.matchAll(re)) {
+    if (m[3] || (m[2] !== undefined && /[$`\\]/.test(m[2]))) return null;
+    if (/^\s/.test(m[0])) {
+      if (word !== null) words.push(word);
+      word = null;
+    } else {
+      word = (word ?? '') + (m[1] ?? m[2] ?? m[0]);
+    }
+  }
+  if (word !== null) words.push(word);
+  return words;
+}
+
+/**
  * Why a script cannot become a contract argv, or null when it can.
  *
  * Both answers are the same kind of thing — something only a SHELL resolves,
  * in a field this engine spawns without one — and they are reported apart
- * because the remedies differ: a chain has to be split by a human, a quoted
- * argument usually just loses its quotes. A message naming the wrong one
- * sends someone to edit the wrong thing.
+ * because the remedies differ: a chain has to be split by a human, a quote
+ * only a shell can read has to be written out by one. A message naming the
+ * wrong one sends someone to edit the wrong thing.
  *
  * Quoting is the half that reads as working. Splitting on whitespace KEEPS
  * the quote characters, so `--spec "test/**\/*.spec.js"` reaches the runner
  * as literal text, matches no file, and on any runner that exits 0 for an
- * empty match becomes a green gate over zero executed tests.
+ * empty match becomes a green gate over zero executed tests — so quotes are
+ * removed by `shellWords`, never kept.
  */
 function shellOnly(script) {
   if (!script) return null;
   if (/[&|;><]/.test(script)) return 'it chains or redirects commands, so it is not one runner invocation';
-  if (/["']/.test(script)) {
-    return 'it quotes an argument, and this engine spawns the argv directly — with no shell to remove the quotes, the runner receives them as part of the value';
+  if (!shellWords(script)) {
+    return 'it quotes an argument in a way only a shell can read (an unbalanced quote, or a $, backquote or backslash inside double quotes)';
   }
   return null;
 }
@@ -112,7 +137,7 @@ function parseScript(script) {
   // had to resolve first is left to the human — see `shellOnly`.
   if (shellOnly(script)) return null;
 
-  const tokens = script.trim().split(/\s+/).filter(Boolean);
+  const tokens = shellWords(script.trim());
 
   if (tokens[0] === 'npx') tokens.shift();
   if (PACKAGE_MANAGERS.has(tokens[0]) && SUBCOMMANDS.has(tokens[1])) tokens.splice(0, 2);
@@ -276,8 +301,9 @@ function detectPackageManager(root) {
  * runner and reading the file that appeared. An unknown runner is not a
  * failure — it falls through to the same REVIEW line this table replaced.
  *
- * `argv` returns tokens appended to the test command. `note` says what a flag
- * alone cannot express, and exists for exactly one reason: not every runner can
+ * `argv` returns tokens appended to the test command. `packageKey` is the
+ * `package.json` key a runner reads its report's path from, added where the
+ * file has none. `note` says what a flag alone cannot express, and exists for exactly one reason: not every runner can
  * be configured from argv, and pretending otherwise would write a command that
  * runs clean and produces no file — a check that looks armed and is not.
  */
@@ -287,8 +313,9 @@ const REPORTER_FLAGS = {
   node: { argv: (path) => ['--test-reporter=junit', `--test-reporter-destination=${path}`] },
   jest: {
     argv: () => ['--reporters=default', '--reporters=jest-junit'],
+    packageKey: (path) => ['jest-junit', { outputFile: path }],
     note: (path) =>
-      `jest reports through a separate package: install jest-junit, and point its output at "${path}" (a "jest-junit" key in package.json, or JEST_JUNIT_OUTPUT_FILE). ` +
+      `jest reports through a separate package: install jest-junit as a devDependency. Its output is read from the "jest-junit" key in package.json, which init adds pointing at "${path}" where the file has none; one already there must point at "${path}". ` +
       `The flag alone will not write the file, which is why this is the one entry that cannot be finished from argv.`,
   },
 };
@@ -358,7 +385,11 @@ export function buildContract(root) {
   // never invented, because `--fix` is not universal and a flag this file
   // guessed would fail at the first gate rather than here.
   const lintScript = parseScript(scripts.lint);
-  const fixScript = parseScript(scripts['lint:fix'] ?? scripts.format);
+  const declaredFix = parseScript(scripts['lint:fix'] ?? scripts.format);
+  // Another tool is not the linter's autofix: `prettier --write` taken from
+  // `format` would run at every gate in the linter's place.
+  const otherTool = declaredFix && lintScript && declaredFix.bin !== lintScript.bin;
+  const fixScript = otherTool ? null : declaredFix;
   let lint = [];
   let lintNoFix = [];
   let lintName = '';
@@ -405,7 +436,11 @@ export function buildContract(root) {
     } else {
       detected.push(`verify.lint_no_fix — from the "lint" script: ${lintNoFix.join(' ')}`);
     }
-    if (fixScript) {
+    if (otherTool) {
+      review.push(
+        `verify.lint — the "${scripts['lint:fix'] ? 'lint:fix' : 'format'}" script runs ${declaredFix.bin}, not ${lintScript.bin}, so it was not taken as the linter's autofix: ${lint.join(' ')}.`,
+      );
+    } else if (fixScript) {
       detected.push(`verify.lint — from the autofix script: ${lint.join(' ')}`);
     } else if (carried.length > 0) {
       detected.push(`verify.lint — from the "lint" script, which already fixes: ${lint.join(' ')}`);
@@ -584,7 +619,7 @@ export function buildContract(root) {
 
   if (baseRef) contract.verify.base_ref = baseRef;
 
-  return { contract, detected, review, missing };
+  return { contract, detected, review, missing, packageKey: flag?.packageKey?.(reportPath) ?? null };
 }
 
 /**
@@ -779,14 +814,38 @@ function ensureCheckScript(root) {
 }
 
 /**
- * Creates the directories, the specs contract, the gitignore lines and the
- * `check` alias. Returns what it changed.
+ * Adds the `package.json` key a runner reads its report's path from. Never
+ * replaces one the repo wrote, on the same rule as the `check` script.
+ */
+function ensurePackageKey(root, [name, value]) {
+  const path = join(root, 'package.json');
+  let raw;
+  let pkg;
+  try {
+    raw = readFileSync(path, 'utf8');
+    pkg = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (Object.hasOwn(pkg, name)) return null;
+  const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? '  ';
+  try {
+    writeFileSync(path, `${JSON.stringify({ ...pkg, [name]: value }, null, indent)}\n`);
+  } catch {
+    return null;
+  }
+  return `added a "${name}" key to package.json: ${JSON.stringify(value)}`;
+}
+
+/**
+ * Creates the directories, the specs contract, the gitignore lines, the
+ * `check` alias and the runner's report key. Returns what it changed.
  *
  * `reportPath` is `trace.report.path` from the contract just written, and it
  * is a parameter rather than a re-read because the caller has the contract in
  * hand and a second reader of it could disagree with the first.
  */
-export function scaffold(root, reportPath = '') {
+export function scaffold(root, reportPath = '', packageKey = null) {
   const done = [];
 
   for (const dir of ['specs', join('specflow', 'archive')]) {
@@ -835,6 +894,8 @@ export function scaffold(root, reportPath = '') {
 
   const checkScript = ensureCheckScript(root);
   if (checkScript) done.push(checkScript);
+  const reportKey = packageKey && ensurePackageKey(root, packageKey);
+  if (reportKey) done.push(reportKey);
 
   return done;
 }
@@ -867,7 +928,7 @@ if (isMain) {
     process.exit(0);
   }
 
-  const { contract, detected, review, missing } = buildContract(root);
+  const { contract, detected, review, missing, packageKey } = buildContract(root);
 
   mkdirSync(join(root, '.spec-flow'), { recursive: true });
   writeFileSync(configPath, `${JSON.stringify(contract, null, 2)}\n`);
@@ -894,7 +955,7 @@ if (isMain) {
     );
   }
 
-  for (const line of scaffold(root, contract.trace.report?.path)) console.log(`  ${line}`);
+  for (const line of scaffold(root, contract.trace.report?.path, packageKey)) console.log(`  ${line}`);
   if (detected.length > 0) console.log('');
 
   for (const line of detected) console.log(`  detected  ${line}`);

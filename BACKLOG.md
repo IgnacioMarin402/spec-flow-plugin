@@ -238,16 +238,15 @@ mutants on the change's files, handed to `MODE=FOLD` as what its `GAPS`
 reading starts from. **Done:** that report read over three real runs before
 anything leans on it.
 
-### B67 — a framework scaffold's own scripts do not survive `init`
+### B67 — a framework scaffold reaches a green check, measured by nobody
 
-A common scaffold's defaults: `lint` quotes its glob, so `verify.lint` is
-MISSING; `test` is jest, whose report needs `jest-junit` installed and
-configured; `build` is offered as an extra check. Each is reported correctly,
-and the adopter still finishes the contract by hand or runs the setup skill
-before the first run. **Candidate:** the setup skill covers all three from the
-scaffold's own `package.json`, with no per-framework table in the engine
-(ADR-002). **Done:** a `cold-start` case from that `package.json` to a green
-check through the documented route.
+`init` now reads a scaffold's quoted lint script, skips a formatter as the
+linter's autofix, and points `jest-junit` at the report; what is left to the
+adopter is installing `jest-junit`, `scope_globs` on a scaffold with fewer than
+three files of an extension, and confirming the offered `build`. That route has
+not been run to green: `cold-start` installs nothing, and a scaffold's suite
+needs its runner installed. **Done:** a scaffold, installed, from `init` to a
+green `spec-flow check`, with what the adopter still had to supply recorded.
 
 ## Deliberately not doing
 
