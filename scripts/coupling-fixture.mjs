@@ -38,6 +38,7 @@ const BANNED = ['Nest', 'JS'].join('');
 // The surfaces the check claims. Written out, not imported — see the header.
 const SCANNED_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions', 'evals'];
 const SCANNED_FILES = ['README.md', 'REFERENCE.md', 'CLAUDE.md', 'LICENSE', 'BACKLOG.md', '.github/workflows/ci.yml'];
+const SCANNED_EXTENSIONS = ['.mjs', '.md', '.json', '.tsx', '.sh', '.yaml'];
 
 /**
  * Builds a tree holding exactly `files` (path -> contents), installs the real
@@ -100,7 +101,22 @@ for (const file of SCANNED_FILES) {
   });
 }
 
+// Every other case plants a `.md`, so an extension dropped from the list
+// would go unseen — and with it, say, every eval fixture script.
+for (const ext of SCANNED_EXTENSIONS) {
+  check(`a banned token in a ${ext} file is reported`, () => {
+    const { code, out } = scan({ [`evals/planted${ext}`]: `The engine is a ${BANNED} plugin.\n` });
+    if (code === 0) return `${ext} files are not scanned.\n--- output ---\n${out}`;
+    return out.includes(`evals/planted${ext}`) ? '' : `reported a finding but not the file that carries it.\n--- output ---\n${out}`;
+  });
+}
+
 // ---- the properties a per-surface case cannot see -------------------------
+
+check('evals/results/ is not read: a run writes a model\'s output there, not this repo\'s prose', () => {
+  const { code, out } = scan({ 'evals/results/run/report.md': `The engine is a ${BANNED} plugin.\n` });
+  return code === 0 ? '' : `the skip is gone, so a local eval run turns this check red over what a model wrote.\n--- output ---\n${out}`;
+});
 
 check('a nested file is reached, not just the top level of a scanned directory', () => {
   const { code, out } = scan({ 'hooks/lib/deep.md': `The engine is a ${BANNED} plugin.\n` });

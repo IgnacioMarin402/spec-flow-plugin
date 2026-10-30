@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # A small cart module adopted by spec-flow: a contract, a capability spec with
 # its tests, and code with one bug each triage case can be pointed at.
+# `wrong-spec` plants the one defect that lives in the spec: REQ-CART-003
+# rounds each line, against the glossary. Only the case that triages it gets
+# it, since every triage reads the requirement its report lands on.
 set -euo pipefail
+variant="${1:-}"
+case "$variant" in
+  '' | wrong-spec) ;;
+  *) echo "cart-repo.sh: want no argument or wrong-spec, got '$variant'" >&2; exit 2 ;;
+esac
 
 mkdir -p .spec-flow specs test lib adapters specflow/archive
 
@@ -55,9 +63,18 @@ The total is the sum, over every line, of its unit price times its quantity.
 
 ### REQ-CART-003 — SAVE10 takes ten percent off
 
+MD
+if [ "$variant" = wrong-spec ]; then
+cat >> specs/cart.md <<'MD'
 The code SAVE10 takes ten percent off each line's price, each line rounded down
 to the cent before the lines are summed.
 MD
+else
+cat >> specs/cart.md <<'MD'
+The code SAVE10 takes ten percent off the total, rounded down to the cent once
+the lines are summed.
+MD
+fi
 
 cat > lib/cart.js <<'JS'
 export function addItem(cart, sku, price) {
@@ -70,10 +87,12 @@ export function addItem(cart, sku, price) {
 export function removeItem(cart, sku) {
   const at = cart.findIndex((l) => l.sku === sku);
   cart[at].qty -= 1;
-  if (cart[at].qty === 0) cart.splice(at, 1);
   return cart;
 }
 
+JS
+if [ "$variant" = wrong-spec ]; then
+cat >> lib/cart.js <<'JS'
 // In cents.
 export function total(cart, code) {
   return cart.reduce((sum, l) => {
@@ -82,6 +101,15 @@ export function total(cart, code) {
   }, 0);
 }
 JS
+else
+cat >> lib/cart.js <<'JS'
+// In cents.
+export function total(cart, code) {
+  const sum = cart.reduce((acc, l) => acc + l.price, 0);
+  return code === 'SAVE10' ? Math.floor(sum * 0.9) : sum;
+}
+JS
+fi
 
 cat > adapters/http.js <<'JS'
 import { addItem } from '../lib/cart.js';

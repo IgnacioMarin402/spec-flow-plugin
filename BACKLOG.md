@@ -160,9 +160,10 @@ reach `done`.
 ### B15 — model-graded checks
 
 `evals/` holds cases for the reviewer's verdicts and the `/spec-fix` triage;
-`npm run evals` runs them, and nothing runs them in CI (a key per run, as
-B64). **Open:** the orchestrator refusing to write code, and triage run under
-a phase, so `agent-gate` judges the return as it does in a run.
+`npm run evals` runs them, and CI runs no model (a key per run, as B64):
+`evals:check` holds each grader against its case's scaffold. **Open:** the
+orchestrator refusing to write code, and triage run under a phase, so
+`agent-gate` judges the return as it does in a run.
 
 ### B33 — `Record:` shas in `decisions/` are unchecked
 

@@ -52,7 +52,8 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "init:check": "node scripts/init-fixture.mjs",
-    "evals": "claude plugin eval . --scaffold --allow-tools Write Edit --judge-model sonnet"
+    "evals:check": "node scripts/evals-fixture.mjs",
+    "evals": "claude plugin eval . --scaffold --no-publish --allow-tools Write Edit --judge-model sonnet"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
