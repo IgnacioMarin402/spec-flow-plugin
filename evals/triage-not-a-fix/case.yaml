@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: triage-not-a-fix
+tags: [triage]
+context:
+  scaffold_script: fixture.sh

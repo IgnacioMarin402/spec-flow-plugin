@@ -54,9 +54,14 @@ const SELF = relative(ROOT, fileURLToPath(import.meta.url)).replace(/\\/g, '/');
 // runners it tested was never at risk from this list. Widening BANNED back to
 // stack vocabulary would put a record in tension with a check — which is a
 // reason to reopen ADR-007, not to exempt a directory.
-const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions'];
+const SCAN_DIRS = ['hooks', 'scripts', 'commands', 'agents', 'modes', '.claude/skills', 'skills', 'decisions', 'evals'];
 // `.tsx`: the live view is a mod, which Claude Code loads as TypeScript (ADR-037).
-const SCAN_EXTENSIONS = ['.mjs', '.md', '.json', '.tsx'];
+// `.sh` and `.yaml`: what an eval case runs and declares, the fixture repos
+// its scaffold writes included (evals/).
+const SCAN_EXTENSIONS = ['.mjs', '.md', '.json', '.tsx', '.sh', '.yaml'];
+// Written by each `claude plugin eval` run and gitignored: a model's output,
+// not this repo's prose.
+const SKIP_DIRS = new Set([join(ROOT, 'evals', 'results')]);
 
 // The prose docs are scanned too, and deliberately: they are the most public
 // surface this plugin has and the first thing an adopting repo reads.
@@ -115,7 +120,9 @@ function walk(dir, found = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     const st = statSync(full);
-    if (st.isDirectory()) walk(full, found);
+    if (st.isDirectory()) {
+      if (!SKIP_DIRS.has(full)) walk(full, found);
+    }
     else if (SCAN_EXTENSIONS.some((ext) => entry.endsWith(ext))) found.push(full);
   }
   return found;

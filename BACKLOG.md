@@ -159,11 +159,10 @@ reach `done`.
 
 ### B15 — model-graded checks
 
-`claude plugin eval` is in early access. On 2.1.246 `--help` prints the full
-help and exits 0 while a run is still refused, so re-check by running
-`claude plugin eval .`, never by reading `--help`. Highest-value cases once it
-runs: the reviewer's `CHANGES_REQUESTED` path, the five `/spec-fix` triage
-cases, the orchestrator refusing to write code.
+`evals/` holds cases for the reviewer's verdicts and the `/spec-fix` triage;
+`npm run evals` runs them, and nothing runs them in CI (a key per run, as
+B64). **Open:** the orchestrator refusing to write code, and triage run under
+a phase, so `agent-gate` judges the return as it does in a run.
 
 ### B33 — `Record:` shas in `decisions/` are unchecked
 

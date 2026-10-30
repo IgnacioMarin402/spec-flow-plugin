@@ -2,3 +2,5 @@ node_modules/
 .claude/state/
 # Written by Claude Code when it loads this plugin as a mod under development.
 .claude-plugin/types/
+# Written by each `claude plugin eval` run.
+evals/results/
