@@ -14,8 +14,8 @@ a background spawn's completion notice reaches the main session (ADR-023);
 the sign-off needs the human's chat. On Claude Code 2.1.294 a `SubagentStop`
 command hook that blocks makes the agent continue, so blocking needs no mod.
 A mod runs only inside Claude Code, with no Node, while the engine also runs
-from a terminal without Claude Code and from CI (ADR-016) on Node 22 and 24,
-Linux and Windows (ADR-019).
+from a terminal without Claude Code and from CI (ADR-016), on Linux and
+Windows (ADR-019).
 
 **Decision.**
 

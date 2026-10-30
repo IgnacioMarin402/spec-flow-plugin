@@ -67,35 +67,56 @@ const MOCHA = `<testsuite name="Mocha Tests" tests="2" failures="0" errors="0" s
 </testsuite>
 `;
 
-// node 22.22.2 — `node --test --test-reporter=junit`
+// node 24.22.2 — `node --test --test-reporter=junit`. Only the absolute path
+// in `file` was rewritten to `/v/`.
 const NODE_TEST = `<?xml version="1.0" encoding="utf-8"?>
 <testsuites>
-\t<testcase name="REQ-AUTH-001 rejects a bad password" time="0.000857" classname="test"/>
-\t<testcase name="REQ-AUTH-002 locks after five attempts" time="0.000129" classname="test">
+\t<testcase name="REQ-AUTH-001 rejects a bad password" time="0.000925" classname="test" file="/v/test/a.test.js"/>
+\t<testcase name="REQ-AUTH-002 locks after five attempts" time="0.000189" classname="test" file="/v/test/a.test.js">
 \t\t<skipped type="skipped" message="not implemented yet"/>
 \t</testcase>
 \t<!-- tests 2 -->
+\t<!-- suites 0 -->
+\t<!-- pass 1 -->
+\t<!-- fail 0 -->
+\t<!-- cancelled 0 -->
 \t<!-- skipped 1 -->
+\t<!-- todo 0 -->
+\t<!-- duration_ms 92.107736 -->
 </testsuites>
 `;
 
-// node 22.22.2 — `node --test` (its default reporter)
+// node 24.22.2 — `node --test --test-reporter=tap`. Not the default reporter,
+// which is `spec` from Node 23 on and is not a report format.
 const NODE_TAP = `TAP version 13
 # Subtest: REQ-AUTH-001 rejects a bad password
 ok 1 - REQ-AUTH-001 rejects a bad password
+  ---
+  duration_ms: 1.34885
+  type: 'test'
+  ...
 # Subtest: REQ-AUTH-002 locks after five attempts
 ok 2 - REQ-AUTH-002 locks after five attempts # SKIP not implemented yet
+  ---
+  duration_ms: 0.320101
+  type: 'test'
+  ...
 1..2
 # tests 2
+# suites 0
 # pass 1
+# fail 0
+# cancelled 0
 # skipped 1
+# todo 0
+# duration_ms 126.412154
 `;
 
 const EMITTERS = [
   ['vitest 4.1.10 --reporter=junit', 'junit', VITEST],
   ['mocha 11.8.0 --reporter xunit', 'junit', MOCHA],
-  ['node 22 --test-reporter=junit', 'junit', NODE_TEST],
-  ['node 22 --test (TAP 13)', 'tap', NODE_TAP],
+  ['node 24 --test-reporter=junit', 'junit', NODE_TEST],
+  ['node 24 --test-reporter=tap', 'tap', NODE_TAP],
 ];
 
 for (const [emitter, format, text] of EMITTERS) {
