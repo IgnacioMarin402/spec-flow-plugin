@@ -122,6 +122,14 @@ jobs:
       - name: init behaviour
         run: npm run init:check
 
+      # An eval run costs a model, so nothing runs one to learn whether a
+      # grader can fail. This holds every grader against its case's scaffold
+      # instead. The scaffolds are bash, as the harness runs them, and a
+      # Windows leg does not promise which `bash` it finds.
+      - name: Eval graders hold against their scaffolds
+        if: runner.os != 'Windows'
+        run: npm run evals:check
+
       # Every ${CLAUDE_PLUGIN_ROOT}/... path the commands, agents and
       # hooks.json tell someone to run must exist in the package. A command
       # naming a script that does not ship is an instruction that silently

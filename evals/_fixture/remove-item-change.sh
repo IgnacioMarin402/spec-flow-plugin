@@ -39,11 +39,12 @@ cat > "$dir/proposal.md" <<'MD'
 Shoppers need to take an item back out of the cart.
 
 ## Context
-`removeItem` in `lib/cart.js` lowers a quantity but throws on a sku the cart
-does not hold: `findIndex` returns -1 and the line it reads is undefined.
+`removeItem` in `lib/cart.js` lowers a quantity but keeps a line at zero, and
+throws on a sku the cart does not hold: `findIndex` returns -1 and the line it
+reads is undefined.
 
 ## Decision
-- **Chosen:** guard the index, so an absent sku leaves the cart as it was.
+- **Chosen:** drop a line at zero, and guard the index, so an absent sku leaves the cart as it was.
 - **Rejected: throw a named error** — the caller has nothing to do with it; the cart is already right.
 MD
 
@@ -51,7 +52,7 @@ cat > "$dir/plan.md" <<'MD'
 # Plan — remove-item
 
 ## Approach
-Fix `removeItem` in `lib/cart.js` so an absent sku is a no-op, and prove both deltas in the cart suite.
+Fix `removeItem` in `lib/cart.js` so a line at zero is dropped and an absent sku is a no-op, and prove both deltas in the cart suite.
 
 ## Milestones
 | Id | Name | Covers | Depends on | Detail |
@@ -69,12 +70,12 @@ cat > "$dir/milestones/M1.md" <<'MD'
 - Objective: `removeItem` lowers a quantity, drops a line at zero, and ignores an absent sku.
 - Skills: none — the change is one function and its tests; this repo ships no skill that applies.
 - Files to add/change: `lib/cart.js`, `test/cart.test.js`, `specs/cart.md`
-- Steps: write both REQ-named tests first and see them fail; append both requirements to `specs/cart.md`; then guard the index `findIndex` returns before touching the line.
+- Steps: write both REQ-named tests first and see them fail; append both requirements to `specs/cart.md`; then drop the line once its quantity reaches zero, and guard the index `findIndex` returns before touching the line.
 - Spec deltas:
   - ADDED REQ-CART-004 — removing an item lowers its quantity by one, and drops the line at zero
   - ADDED REQ-CART-005 — removing an item that is not in the cart leaves the cart unchanged
 - Tests to add/change: in `test/cart.test.js`, `REQ-CART-004 removing an item lowers its quantity and drops the line at zero`, and `REQ-CART-005 removing an absent item leaves the cart unchanged`.
-- What this could break: callers that relied on `removeItem` throwing for an absent sku; none in this repo (`grep removeItem` finds only the cart module), so nothing outside the deltas.
+- What this could break: callers that relied on `removeItem` throwing for an absent sku, or on a line kept at zero; none in this repo (`grep removeItem` finds only the cart module), so nothing outside the deltas.
 - Depends on: none
 MD
 else
