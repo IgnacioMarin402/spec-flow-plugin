@@ -41,22 +41,206 @@ export function stateDir(root = projectDir()) {
 // either is not a phase write.
 export const PHASE_FILE_RE = /\.claude[\\/]state[\\/]phase(?![\w.-])/;
 
-// Where a command writes into the phase file: a redirect, `>|` too, or a
-// `tee`, its path quoted or not. Read through `resolveCd`.
-const INTO_PHASE = `\\s*(?:"[^"]*?|'[^']*?|[^'"\\s|;&]*?)${PHASE_FILE_RE.source}`;
-export const PHASE_REDIRECT_RE = new RegExp(`>>?\\|?${INTO_PHASE}`);
-export const PHASE_WRITE_RE = new RegExp(`(?:>>?\\|?|\\btee(?:\\s+-a)?)${INTO_PHASE}`);
+// What writes into the file its next word names: a redirect, `>|` too, or a `tee`.
+const REDIRECT_OP = String.raw`>>?\|?`;
+const WRITE_OP = String.raw`${REDIRECT_OP}|\btee(?:\s+-a)?`;
+
+// Where a command writes into the phase file, its path quoted or not, whole or
+// in parts (`"$CLAUDE_PROJECT_DIR"/.claude/state/phase`). Test on the `text`
+// of `phaseWriteText`.
+const PART = String.raw`"[^"]*"|'[^']*'|[^'"\s|;&]`;
+const INTO_PHASE = String.raw`\s*(?:${PART})*?(?:"[^"]*?|'[^']*?|[^'"\s|;&]*?)${PHASE_FILE_RE.source}`;
+export const PHASE_REDIRECT_RE = new RegExp(`(?:${REDIRECT_OP})${INTO_PHASE}`);
+export const PHASE_WRITE_RE = new RegExp(`(?:${WRITE_OP})${INTO_PHASE}`);
+
+// Programs that run text they are handed as code, where a `>` writes a file: a
+// shell or `eval`, what runs its argument through one, awk and perl.
+const RUNS_TEXT_RE =
+  /(?:^|[\s;&|(`])(?:[^\s;&|()`]*\/)?(?:a?sh|bash|zsh|dash|ksh|mksh|fish|t?csh|busybox|eval|su|watch|script|parallel|[gmn]?awk|perl)(?=$|[\s;&|)`])/;
+
+// What each code unit of a command is to a shell.
+export const CODE = 0;
+export const QUOTING = 1; // a quote mark, or the backslash of an escape
+export const TEXT = 2; // a quoted or escaped character
+export const TARGET = 3; // quoted text that names the file a redirect or `tee` writes
+export const DATA = 4; // not a word of the command: a comment, a heredoc and its body
+
+const MASK = '\uE000';
+const masked = (cmd, kinds) => cmd.replace(/[\s\S]/g, (c, k) => (kinds[k] === TEXT || kinds[k] === DATA ? MASK : c));
+
+/**
+ * `shellKinds(cmd)[k]` is what `cmd[k]` is to a shell, or null when the
+ * command runs text as code (`RUNS_TEXT_RE`) and none of it is text. What runs
+ * inside quotes stays code — `$(…)`, backquotes, an unquoted heredoc line that
+ * holds one — and quoting this cannot close is left as code: read as code, a
+ * command names more writes, never fewer.
+ */
+export function shellKinds(cmd) {
+  const kinds = new Uint8Array(cmd.length);
+  const mark = (from, to, kind) => kinds.fill(kind, from, Math.min(to, cmd.length));
+  // Whether the word a quote at `at` belongs to follows a write operator: back
+  // over the rest of that word and the space before it, to what precedes them.
+  const plain = (k) => kinds[k] !== TEXT && kinds[k] !== DATA;
+  const inWord = (k) => !plain(k) || !/[\s|;&<>]/.test(cmd[k]);
+  const before = (k) => {
+    while (k >= 0 && plain(k) && /\s/.test(cmd[k])) k--;
+    return k;
+  };
+  const wordAt = (k) => {
+    let from = k;
+    while (from > 0 && inWord(from - 1)) from--;
+    return cmd.slice(from, k + 1);
+  };
+  const target = (at) => {
+    let k = at - 1;
+    while (k >= 0 && inWord(k)) k--;
+    k = before(k);
+    if (k < 0 || !plain(k)) return false;
+    if (cmd[k] === '>' || (cmd[k] === '|' && cmd[k - 1] === '>')) return true;
+    let word = wordAt(k);
+    if (word === '-a') {
+      k = before(k - 2);
+      word = k < 0 ? '' : wordAt(k);
+    }
+    return /(?:^|\W)tee$/.test(word);
+  };
+  const pending = []; // heredocs whose bodies start at the next newline
+  let i = 0;
+
+  // Up to `close` (`)` of a `$(`, a backquote) or the end, past it.
+  const code = (close) => {
+    let depth = 0; // a `(` inside a `$(…)` is closed by its own `)`
+    while (i < cmd.length) {
+      const c = cmd[i];
+      if (c === close && (close !== ')' || depth === 0)) return void i++;
+      if (close === ')' && (c === '(' || c === ')')) depth += c === '(' ? 1 : -1;
+      if (c === '\\') {
+        mark(i, i + 1, QUOTING);
+        mark(i + 1, i + 2, TEXT);
+        i += 2;
+      } else if (c === "'" || (c === '$' && cmd[i + 1] === "'")) single(c === '$');
+      else if (c === '"') double();
+      else if (cmd.startsWith('$((', i) || cmd.startsWith('((', i)) arithmetic();
+      else if (c === '$' && cmd[i + 1] === '(') {
+        i += 2;
+        code(')');
+      } else if (c === '`') {
+        i++;
+        code('`');
+      } else if (c === '#' && (i === 0 || /[\s;&|(]/.test(cmd[i - 1]))) {
+        const newline = cmd.indexOf('\n', i);
+        const end = newline === -1 ? cmd.length : newline;
+        mark(i, end, DATA);
+        i = end;
+      } else if (cmd.startsWith('<<<', i)) i += 3;
+      else if (cmd.startsWith('<<', i)) heredoc();
+      else if (c === '\n' && pending.length > 0) {
+        i++;
+        bodies();
+      } else i++;
+    }
+  };
+
+  // `'…'`, and `$'…'`, where a backslash escapes the quote.
+  const single = (ansi) => {
+    const from = i;
+    const open = from + (ansi ? 2 : 1);
+    let end = open;
+    while (end < cmd.length && cmd[end] !== "'") end += ansi && cmd[end] === '\\' ? 2 : 1;
+    if (end >= cmd.length) return void (i = cmd.length);
+    mark(from, open, QUOTING);
+    mark(open, end, target(from) ? TARGET : TEXT);
+    mark(end, end + 1, QUOTING);
+    i = end + 1;
+  };
+
+  const double = () => {
+    const from = i;
+    const kind = target(from) ? TARGET : TEXT;
+    mark(i, ++i, QUOTING);
+    while (i < cmd.length && cmd[i] !== '"') {
+      if (cmd[i] === '\\') {
+        mark(i, i + 1, QUOTING);
+        mark(i + 1, i + 2, kind);
+        i += 2;
+      } else if (cmd.startsWith('$((', i)) arithmetic();
+      else if (cmd.startsWith('$(', i)) {
+        i += 2;
+        code(')');
+      } else if (cmd[i] === '`') {
+        i++;
+        code('`');
+      } else mark(i, ++i, kind);
+    }
+    if (i >= cmd.length) return void mark(from, cmd.length, CODE);
+    mark(i, ++i, QUOTING);
+  };
+
+  // `$((…))` and `((…))`, where `<<` shifts: left as code, through its `))`.
+  const arithmetic = () => {
+    i += cmd[i] === '$' ? 3 : 2;
+    for (let depth = 0; i < cmd.length; i++) {
+      if (cmd[i] === '(') depth++;
+      else if (cmd[i] === ')' && depth-- === 0 && cmd[i + 1] === ')') return void (i += 2);
+    }
+  };
+
+  const heredoc = () => {
+    const m = /^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\?)([^\s;&|<>()'"]+))/.exec(cmd.slice(i));
+    if (!m) return void (i += 2);
+    pending.push({ word: m[2] ?? m[3] ?? m[5], quoted: m[5] === undefined || m[4] === '\\', tabs: m[1] === '-' });
+    mark(i, i + m[0].length, DATA);
+    i += m[0].length;
+  };
+
+  // Each pending body, through the line that ends it. An unquoted heredoc
+  // expands, so a line of one that holds a `$(` or a backquote is left as code.
+  const bodies = () => {
+    for (const { word, quoted, tabs } of pending.splice(0)) {
+      while (i < cmd.length) {
+        const newline = cmd.indexOf('\n', i);
+        const end = newline === -1 ? cmd.length : newline;
+        const line = cmd.slice(i, end);
+        const last = (tabs ? line.replace(/^\t+/, '') : line) === word;
+        if (quoted || last || !/\$\(|`/.test(line)) mark(i, end, DATA);
+        i = end + 1;
+        if (last) break;
+      }
+    }
+  };
+
+  code('');
+  return RUNS_TEXT_RE.test(masked(cmd, kinds)) ? null : kinds;
+}
+
+/**
+ * `cmd` with what a shell reads as text masked, one code unit for one, so an
+ * index into the result is an index into `cmd`. A redirect or `tee` target
+ * stays: it is the path written.
+ */
+export function quotedAsText(cmd) {
+  const kinds = shellKinds(cmd);
+  return kinds ? masked(cmd, kinds) : cmd;
+}
 
 /**
  * `cmd` with each relative redirect or `tee` target after a `cd` written under
  * that directory, so `cd .claude/state && printf done > phase` names the phase
  * file as the hooks read it. Linear: a `cd` inside a subshell is taken as
- * lasting, which can only name more paths, never fewer.
+ * lasting, which can only name more paths, never fewer. Cut where
+ * `quotedAsText` leaves a separator, so a `; cd` in a commit message is text.
  */
 export function resolveCd(cmd) {
+  const pieces = [];
+  let last = 0;
+  for (const m of quotedAsText(cmd).matchAll(/;|&&|\n/g)) {
+    pieces.push(cmd.slice(last, m.index), m[0]);
+    last = m.index + m[0].length;
+  }
+  pieces.push(cmd.slice(last));
+
   let dir = '';
-  return cmd
-    .split(/(;|&&|\n)/)
+  return pieces
     .map((part) => {
       // One shell word, its quotes dropped: `"$CLAUDE_PROJECT_DIR"/.claude/state/`.
       const word = /^\s*\(?\s*cd\s+((?:"[^"]*"|'[^']*'|[^'"\s;&|)])+)/.exec(part)?.[1];
@@ -68,11 +252,21 @@ export function resolveCd(cmd) {
       if (!dir) return part;
       // A directory with a space in it is quoted, so the target stays one word.
       const open = /\s/.test(dir) ? '"' : '';
-      return part.replace(/(>>?\|?|\btee(?:\s+-a)?)(\s*)(['"]?)([^'"\s;&|<>]+)/g, (_, op, space, quote, target) =>
+      return part.replace(new RegExp(String.raw`(${WRITE_OP})(\s*)(['"]?)([^'"\s;&|<>]+)`, 'g'), (_, op, space, quote, target) =>
         quote ? `${op}${space}${quote}${dir}/${target.replace(/^\.\//, '')}` : `${op}${space}${open}${dir}/${target.replace(/^\.\//, '')}${open}`,
       );
     })
     .join('');
+}
+
+/**
+ * A Bash command as the phase-write readers take it: `cmd` with its `cd`s
+ * resolved, and `text`, the same length, with what a shell reads as text
+ * masked. Match on `text`; read values from `cmd` at the same place.
+ */
+export function phaseWriteText(command) {
+  const cmd = resolveCd(command);
+  return { cmd, text: quotedAsText(cmd) };
 }
 
 /**

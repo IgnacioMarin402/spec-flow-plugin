@@ -171,15 +171,6 @@ Two of four were wrong and were corrected by hand. Checking them needs
 `fetch-depth: 0` in CI — slower on every job — to guard four frozen records;
 records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
 
-### B69 — the phase-write readers read quoted text as a write
-
-The sibling of what `orchestrator-scope` fixed for its own reader:
-`PHASE_REDIRECT_RE` (`phase-guard`) and `PHASE_WRITE_RE` (`run-trace`), both in
-`hooks/lib/io.mjs`, match inside a quoted argument. During a run, `git commit -m "note: printf done >
-.claude/state/phase comes later"` is judged as a write of `done`, runs the
-unscoped checks to decide it, and is denied. **Done:** that command as a
-`hook-smoke` case, red on `9298d2d`, with a real phase write still judged.
-
 ### B62 — a command that does not expand starts no run, and nothing says so
 
 Under `claude -p` on 2.1.310, with the plugin loaded by `--plugin-dir`, the
@@ -248,6 +239,16 @@ before the first run. **Candidate:** the setup skill covers all three from the
 scaffold's own `package.json`, with no per-framework table in the engine
 (ADR-002). **Done:** a `cold-start` case from that `package.json` to a green
 check through the documented route.
+
+### B70 — two readers still pair quotes by hand
+
+`no-gate-cmds` and `run-trace`'s test reader take quoted text as text with
+`/"[^"]*"|'[^']*'/` and a cut at `<<`: an escaped quote moves what they read,
+and a command handed to a shell is not read at all. During a run,
+`sh -c 'npm run test'` and `git commit -m "a \"b" && npm run test && echo "c"`
+both run the whole suite, and `no-gate-cmds` allows both. `shellKinds` in
+`hooks/lib/io.mjs` reads either. **Done:** both read through it, with a
+`hook-smoke` case for each command above, red before.
 
 ## Deliberately not doing
 
