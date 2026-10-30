@@ -268,7 +268,7 @@ both run the whole suite, and `no-gate-cmds` allows both. `shellKinds` in
   change to it shows in a diff, the only record ADR-046 leaves of one made
   mid-run; the preferences file holds caps and routes; `.claude/state/` is one-word files
   every hook reads and a person resets with `printf`, and append-only logs whose
-  archive is committed as text. `node:sqlite` is experimental on Node 22, a
-  floor CI runs (ADR-019): flagged below 22.13, a release candidate only from
-  24.15. A native package breaks "the plugin is the whole install". What weighs
-  is how many keys there are, not where they live: B39.
+  archive is committed as text. `node:sqlite` is a release candidate only from
+  24.15, above the floor CI runs (ADR-019). A native package breaks "the
+  plugin is the whole install". What weighs is how many keys there are, not
+  where they live: B39.

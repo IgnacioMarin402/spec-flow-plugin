@@ -62,8 +62,8 @@ A test naming an id no spec declares fails the same way.
   ([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md))
 - A Node project with test and lint commands. Other stacks are not supported
   ([ADR-007](decisions/007-the-supported-scope-is-node.md))
-- Node 22+ — a run refuses to start below it
-- Linux or Windows; CI runs both on Node 22 and 24
+- Node 24+ — a run refuses to start below it
+- Linux or Windows; CI runs both on Node 24
   ([ADR-019](decisions/019-ci-runs-the-floor-it-imposes.md))
 
 ## Install
