@@ -475,18 +475,17 @@ await Promise.all([
     }),
   ),
 
-  // A quoted argument is the same kind of thing as a chained one: something
-  // only a SHELL resolves, in a field the engine spawns without one. Splitting
-  // on whitespace keeps the quote characters, and the runner then receives
-  // `"test/**/*.spec.js"` as literal text and matches no file — which for a
-  // runner that exits 0 on an empty match is a green gate over zero executed
-  // tests. Both fields, because only `verify.lint` has `stripTargets` to
-  // accidentally rescue it.
-  check('a quoted argument is left to the human rather than passed through as text', () =>
+  // The engine spawns the argv with no shell, so a quoted argument has to reach
+  // it as a shell would pass it: one word, unquoted. With its quotes kept the
+  // runner receives `"test/**/*.spec.js"` as literal text and matches no file —
+  // on a runner that exits 0 for an empty match, a green gate over zero
+  // executed tests. Each field, because only the lint ones have `stripTargets`
+  // to accidentally rescue it.
+  check('a quoted argument reaches the argv as the shell would pass it, never with its quotes', () =>
     withRepo(
       {
         ...COMPLETE,
-        scripts: { test: 'mocha --spec "test/**/*.spec.js"', lint: 'eslint --rulesdir "./rules" src' },
+        scripts: { test: 'mocha --spec "test/**/*.spec.js"', lint: "eslint --rulesdir './my rules' src" },
       },
       async (dir) => {
         await run([], dir);
@@ -497,9 +496,118 @@ await Promise.all([
             return `verify.${field} carries shell quotes as literal text (${JSON.stringify(quoted)}); the gate spawns this argv with no shell, so the runner receives the quote characters`;
           }
         }
+        if (!c.verify.test.includes('test/**/*.spec.js')) return `the quoted glob did not reach verify.test as one word: ${JSON.stringify(c.verify.test)}`;
+        if (!c.verify.lint_no_fix.includes('./my rules')) return `a quoted value with a space was split: ${JSON.stringify(c.verify.lint_no_fix)}`;
         return null;
       },
     ),
+  ),
+
+  check('a script only a shell can read is left to the human, with the reason', async () => {
+    const expands = 'expands something only a shell can';
+    for (const { scripts, field, why } of [
+      { scripts: { test: 'vitest run', lint: 'eslint "$PWD/src"' }, field: 'lint', why: expands },
+      { scripts: { test: 'jest $JEST_FLAGS', lint: 'eslint .' }, field: 'test', why: expands },
+      { scripts: { test: 'jest `cat list.txt`', lint: 'eslint .' }, field: 'test', why: expands },
+      { scripts: { test: 'vitest run', lint: 'eslint lib # the sources' }, field: 'lint', why: expands },
+      { scripts: { test: 'NODE_OPTIONS="--experimental-vm-modules" jest', lint: 'eslint .' }, field: 'test', why: 'sets an environment variable' },
+      { scripts: { test: 'NODE_ENV=test vitest run', lint: 'eslint .' }, field: 'test', why: 'sets an environment variable' },
+      { scripts: { test: 'npm run test:unit', 'test:unit': 'vitest run', lint: 'eslint .' }, field: 'test', why: 'runs a package script through the package manager' },
+    ]) {
+      const problem = await withRepo({ ...COMPLETE, scripts }, async (dir) => {
+        const res = await run([], dir);
+        const c = readContract(dir);
+        if (c.verify[field].length > 0) return `${scripts[field]}: init wrote verify.${field} ${JSON.stringify(c.verify[field])}`;
+        return new RegExp(`MISSING\\s+verify\\.${field}.*${why}`).test(res.stdout) ? null : `${scripts[field]}: the refusal does not say why: ${res.stdout}`;
+      });
+      if (problem) return problem;
+    }
+    return null;
+  }),
+
+  check('a quoted `|` is one argument, not a chain', () =>
+    withRepo({ ...COMPLETE, scripts: { test: "vitest run -t 'login|logout'", lint: 'eslint .' } }, async (dir) => {
+      await run([], dir);
+      const c = readContract(dir);
+      return c.verify.test.includes('login|logout') ? null : `verify.test: ${JSON.stringify(c.verify.test)}`;
+    }),
+  ),
+
+  // B67: a framework scaffold's own scripts — a quoted lint glob with --fix, a
+  // formatter in "format", jest — left lint MISSING and jest's report unset.
+  check("a scaffold's quoted lint script is read, and the report path is where jest-junit writes", () =>
+    withRepo(
+      {
+        ...COMPLETE,
+        scripts: {
+          build: 'nest build',
+          format: 'prettier --write "lib/**/*.ts" "test/**/*.ts"',
+          lint: 'eslint "{src,apps,libs,test}/**/*.ts" --fix',
+          test: 'jest',
+        },
+        installedBins: [{ name: 'eslint', pkg: 'eslint', entry: 'bin/eslint.js' }],
+      },
+      async (dir) => {
+        const res = await run([], dir);
+        const c = readContract(dir);
+        const eslint = 'node node_modules/eslint/bin/eslint.js';
+        if (c.verify.lint_no_fix.join(' ') !== eslint) return `lint_no_fix: ${JSON.stringify(c.verify.lint_no_fix)}`;
+        if (c.verify.lint.join(' ') !== `${eslint} --fix`) return `lint is not the lint script's own autofix: ${JSON.stringify(c.verify.lint)}`;
+        if (/MISSING\s+verify\.lint\b/.test(res.stdout)) return `the lint script was still refused: ${res.stdout}`;
+        if (c.trace.report.path !== 'junit.xml') return `trace.report.path is not where jest-junit writes by default: ${c.trace.report.path}`;
+        const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+        return 'jest-junit' in pkg ? `init configured the repo's jest-junit: ${JSON.stringify(pkg['jest-junit'])}` : null;
+      },
+    ),
+  ),
+
+  check('the report path is read from the jest-junit key the repo wrote, never written over', async () => {
+    for (const [key, want] of [
+      [{ outputDirectory: 'out' }, 'out/junit.xml'],
+      [{ outputDirectory: 'out', outputName: 'results.xml' }, 'out/results.xml'],
+      [{ outputFile: './test-results/jest.xml' }, 'test-results/jest.xml'],
+      [{ outputDirectory: '<rootDir>/out' }, null],
+    ]) {
+      const written = JSON.stringify({ name: 'fixture', scripts: { test: 'jest', lint: 'eslint .' }, 'jest-junit': key });
+      const problem = await withRepo({ ...COMPLETE, scripts: { test: 'jest', lint: 'eslint .' }, files: { ...COMPLETE.files, 'package.json': written } }, async (dir) => {
+        const res = await run([], dir);
+        const c = readContract(dir);
+        const kept = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))['jest-junit'];
+        if (JSON.stringify(kept) !== JSON.stringify(key)) return `${JSON.stringify(key)}: the repo's own key became ${JSON.stringify(kept)}`;
+        if (want === null) return /MISSING\s+trace\.report\.path — the "jest-junit" key/.test(res.stdout) ? null : `${JSON.stringify(key)}: a path only jest resolves was not reported: ${res.stdout}`;
+        return c.trace.report.path === want ? null : `${JSON.stringify(key)}: trace.report.path is ${c.trace.report.path}, want ${want}`;
+      });
+      if (problem) return problem;
+    }
+    return null;
+  }),
+
+  // A fix script running another command than the lint script's was taken as
+  // its autofix, so the gate ran a formatter on every changed file and the
+  // linter on none; with no lint script, the formatter was the whole linter.
+  check("a formatter is never taken as the linter, or as its autofix", async () => {
+    for (const { scripts, problem } of [
+      { scripts: { lint: 'eslint lib', format: 'prettier --write lib' }, problem: (c, out) => (c.verify.lint.some((t) => /prettier/.test(t)) || !/REVIEW\s+verify\.lint — the "format" script/.test(out) ? `lint: ${c.verify.lint.join(' ')}` : null) },
+      { scripts: { lint: 'biome lint ./lib', format: 'biome format --write ./lib' }, problem: (c) => (c.verify.lint.includes('format') ? `lint: ${c.verify.lint.join(' ')}` : null) },
+      { scripts: { format: 'prettier --write .' }, problem: (c, out) => (c.verify.lint.length > 0 || !/"format" is not read as one/.test(out) ? `lint: ${c.verify.lint.join(' ')}` : null) },
+      { scripts: { lint: 'eslint . && prettier --check .', format: 'prettier --write .' }, problem: (c) => (c.verify.lint.length > 0 ? `lint: ${c.verify.lint.join(' ')}` : null) },
+    ]) {
+      const found = await withRepo({ ...COMPLETE, scripts: { test: 'vitest run', ...scripts } }, async (dir) => {
+        const { stdout } = await run([], dir);
+        return problem(readContract(dir), stdout);
+      });
+      if (found) return `${JSON.stringify(scripts)}: ${found}`;
+    }
+    return null;
+  }),
+
+  check('a lint:fix script with no lint script is the linter, its fix flag set aside', () =>
+    withRepo({ ...COMPLETE, scripts: { test: 'vitest run', 'lint:fix': 'eslint . --fix' } }, async (dir) => {
+      await run([], dir);
+      const c = readContract(dir);
+      const eslint = 'node node_modules/eslint/bin/eslint.js';
+      return c.verify.lint_no_fix.join(' ') === eslint && c.verify.lint.join(' ') === `${eslint} --fix` ? null : `lint ${JSON.stringify(c.verify.lint)}, lint_no_fix ${JSON.stringify(c.verify.lint_no_fix)}`;
+    }),
   ),
 
   // ---- an interpreter is not a runner ----
