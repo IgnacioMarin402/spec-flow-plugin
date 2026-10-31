@@ -32,7 +32,7 @@ denying (ADR-035), a test's worth is read, not measured (ADR-020), and a run
 against the base runs the suite twice, where flaky tests exist. It needs first:
 
 - a verdict per test from the report — pass, fail, absent (did not load) or
-  unknown; `test-report.mjs` reads names and skips only;
+  unknown; `internal/testreport` reads names and skips only;
 - absent never counted as red, run-trace's verdict included;
 - a moment that blocks nothing: the implementer may not end a turn mid-red, and
   a worktree of the base has no installed dependencies;
@@ -60,7 +60,7 @@ Decided together:
   `f554b76` measured on 2.1.294 that it applies and that
   `CLAUDE_CODE_EFFORT_LEVEL` beats it. **Needs a decision first:** an ADR
   superseding ADR-015's measurement, saying whether a project routes effort and
-  from what. **Done, if it does:** a hook-smoke case whose re-routed spawn
+  from what. **Done, if it does:** a hook test (`internal/e2e`) whose re-routed spawn
   carries the effort, red on `620901d`, and `spec-flow models` showing it.
 - **The spec-writer on `haiku`.** ADR-030 and ADR-031 hold the two risks a
   cheaper tier brings. On one real run it cost US$0.18 of US$2.07 (US$0.09 for
@@ -127,7 +127,7 @@ recorded in `decisions/`, whichever way it goes.
 
 A run implements M1..Mn one after another on one branch, and the gate judges
 one tree: the project directory's HEAD, at the orchestrator's stop
-(`hooks/lib/io.mjs`). The planner already writes each milestone's `Depends on`,
+(`internal/hookio`). The planner already writes each milestone's `Depends on`,
 so those that depend on nothing pending could each run in a worktree on its own
 branch (`Agent` takes `isolation: "worktree"`). Opt-in, in
 `.claude/spec-flow.config.json`, since every milestone leaves a branch behind
@@ -153,15 +153,16 @@ cloud container takes an unmerged one with it. What stands in the way:
 none before them; a chain gains nothing. **Then a decision:** a gate per branch
 (the gate learns to judge a tree other than the project directory) or parallel
 implementers and one gate on the merge (the gate unchanged, a failure routed
-to the milestone whose files it names). **Done:** the ADR, and a gate-fixture
+to the milestone whose files it names). **Done:** the ADR, and a gate test (`internal/e2e`)
 case in which two branches green apart are red merged and the run does not
 reach `done`.
 
 ### B15 — model-graded checks
 
 `evals/` holds cases for the reviewer's verdicts and the `/spec-fix` triage;
-`npm run evals` runs them, and CI runs no model (a key per run, as B64):
-`evals:check` holds each grader against its case's scaffold. **Open:** the
+`claude plugin eval` runs them (the command line is in `CLAUDE.md`), and CI
+runs no model (a key per run, as B64): `TestEvals` holds each grader against
+its case's scaffold. **Open:** the
 orchestrator refusing to write code, and triage run under a phase, so
 `agent-gate` judges the return as it does in a run.
 
@@ -182,7 +183,7 @@ the interactive prompt resolves the short name is not measured. **Candidate:**
 `human-turn` already hears `UserPromptSubmit`; an unexpanded `/spec-flow` or
 `/spec-fix` is answered with the name that runs. **Needs first:** what that
 payload carries for an expanded command and for an unknown one. **Done:** a
-`hook-smoke` case for the unexpanded prompt, and the README naming the form a
+hook test (`internal/e2e`) for the unexpanded prompt, and the README naming the form a
 headless run needs.
 
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody
@@ -192,7 +193,7 @@ on `Stop` (ADR-023), `agent_id` on tool calls (ADR-034), cache lifetimes read
 off transcripts (ADR-025), `CLAUDE_CODE_SESSION_ATTENDED` (ADR-023), when
 the handback lands (ADR-050), how a command name resolves (B62). ADR-050's is
 one that moved, and every fixture stayed green. **Candidate:** a scheduled
-job, off the push workflow whose checks need no network (ADR-019), that
+job, off the push workflow whose checks need no network, that
 runs one real `/spec-flow` under `claude -p` on a frozen throwaway repo with a
 canned requirement and canned answers, and asserts the telemetry: every phase
 reached, every spawn's return recorded, no `*-unmatched.log` line. It needs a
@@ -245,9 +246,9 @@ check`, with what the adopter still had to supply recorded.
 `/"[^"]*"|'[^']*'/` and a cut at `<<`: an escaped quote moves what they read,
 and a command handed to a shell is not read at all. During a run,
 `sh -c 'npm run test'` and `git commit -m "a \"b" && npm run test && echo "c"`
-both run the whole suite, and `no-gate-cmds` allows both. `shellKinds` in
-`hooks/lib/io.mjs` reads either. **Done:** both read through it, with a
-`hook-smoke` case for each command above, red before.
+both run the whole suite, and `no-gate-cmds` allows both. `shell.Kinds` in
+`internal/shell` reads either. **Done:** both read through it, with a
+hook test (`internal/e2e`) for each command above, red before.
 
 ## Deliberately not doing
 
@@ -258,7 +259,7 @@ both run the whole suite, and `no-gate-cmds` allows both. `shellKinds` in
   adopting repo's 53 gate invocations showed what the gate catches and what it
   skips.
 - **A worked example contract in this repo.** A contract holds exactly the
-  stack-specific values the engine refuses to know; `no-repo-refs.mjs` keeps
+  stack-specific values the engine refuses to know; `NoRepoRefs` keeps
   them out, and `init` generates one from the adopting repo instead.
 - **A skill for this repo's conventions.** `CLAUDE.md` now states them in a
   page, loaded every session; a skill would restate it.
@@ -268,7 +269,5 @@ both run the whole suite, and `no-gate-cmds` allows both. `shellKinds` in
   change to it shows in a diff, the only record ADR-046 leaves of one made
   mid-run; the preferences file holds caps and routes; `.claude/state/` is one-word files
   every hook reads and a person resets with `printf`, and append-only logs whose
-  archive is committed as text. `node:sqlite` is a release candidate only from
-  24.15, above the floor CI runs (ADR-019). A native package breaks "the
-  plugin is the whole install". What weighs is how many keys there are, not
+  archive is committed as text. What weighs is how many keys there are, not
   where they live: B39.

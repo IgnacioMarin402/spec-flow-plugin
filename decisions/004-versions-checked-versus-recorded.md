@@ -1,6 +1,6 @@
 # ADR-004 — Node is a floor and is enforced; Claude Code is recorded
 
-**Date:** 2026-08-15 · **Status:** accepted; where `cc=` is read from refined by [ADR-041](041-claude-code-is-read-from-the-transcript.md) · **Record:** `e7b6afa`
+**Date:** 2026-08-15 · **Status:** accepted; where `cc=` is read from refined by [ADR-041](041-claude-code-is-read-from-the-transcript.md); the Node half withdrawn by [ADR-051](051-the-engine-is-one-binary-per-platform-committed-with-its-source.md), the engine no longer running on Node · **Record:** `e7b6afa`
 
 **Question.** The Node running the engine and the Claude Code hosting it both
 decide whether it works. Should either be enforced?

@@ -37,7 +37,7 @@ one would fall out of scope
 the contract as the engine reads it:
 
 ```bash
-node <plugin-or-clone>/scripts/spec-flow-config.mjs
+<plugin-or-clone>/bin/spec-flow config
 ```
 
 A run does not freeze it. A change to `.spec-flow/`, or to a script or config
@@ -294,8 +294,6 @@ conversations; only `/model` and session-only effort do.
 
 ## Versions
 
-- **Node** — a floor, enforced: `preflight` refuses a run below
-  `package.json`'s `engines.node`, inside a run only.
 - **Claude Code** — recorded, not checked: `cc=` on every gate-history line
   ([ADR-004](decisions/004-versions-checked-versus-recorded.md)), read from the
   session's transcript ([ADR-041](decisions/041-claude-code-is-read-from-the-transcript.md)).
@@ -338,9 +336,7 @@ parent), registers the marketplace without installing the plugin, and is
 replaced whole by a higher-precedence file defining the same name. A headless
 `claude -p` session never uses it.
 
-The optional devDependency does not follow: it is a git spec and moves when you
-move it. Nothing detects the two halves on different commits
-([ADR-016](decisions/016-one-repository-one-distribution.md)).
+A clone run from a terminal or CI does not follow: it moves when you pull it.
 
 ---
 
@@ -395,6 +391,7 @@ description is listed in every turn of the agents that carry the `Skill` tool.
 |---|---|
 | `spec-flow init` | Generate `.spec-flow/config.json` and scaffold. `--force` to overwrite |
 | `spec-flow check` | Lint changed files + full suite + unscoped checks. `--no-fix` to report only |
+| `spec-flow config` | The contract as the hooks read it, or why it does not load |
 | `spec-flow trace` | `spec-trace` alone |
 | `spec-flow stats` | Report over live and archived telemetry. `--raw` dumps the timeline |
 | `spec-flow status` | Where the live run is, what the gate last said, what it has cost |
@@ -407,21 +404,21 @@ description is listed in every turn of the agents that carry the `Skill` tool.
 resolves through `${CLAUDE_PLUGIN_ROOT}`. The CLI is for a terminal without
 Claude Code and for CI.
 
-The short `spec-flow` name exists once the optional devDependency is installed:
-`npm install --save-dev github:IgnacioMarin402/spec-flow-plugin#<commit-or-tag>`.
-Nothing is published to npm, and `spec-flow` on npm is an unrelated package.
-Without it, run the same scripts by path, from your repo's root:
+It is `<clone>/bin/spec-flow`, run from your repo's root: a clone of this
+repository, pinned to a commit or a tag, carries the binary for every platform
+and needs nothing installed
+([ADR-051](decisions/051-the-engine-is-one-binary-per-platform-committed-with-its-source.md)).
+In CI:
 
-| `spec-flow …` | by path |
-|---|---|
-| `init` | `node <clone>/scripts/init.mjs` |
-| `check` | `node <clone>/scripts/check-changed.mjs` |
-| `trace` | `node <clone>/scripts/spec-trace.mjs` |
-| `stats` | `node <clone>/scripts/specflow-stats.mjs` |
-| `resume` | `node <clone>/scripts/resume.mjs` |
-| `telemetry` | `node <clone>/scripts/telemetry-snapshot.mjs` |
+```bash
+git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin .spec-flow-engine
+.spec-flow-engine/bin/spec-flow check
+```
 
 `<clone>` can be the installed plugin's own directory — the copy the gate runs.
+Put `<clone>/bin` on `PATH` for the short `spec-flow`, which the `check` script
+`init` adds to `package.json` runs. Nothing is published to a registry, and
+`spec-flow` on npm is an unrelated package.
 
 ---
 

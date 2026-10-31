@@ -1,0 +1,25 @@
+#!/bin/sh
+# Runs this engine's binary for the platform it is on. Every hook and command
+# goes through here on macOS and Linux; Windows runs bin/spec-flow.exe itself.
+# Resolved through any symlink first, so a link to it on PATH still finds the
+# binaries beside the real file.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+dir=$(dirname "$self")
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64 | Linux-amd64) exec "$dir/linux-amd64/spec-flow" "$@" ;;
+  Linux-aarch64 | Linux-arm64) exec "$dir/linux-arm64/spec-flow" "$@" ;;
+  Darwin-x86_64) exec "$dir/darwin-amd64/spec-flow" "$@" ;;
+  Darwin-arm64) exec "$dir/darwin-arm64/spec-flow" "$@" ;;
+  MINGW* | MSYS* | CYGWIN*) exec "$dir/spec-flow.exe" "$@" ;;
+esac
+# Exit 1, not 2: on a PreToolUse hook 2 would deny every tool call on this
+# machine, and Claude Code shows a non-blocking error as a hook error notice.
+echo "spec-flow: this engine ships no binary for $(uname -s) $(uname -m)." >&2
+exit 1

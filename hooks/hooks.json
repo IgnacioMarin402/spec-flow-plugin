@@ -5,7 +5,7 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/human-turn.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "human-turn"] }
         ]
       }
     ],
@@ -13,7 +13,7 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "session-start"] }
         ]
       }
     ],
@@ -21,40 +21,40 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/no-gate-cmds.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "no-gate-cmds"] }
         ]
       },
       {
         "matcher": "Bash|Write|Edit",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "phase-guard"] }
         ]
       },
       {
         "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit|Bash",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-scope.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "orchestrator-scope"] }
         ]
       },
       {
         "matcher": "Task|Agent|SendMessage",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/preflight.mjs"] },
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/opus-budget.mjs"] },
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/arm-gate.mjs"] },
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "preflight"] },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "opus-budget"] },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "arm-gate"] },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "dispatch-guard"] }
         ]
       },
       {
         "matcher": "Task|Agent",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/model-route.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "model-route"] }
         ]
       },
       {
         "matcher": "SendMessage",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/stale-resume.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "stale-resume"] }
         ]
       }
     ],
@@ -62,25 +62,25 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/lint-on-write.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "lint-on-write"] }
         ]
       },
       {
         "matcher": "Task|Agent",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/register-agent.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "register-agent"] }
         ]
       },
       {
         "matcher": "AskUserQuestion",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/human-turn.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "human-turn"] }
         ]
       },
       {
         "matcher": "Write|Edit|Read|Bash",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/run-trace.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "run-trace"] }
         ]
       }
     ],
@@ -88,7 +88,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/run-trace.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "run-trace"] }
         ]
       }
     ],
@@ -96,8 +96,8 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/run-trace.mjs"] },
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/agent-gate.mjs"] }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "run-trace"] },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "agent-gate"] }
         ]
       }
     ],
@@ -105,9 +105,9 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/token-trace.mjs"] },
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/human-turn.mjs"] },
-          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs"], "timeout": 1800 }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "token-trace"] },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "human-turn"] },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "gate"], "timeout": 1800 }
         ]
       }
     ]

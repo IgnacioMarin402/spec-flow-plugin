@@ -1,6 +1,6 @@
 # ADR-037 — a mod may show the session's own events, and still decides nothing
 
-**Date:** 2026-10-11 · **Status:** accepted; the closing turn's charge refined by [ADR-043](043-the-turn-that-writes-done-is-the-runs-last.md); what a mod may read amended by [ADR-047](047-an-observer-stays-a-command-hook-and-the-live-view-shows-its-record.md) · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/hooks.json`, `.claude-plugin/plugin.json`, `.github/workflows/ci.yml`, `scripts/plugin-paths.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-029 (what a mod may show) · **Related:** ADR-004, ADR-016, ADR-017, ADR-019, ADR-023, ADR-035, ADR-036
+**Date:** 2026-10-11 · **Status:** accepted; the closing turn's charge refined by [ADR-043](043-the-turn-that-writes-done-is-the-runs-last.md); what a mod may read amended by [ADR-047](047-an-observer-stays-a-command-hook-and-the-live-view-shows-its-record.md) · **Governs:** `hooks/live-view.tsx`, `hooks/live-view-state.d.ts`, `hooks/hooks.json`, `.claude-plugin/plugin.json`, `.github/workflows/ci.yml`, `scripts/plugin-paths.mjs`, `REFERENCE.md`, `BACKLOG.md` · **Amends:** ADR-029 (what a mod may show) · **Related:** ADR-004, ADR-017, ADR-023, ADR-051, ADR-035, ADR-036
 
 **Question.** A person watching a run wants to see each agent while it works:
 its role, how long it has run, its tool calls, its tokens, and what it handed
@@ -72,13 +72,13 @@ Claude Code is it tested?
   one of them, not a second answer.
 - It ships inside `spec-flow`: its module goes in the engine's `hooks.json`,
   beside the command hooks, so it is always at the engine's commit and reads
-  the state formats of that commit (ADR-016). An option in the plugin's
+  the state formats of that commit (ADR-051). An option in the plugin's
   settings turns it off.
 - No floor is declared, for the mod or the engine. A Claude Code without
   function hooks skips the module, and the engine runs as before (2.1.246
   measured). ADR-004 stands for both: the version is recorded, not checked.
 - CI runs the mod's `claude plugin validate` and `claude plugin test` against
-  the newest Claude Code release, on both operating systems ADR-019 runs, and
+  the newest Claude Code release, on both operating systems CI runs (ADR-051), and
   prints the version it ran:
   - a new release of the early-access API is what breaks the mod, and the
     newest release is what an auto-updating session runs;
@@ -100,7 +100,7 @@ Claude Code is it tested?
   paid for a display alone.
 - **A separate plugin for the mod.** Two installs update separately and can
   sit at different commits, and the mod reads formats the engine writes: the
-  drift ADR-016 closed for the npm copy.
+  drift a second distribution brings (ADR-051).
 - **A Claude Code floor for the engine.** On 2.1.246 the engine's hooks fire
   with the module beside them, so a floor would deny runs that work.
 - **Testing a pinned Claude Code, declared as the mod's floor.** It proves a

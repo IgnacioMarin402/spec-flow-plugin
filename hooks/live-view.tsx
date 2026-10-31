@@ -20,21 +20,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnStepInput, TurnStepResult } from 'claude-code'
 
-// The parser the agent gate and run-trace read a return with, and the gate's cap: one copy.
-import { MAX_BLOCKS, parseReturn } from '../scripts/agent-blocks.mjs'
-// The caps opus-budget denies at: one copy.
-import { BUDGETS, budgetCap } from './lib/budgets.mjs'
-// Which log lines count, read here or by node past 4 MiB: one filter.
-import { LINES, linesOf } from './lib/log-lines.mjs'
-// The milestone an implementer's spawn names, read the way current-milestone is: one reading.
-import { milestoneRef } from './lib/milestone-ref.mjs'
-// The settings file, read the one way its hooks read it.
-import { projectConfig } from './lib/project-config.mjs'
+// The engine's readers, held to the hooks' answers by hooks/readers.golden.json.
+import { BUDGETS, MAX_BLOCKS, budgetCap, linesOf, milestoneRef, parseReturn, projectConfig } from './live-view-readers'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
 
 const PANE = 'spec-flow-live'
 const PREFIX = 'spec-flow:'
-// The phase vocabulary `hooks/lib/io.mjs` arms on.
+// The phase vocabulary the hooks arm on (`internal/hookio`).
 const ARMED = ['spec', 'plan', 'review', 'implement', 'blocked']
 const BAR = ['spec', 'plan', 'review', 'implement', 'done']
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -94,7 +86,7 @@ let traceUnread = false
 let closedSeen: number | null = null
 
 /**
- * The checks a failing gate line names with a non-zero code: the fields gate.mjs
+ * The checks a failing gate line names with a non-zero code: the fields the gate
  * writes after `result=` and ahead of `files=` — `lint`, `test`, and each
  * unscoped check's own, whatever the contract named it.
  */
@@ -132,9 +124,9 @@ async function statKey($: EngineInterface, path: string): Promise<string> {
 }
 
 /**
- * A log's lines that count (lib/log-lines.mjs): none when there is no log, and
- * null when it is there and could not be read. Past what one read takes, node
- * streams it.
+ * A log's lines that count (`linesOf`): none when there is no log, and null
+ * when it is there and could not be read. Past what one read takes, the
+ * engine's binary streams it; Windows runs it as `bin/spec-flow.exe`.
  */
 async function logLines($: EngineInterface, file: string, needle: string, since: number): Promise<{ n: number; last: string[] } | null> {
   const path = `${root}/.claude/state/${file}`
@@ -145,7 +137,9 @@ async function logLines($: EngineInterface, file: string, needle: string, since:
   }
   if ((await statKey($, path)) === '') return { n: 0, last: [] }
   try {
-    const out = await $.process.run(['node', '-e', LINES, '--', path, String(since), needle], { cwd: root, timeoutMs: 5_000 })
+    const argv = ['lines', path, String(since), needle]
+    const engine = `${$.plugin.root}/bin/spec-flow`
+    const out = await $.process.run([engine, ...argv], { cwd: root, timeoutMs: 5_000 }).catch(() => $.process.run([`${engine}.exe`, ...argv], { cwd: root, timeoutMs: 5_000 }))
     const [head = '', ...last] = out.stdout.split('\n')
     return out.exitCode === 0 && !out.isStdoutTruncated && /^\d+$/.test(head) ? { n: Number(head), last: last.filter(Boolean) } : null
   } catch {

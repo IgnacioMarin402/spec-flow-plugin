@@ -17,7 +17,8 @@ the engine is held to the same bar.
 ## Coupled contracts
 
 The hooks share `.claude/state/phase`; the agents share the shape of `Mk.md`;
-the commands describe both. After changing one member, re-read every file that
+the commands describe both; the hooks and the live view read with two copies of
+one set of readers, held together by `hooks/readers.golden.ts`. After changing one member, re-read every file that
 reads or writes the same thing — each still reads correctly on its own, which
 is why the break is silent.
 
@@ -45,7 +46,18 @@ Details: `.claude/skills/engine-comments`.
 **Less is the goal.** Delete prose that restates the code, the git history or a
 check. Prefer a check over a sentence — counts written as prose drift.
 
-New prose files or directories go in `SCAN_FILES` / `SCAN_DIRS` in
-`scripts/no-repo-refs.mjs`, and in the written-out list in
-`scripts/coupling-fixture.mjs`. `scripts/plugin-paths.mjs` checks that every
+New prose files or directories go in `NoRepoFiles` / `NoRepoDirs` in
+`internal/repocheck/norepo.go`, and in the written-out list in
+`internal/repocheck/fixture_test.go`. `PluginPaths` checks that every
 `${CLAUDE_PLUGIN_ROOT}/...` path an instruction names actually ships.
+
+## Running it
+
+- `go test ./...` is every check: the engine's behaviour, and this repository's
+  checks on itself (`internal/repocheck`). `SPEC_FLOW_ORACLE=<dir>` runs the
+  behaviour tests against another engine checkout instead of this one.
+- The binaries in `bin/` are built from the source in the same commit; a test
+  fails when they are not. Rebuild them with `go run ./internal/build`.
+- Evals run a model, so CI runs none:
+  `claude plugin eval . --scaffold --no-publish --allow-tools Write Edit --judge-model sonnet`.
+  `TestEvals` holds each grader to its case's scaffold.

@@ -18,13 +18,13 @@ not a script (see ADR-006):
   plausible guess is worse than the `MISSING` line it replaced — that line was
   honest.
 - **You are not the check.** Nothing you conclude counts until
-  `check-changed.mjs` exits 0. Your last action is running it and quoting what
+  `spec-flow check` exits 0. Your last action is running it and quoting what
   it said.
 
 ## 1. Ask the engine first
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/init.mjs
+${CLAUDE_PLUGIN_ROOT}/bin/spec-flow init
 ```
 
 If `.spec-flow/config.json` already exists, do **not** re-run this with
@@ -84,14 +84,14 @@ Do not skip to the end. Each step tells you something the next one cannot.
 
 ```bash
 # a. the contract loads and is complete
-node ${CLAUDE_PLUGIN_ROOT}/scripts/init.mjs        # expect: valid, no MISSING
+${CLAUDE_PLUGIN_ROOT}/bin/spec-flow init        # expect: valid, no MISSING
 
 # b. the suite runs AND the report lands
 <the repo's test command>
 ls -l <trace.report.path>
 
 # c. the whole route, the way the gate will run it
-node ${CLAUDE_PLUGIN_ROOT}/scripts/check-changed.mjs
+${CLAUDE_PLUGIN_ROOT}/bin/spec-flow check
 ```
 
 **Step b is not optional and not replaceable by reading the config.** The most
@@ -108,7 +108,7 @@ Tell the user:
 
 - what you filled in, and **what you read to decide each value**;
 - the flag you added, and that you saw the report file appear;
-- the exit line from `check-changed`, quoted;
+- the exit line from `spec-flow check`, quoted;
 - anything you could not determine and left for them.
 
 If the check is not green, say that plainly and say what is failing. A setup
@@ -145,7 +145,7 @@ absent value.
 Do run it once, and say what it printed in your step 5 report:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/model-routing.mjs
+${CLAUDE_PLUGIN_ROOT}/bin/spec-flow models
 ```
 
 It names the tier each agent will run on and which layer decided it, and it
@@ -156,7 +156,7 @@ starts.
 ## What this skill must never contain
 
 **No runner names, no flags, no per-ecosystem tables.** There is exactly one
-list of runners in this package and it lives in `scripts/init.mjs`, where it is
+list of runners in this package and it lives in `spec-flow init`, where it is
 executed rather than described (ADR-007). A second copy here would be prose
 nothing runs, free to drift from the table that actually configures a repo, and
 you would have no way to tell which one was stale. Your own knowledge covers

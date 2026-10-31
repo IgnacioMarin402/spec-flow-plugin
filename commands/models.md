@@ -6,11 +6,11 @@ argument-hint: "[<agent> <tier> | <agent> default]"
 Run:
 
 ```
-node ${CLAUDE_PLUGIN_ROOT}/scripts/model-routing.mjs
+${CLAUDE_PLUGIN_ROOT}/bin/spec-flow models
 ```
 
 Show its output to the human as it came out. **Do not re-derive any of it.** The
-whole point of that script is that three layers decide an agent's model and no
+whole point of that report is that three layers decide an agent's model and no
 single file shows more than one of them — the tier its frontmatter ships, the
 project's override in `.claude/spec-flow.config.json`, and what
 `ANTHROPIC_DEFAULT_<TIER>_MODEL` pins that tier to. Reading one and concluding
@@ -31,7 +31,7 @@ consuming repo:
   plugin ships. Delete the `agents` object too if it ends up empty, rather than
   leaving `{}` behind.
 
-Then run the script again and show the new report. That second run is the
+Then run the report again and show what it says. That second run is the
 confirmation — it reads the file back through the same code the spawn hook
 uses, so "I wrote it" and "it applies" are the same statement rather than two.
 

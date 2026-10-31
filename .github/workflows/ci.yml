@@ -1,18 +1,17 @@
 name: CI
 
-# This is the engine's own gate. It has no consuming repo to check against, so
-# what it verifies is narrower and different in kind: that the engine is
-# internally consistent (lint, types), that it holds under its own documented
-# failure modes (gate-fixture, run against a throwaway repo), and that it
-# carries no coupling to the one repo it was extracted from (no-repo-refs).
+# The engine's own gate. It has no consuming repo to check against, so what it
+# verifies is that the engine holds under its documented failure modes (each
+# case builds a throwaway repo and runs the real binary), that the binaries
+# committed in bin/ are the source beside them, and that this repo's prose and
+# code still agree with each other (internal/repocheck).
 
 on:
   push:
     branches: [main]
   pull_request:
 
-# Nothing here writes to the repository or its pull requests, so the token
-# gets read access and no more.
+# Nothing here writes to the repository or its pull requests.
 permissions:
   contents: read
 
@@ -22,241 +21,43 @@ concurrency:
 
 jobs:
   verify:
-    name: node ${{ matrix.node }} · ${{ matrix.os }}
+    name: go · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # Two axes, and each one closed a gap between what this repo CLAIMS and
-    # what it ran. See ADR-019.
-    #
-    # The first `node` entry must be the floor `engines.node` declares:
-    # `preflight` DENIES a run below it, so that is the version the engine
-    # enforces against other people. Nothing binds this list to that field —
-    # a floor moved in one and not the other passes every check here.
-    #
-    # Both OS legs, because `hooks.json` paths, `spawnSync` without a shell and
-    # every `\`-vs-`/` assumption in the fixtures live exactly where a
-    # POSIX-only matrix cannot see them.
+    # Windows too: hooks.json, a spawn with no shell and every `\`-vs-`/`
+    # assumption live exactly where a POSIX-only matrix cannot see them, and
+    # Windows runs bin/spec-flow.exe where the others run the launcher.
+    # `fail-fast: false`: one red leg is a portability fact, not a reason to
+    # discard the other.
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [24]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      # The release go.mod names: the committed binaries are what that release
+      # builds, byte for byte (internal/build).
+      - uses: actions/setup-go@v5
         with:
-          node-version: ${{ matrix.node }}
-          cache: npm
+          go-version-file: go.mod
 
-      - name: Install
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      # This is shell-lint's replacement: once every hook is .mjs there is no
-      # .sh left to shellcheck, and plain type-checking over the engine's own
-      # source does the same job — catching what a behaviour fixture cannot,
-      # because a source that fails at runtime is not what tsc looks for
-      # either, but a wrong argument count or a typo'd property name is.
-      - name: Typecheck
-        run: npm run typecheck
-
-      # The pure functions that read an argv the contract declares. Every
-      # other check here builds a throwaway repo to reach behaviour, which is
-      # the right shape for behaviour and a poor one for a total function over
-      # a string array: the defect that motivated this — the binary of
-      # `["eslint", "."]` resolving to `"."` — costs one line to state here and
-      # a repo, a git history and a full generator run to reach anywhere else.
-      # It also covers the shim branch that production only reaches on the
-      # platform this workflow runs as half its matrix (ADR-011).
-      #
-      # `node --test` with no path argument, not a glob: a glob argument is
-      # expanded by the shell on one runner and by node on the other, which
-      # makes it the spelling whose meaning this matrix varies.
-      - name: Unit tests
-        run: npm run unit:check
-
-      # The reversed arrow, made checkable — see the file's own header for
-      # what it bans and why the archive check is narrower than a path ban.
-      - name: No repo-specific coupling
-        run: npm run check
-
-      # And that the check above reaches every surface it claims. It prints a
-      # count and exits 0 when it finds nothing, so a scan walking the wrong set
-      # of directories passes exactly as a clean repo does; without this step the
-      # only thing standing behind the scan's reach is that someone remembered.
-      - name: Coupling scan reaches its surfaces
-        run: npm run coupling:check
-
-      # An agent routes to a tier and lets the harness resolve the current
-      # model of it. Nothing in the engine reads the `model:` frontmatter, so
-      # a pin there rots in total silence — one agent carried a dated id for
-      # months and no check could have said so. This asserts the positive
-      # fact too, and that is the load-bearing half: finding no agents fails,
-      # because a ban-only scan reports a directory it never reached exactly
-      # as it reports a clean one. See ADR-013.
-      - name: Agents route by tier, nothing names a version
-        run: npm run models:check
-
-      # And that the scan above reaches every surface it claims, for the same
-      # reason the coupling scan needs its own step.
-      - name: Model-pin scan reaches its surfaces
-        run: npm run models:reach
-
-      # `spec-flow models` answers "what will this agent actually run on", and
-      # its failure mode is not crashing — it is five tidy rows saying "plugin
-      # default" because the run never found the project's config, which is
-      # indistinguishable from a repo that configured nothing. These cases are
-      # about attribution, plus one holding the report to naming no model for a
-      # tier nothing pinned: guessing there is ADR-013's rot returning inside
-      # the report about it.
-      - name: Routing report attributes every layer
-        run: npm run routing:check
-
-      # `init` generates a consuming repo's contract, which is what a worked
-      # example file used to do worse: an example is a static artifact nothing
-      # executes, so a contract change leaves it silently wrong. This asserts
-      # the generator's actual claim — that what it writes VALIDATES through
-      # the same reader every hook uses — so that change turns CI red instead.
-      - name: init behaviour
-        run: npm run init:check
-
-      # An eval run costs a model, so nothing runs one to learn whether a
-      # grader can fail. This holds every grader against its case's scaffold
-      # instead. The scaffolds are bash, as the harness runs them, and a
-      # Windows leg does not promise which `bash` it finds.
-      - name: Eval graders hold against their scaffolds
+      - name: Formatted
         if: runner.os != 'Windows'
-        run: npm run evals:check
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
-      # Every ${CLAUDE_PLUGIN_ROOT}/... path the commands, agents and
-      # hooks.json tell someone to run must exist in the package. A command
-      # naming a script that does not ship is an instruction that silently
-      # never executes — see the script's own header for the run-telemetry
-      # step that spent a while in exactly that state.
-      - name: Plugin paths resolve
-        run: npm run paths:check
+      - name: Vet
+        run: go vet ./...
 
-      # The state inventory above passes when every name it found has a row,
-      # so a name it cannot see passes too. This plants one held in a constant.
-      - name: State inventory reaches names held in a constant
-        run: npm run paths:reach
+      # Everything: the engine's behaviour, the binaries' freshness, and the
+      # repository's checks on itself. The cases that run an adopter's Node
+      # repository use the runner's own node, and skip where there is none.
+      - name: Tests
+        run: go test ./...
 
-      # A decision record and the code it governs must reach each other. This
-      # is what separates decisions/ from a docs tree nobody reads: a citation
-      # that resolves to nothing, and a record nothing cites, both fail. See
-      # decisions/README.md for why a dated record does not rot the way this
-      # repo's last standalone document did.
-      - name: Decisions are reachable from the code
-        run: npm run decisions:check
-
-      # The comment rule shipped with a skill, a CLAUDE.md section, the records
-      # and decisions:check — and nothing that measured the thing the rule is
-      # about, so the pass that applied it closed on a number in a backlog
-      # entry. This counts transition TEXT rather than comment density, which
-      # is the skill's own conclusion: the two turn out to be near-independent
-      # here, so a percentage is a poor way to decide where to look.
-      - name: History has not moved back into the comments
-        run: npm run comments:check
-
-      # The only check over the PROSE half of this plugin. The agents and
-      # commands are Markdown that no fixture executes, and the failure this
-      # closes has already happened: a field was added to the planner's
-      # milestone template and the reviewer was never told, so a milestone
-      # missing it passed review unseen.
-      - name: Agent contracts agree
-        run: npm run agents:check
-
-      # The setup skill is prose a model acts on, with no compiler behind it:
-      # it names entrypoints, the buckets it tells the model to read in init's
-      # output, and the contract fields to fill. Rename any of those and the
-      # skill still reads correctly while sending the model after a word
-      # nothing prints. The last case holds the engine to failing LOUDLY on a
-      # wrong reporter flag, which is what makes the model's judgement here
-      # survivable — see ADR-006.
-      - name: Setup skill agrees with the engine
-        run: npm run skill:check
-
-      # Builds throwaway repos, installs the engine at a SEPARATE path (the
-      # way it actually ships), and asserts the gate's documented behaviour
-      # holds — including the split this whole extraction exists to make
-      # correct. git is preinstalled on the runner; nothing else is required.
-      - name: Gate behaviour
-        run: npm run gate:check
-
-      # spec-trace is the check that makes specs/ authoritative rather than
-      # decorative, and it is ~270 lines of regex that the gate fixture
-      # deliberately stubs out. This runs the real one against throwaway
-      # repos: both directions of the requirement/proof binding, and the
-      # rule that a test which does not RUN (skip/todo/xit) is not proof.
-      - name: spec-trace behaviour
-        run: npm run trace:check
-
-      # The report readers, against captures from real emitters rather than
-      # XML written to match the parser. What it defends is one property:
-      # a test the report marks as skipped must reach spec-trace as absent,
-      # in every format, or skipping silences the check that exists to stop
-      # exactly that.
-      - name: test-report readers
-        run: npm run report:check
-
-      # The session-reuse numbers in the stats report. The case that carries
-      # the design is the cross-milestone one: counting repeated reads over a
-      # whole run is the obvious implementation and it reports the EXPECTED
-      # case — a fresh session per milestone — as waste.
-      - name: stats report
-        run: npm run stats:check
-
-      # The token accounting. It reads a file another program writes, so what
-      # it pins is an observation about Claude Code's transcript rather than
-      # anything this engine controls — the shape moving is the whole risk,
-      # and a silent zero in a cost report is the shape of that failure.
-      - name: Token accounting
-        run: npm run tokens:check
-
-      # The step a dead run resumes at. A wrong verdict repeats a milestone,
-      # skips one, or plans over a spec nobody approved — and it is read off
-      # files several hooks write, so this is where their shapes meet.
-      - name: Resume verdicts
-        run: npm run resume:check
-
-      # Every hook without a fixture of its own. Shallower than the gate
-      # fixture, and that is the right trade: they are small adapters over one
-      # protocol, and what a port breaks in them is coarse — a hook that
-      # crashes, or fires when it should be transparent.
-      - name: Hook behaviour
-        run: npm run hooks:check
-
-      # The only check that fails when ADOPTION breaks. Every step above tests
-      # a piece of the engine; this takes a Node repo from nothing to a green
-      # `spec-flow check` through the route the README documents, and asserts
-      # the front page's strongest claim — that `init` appends the reporter
-      # flag rather than describing it.
-      #
-      # It installs NOTHING: the suite is `node --test`, which ships with the
-      # Node this workflow already sets up and emits JUnit XML behind a flag.
-      # The report is therefore written by a real runner, which is the property
-      # this check lost once before — a hand-written one spelled an id no
-      # runner could produce, and a passing test reading as absent went
-      # unnoticed here.
-      - name: Cold start (a Node repo, from nothing to green)
-        run: npm run cold:check
-
-      # `files` in package.json is evaluated nowhere but packing, so a module
-      # dropped from it passes every check above and fails on the first
-      # `spec-flow init` in somebody's project. This clones the engine, installs
-      # the clone into a throwaway repo through the git spec a consumer uses
-      # (ADR-016), and drives the documented CLI route through the installed
-      # bin. No registry is involved, here or in the route it checks.
-      - name: The distribution works
-        run: npm run pack:check
-
-  # The live view is a mod: Claude Code loads it with no Node, so nothing in the
-  # job above can run it, and its only runner is Claude Code's own kit. It runs
-  # against the newest release, because a release of the early-access API is
-  # what breaks a mod, and with no credentials, which the kit does not need.
-  # Both OS legs: the kit spells a path the platform's way. See ADR-037.
+  # The live view is a mod: Claude Code loads it, so its only runner is Claude
+  # Code's own kit. The newest release, because a release of the early-access
+  # API is what breaks a mod; no credentials, which the kit does not need. Both
+  # OS legs: the kit spells a path the platform's way. See ADR-037.
   live-view:
     name: live view · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -269,12 +70,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
+      - name: Install the newest Claude Code
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install the newest Claude Code
-        run: npm install --global @anthropic-ai/claude-code@latest
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       # Recorded, not checked (ADR-004): a red run names the release that broke it.
       - name: Claude Code version
