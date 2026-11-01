@@ -1,0 +1,8 @@
+# The binaries are built from this source byte for byte, and a build hashes
+# every source file: a checkout converting line ends would build other bytes.
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+bin/** -text -diff
+# After bin/**, which it overrides: the launcher is a script every hook runs.
+bin/spec-flow text eol=lf diff

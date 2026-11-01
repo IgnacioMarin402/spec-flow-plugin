@@ -1,6 +1,6 @@
 # ADR-029 — the session orchestrates, checks run where a terminal and CI can, and a mod only shows
 
-**Date:** 2026-10-08 · **Status:** accepted (what a mod may show amended by [ADR-037](037-a-mod-may-show-the-sessions-events-and-still-decides-nothing.md)) · **Governs:** `commands/spec-flow.md`, `BACKLOG.md` · **Related:** ADR-010, ADR-016, ADR-019, ADR-023
+**Date:** 2026-10-08 · **Status:** accepted (what a mod may show amended by [ADR-037](037-a-mod-may-show-the-sessions-events-and-still-decides-nothing.md)) · **Governs:** `commands/spec-flow.md`, `BACKLOG.md` · **Related:** ADR-010, ADR-023, ADR-051
 
 **Question.** Two shapes came up once cheaper models made more agents
 affordable: a dedicated orchestrator agent, and enforcement written as a mod
@@ -14,8 +14,8 @@ a background spawn's completion notice reaches the main session (ADR-023);
 the sign-off needs the human's chat. On Claude Code 2.1.294 a `SubagentStop`
 command hook that blocks makes the agent continue, so blocking needs no mod.
 A mod runs only inside Claude Code, with no Node, while the engine also runs
-from a terminal without Claude Code and from CI (ADR-016), on Linux and
-Windows (ADR-019).
+from a terminal without Claude Code and from CI, on Linux and Windows
+(ADR-051).
 
 **Decision.**
 

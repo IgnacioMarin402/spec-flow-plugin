@@ -62,9 +62,10 @@ A test naming an id no spec declares fails the same way.
   ([ADR-027](decisions/027-the-unit-of-a-run-is-the-repository.md))
 - A Node project with test and lint commands. Other stacks are not supported
   ([ADR-007](decisions/007-the-supported-scope-is-node.md))
-- Node 24+ — a run refuses to start below it
-- Linux or Windows; CI runs both on Node 24
-  ([ADR-019](decisions/019-ci-runs-the-floor-it-imposes.md))
+- Linux or macOS on x86-64 or arm64, or Windows on x86-64. The engine is one
+  binary per platform, shipped in the plugin; it needs nothing installed, and
+  CI runs it on Linux and Windows
+  ([ADR-051](decisions/051-the-engine-is-one-binary-per-platform-committed-with-its-source.md))
 
 ## Install
 
@@ -76,8 +77,8 @@ claude plugin install spec-flow@spec-flow-marketplace
 Then, from your repo's root:
 
 ```bash
-node <the plugin's path>/scripts/init.mjs   # writes .spec-flow/config.json
-node <the plugin's path>/scripts/check-changed.mjs
+<the plugin's path>/bin/spec-flow init    # writes .spec-flow/config.json
+<the plugin's path>/bin/spec-flow check
 ```
 
 `init` reads your test, lint, build and typecheck commands from
@@ -85,16 +86,16 @@ node <the plugin's path>/scripts/check-changed.mjs
 of what ran, and marks anything it inferred `REVIEW` and anything it could not
 read `MISSING`. If it leaves `MISSING` lines, ask Claude Code to set up
 spec-flow: the plugin's setup skill fills them and proves the result with
-`check-changed`. Green there means green at the gate. Every field is in
+`spec-flow check`. Green there means green at the gate. Every field is in
 [REFERENCE](REFERENCE.md#what-makes-a-requirement-proven).
 
 Before the first run, write down how a module is built in this repo — in
 `CLAUDE.md`, or as a skill — or every agent learns it from the source, on
 every run ([REFERENCE → Project skills](REFERENCE.md#project-skills)).
 
-The plugin is the whole install. For a terminal without Claude Code, or CI, the
-same engine installs as a pinned devDependency straight from this repository —
-nothing is published to npm, and `spec-flow` on npm is someone else's package
+The plugin is the whole install. For a terminal without Claude Code, or CI, a
+clone of this repository is the same engine: run its `bin/spec-flow`. Nothing
+is published to a registry, and `spec-flow` on npm is someone else's package
 ([REFERENCE → CLI](REFERENCE.md#cli)). To stay current:
 `claude plugin update spec-flow@spec-flow-marketplace`, then `/reload-plugins`
 ([REFERENCE](REFERENCE.md#staying-current)).
@@ -153,14 +154,14 @@ instruction. The three flowcharts are in
 ## Developing the engine
 
 ```bash
-npm install
-npm run lint && npm run typecheck
+go test ./...                # every check; none needs the network
+go run ./internal/build      # after changing the source: rebuilds bin/
 ```
 
-Every other check is a `*:check` script in `package.json`, none needs the
-network, and CI runs all of them on Linux and Windows. `cold:check` is the one
-that fails when *adoption* breaks: it takes a Node repo from nothing to a green
-`check` through the route above.
+CI runs both on Linux and Windows, and fails when a committed binary is not
+what its source builds. `TestColdStart` is the one that fails when *adoption*
+breaks: it takes a Node repo from nothing to a green `check` through the route
+above.
 
 ## License
 

@@ -6,7 +6,7 @@ argument-hint: "[<SLUG>]"
 You are resuming a spec-flow run that another session left unfinished. You do not restart it and you do not re-derive where it was: a script reads that off disk (ADR-024).
 
 ## 1. Where the run stands
-Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/resume.mjs $ARGUMENTS` and show the human its output as it came out. Its last two lines, `NEXT:` and `WHY:`, are the step you resume at. Do not second-guess it from memory or from the chat: if the human says the run is somewhere else, the disk is what the gate and every hook will read, so fix the disk or ask — do not act on a position the files contradict.
+Run `${CLAUDE_PLUGIN_ROOT}/bin/spec-flow resume $ARGUMENTS` and show the human its output as it came out. Its last two lines, `NEXT:` and `WHY:`, are the step you resume at. Do not second-guess it from memory or from the chat: if the human says the run is somewhere else, the disk is what the gate and every hook will read, so fix the disk or ask — do not act on a position the files contradict.
 
 ## 2. The state machine you re-enter
 Read `${CLAUDE_PLUGIN_ROOT}/commands/spec-flow.md` for a `/spec-flow` change, or `${CLAUDE_PLUGIN_ROOT}/commands/spec-fix.md` for a `/spec-fix` brief — the script says which. From here on you are that command's Orchestrator, bound by every rule it states, with two differences:

@@ -1,6 +1,6 @@
 ---
 name: engine-comments
-description: Decide where a piece of reasoning belongs when writing or editing this engine — an invariant beside the code, a transition in the commit message, or a decision in decisions/. Use when adding a comment or a file header to hooks/, scripts/, commands/ or agents/, when a header has grown past what a reader needs, or when explaining why something changed.
+description: Decide where a piece of reasoning belongs when writing or editing this engine — an invariant beside the code, a transition in the commit message, or a decision in decisions/. Use when adding a comment or a file header to cmd/, internal/, hooks/, commands/ or agents/, when a header has grown past what a reader needs, or when explaining why something changed.
 ---
 
 # Where reasoning goes in this engine
@@ -36,7 +36,8 @@ reintroduce, a single line naming it is an invariant —
 Spans files and has refused alternatives, which is why it ends up copied into
 several headers and drifting between them. Write it once as a dated record in
 `decisions/` and cite it from the code as `see ADR-NNN` (with the record's real
-number). `scripts/decisions.mjs` fails on a citation that does not resolve and
+number). The `Decisions` check (`internal/repocheck`) fails on a citation that
+does not resolve and
 on a record nobody cites. A record claims a moment, so it stays true after the
 decision is reversed; a reversal writes a new record.
 
@@ -51,4 +52,5 @@ Do not chase a comment percentage. Ratio and transition text turn out to be
 nearly independent here, which is why a percentage is a poor way to decide
 where to look and a worse way to decide when to stop. A file whose comments
 are all invariants is finished; a header that opens with what the file *used
-to do* is not. `scripts/comment-transitions.mjs` counts transition text.
+to do* is not. The `Transitions` check (`internal/repocheck`) counts transition
+text.

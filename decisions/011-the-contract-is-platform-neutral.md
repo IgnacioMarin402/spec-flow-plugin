@@ -1,6 +1,6 @@
 # ADR-011 — the contract is platform-neutral, the engine is POSIX
 
-**Date:** 2026-08-22 · **Status:** accepted (CI half superseded by ADR-019) · **Governs:** `scripts/argv.mjs`, `scripts/init.mjs` · **Narrows:** ADR-007
+**Date:** 2026-08-22 · **Status:** accepted; the CI half superseded, and the engine half — POSIX only — withdrawn by [ADR-051](051-the-engine-is-one-binary-per-platform-committed-with-its-source.md) · **Governs:** `scripts/argv.mjs`, `scripts/init.mjs` · **Narrows:** ADR-007
 
 **Question.** A review said Windows was broken because `spawnSync` runs `npm`
 without a shell. `init` never writes `npm`, but running it found worse:
@@ -17,5 +17,5 @@ unchanged. The engine's supported platform is POSIX, declared and not enforced.
 - `shell: true` at the spawn sites: quoting differs per platform, and the gate
   appends changed file paths to `verify.lint`.
 - A `windows-latest` CI leg: argued blind to this defect class. (Reversed by
-  ADR-019, where a leg failed on first contact.)
+  a Windows leg that failed on first contact; CI keeps it, per ADR-051.)
 - Guessing when a bin has no JavaScript behind it: keep the bare command name.

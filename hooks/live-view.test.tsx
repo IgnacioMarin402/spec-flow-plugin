@@ -1,7 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Args, HookStream, On, TurnStepChunk, TurnStepInput, TurnStepResult, TurnStepServerToolUse } from 'claude-code'
-// What node hands back for a log one read cannot take; test/log-lines.test.mjs holds the script to it.
-import { linesOf } from './lib/log-lines.mjs'
+// What `spec-flow lines` hands back for a log one read cannot take: the
+// golden table holds the binary to the same answers.
+import { BUDGETS, KEEP, MAX_BLOCKS, budgetCap, linesOf, milestoneRef, parseReturn, projectConfig } from './live-view-readers'
+import GOLDEN from './readers.golden'
 
 const ROOT = '/repo'
 const ME = 'session-me'
@@ -46,8 +48,9 @@ const stateFile = (path: string) => /[\\/]\.claude[\\/](?:state[\\/])?(.+)$/.exe
  * answer, the model's, and what the session has cost (`usd`, absent: no ledger).
  * `server` holds the server tool calls of the next steps, one entry per step.
  * `mtimes` sets a file's modification time (mutable); a file in `unreadable` is
- * there and refuses a read, as one over 4 MiB does, and node reads it unless
- * `node` is false, or hands back more than one read takes when `truncated`.
+ * there and refuses a read, as one over 4 MiB does, and the engine's binary
+ * reads it unless `binary` is false, or hands back more than one read takes
+ * when `truncated`. On Windows the view runs it as `bin/spec-flow.exe`.
  * `hold` is awaited inside a read, with the file's name, and inside git's call,
  * as `git`. With `gitHangs`, git never answers a call that sets no time limit,
  * and one that sets one fails, as the host fails it when the limit passes.
@@ -61,7 +64,7 @@ function world(
     server = [],
     mtimes = {},
     unreadable = [],
-    node = true,
+    binary = true,
     truncated = false,
     hold,
     gitHangs = false,
@@ -72,7 +75,7 @@ function world(
     server?: TurnStepServerToolUse[][]
     mtimes?: Record<string, number>
     unreadable?: string[]
-    node?: boolean
+    binary?: boolean
     truncated?: boolean
     hold?: (file: string) => Promise<void>
     gitHangs?: boolean
@@ -92,13 +95,13 @@ function world(
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[stateFile(e.path)] ?? text.length, isLink: false } }
   })
   on('process.run', async (_, e) => {
-    if (e.argv[0] !== 'node') {
+    if (!/[\\/]bin[\\/]spec-flow(?:\.exe)?$/.test(e.argv[0] ?? '') || e.argv[1] !== 'lines') {
       await hold?.('git')
       if (gitHangs) return typeof e.init?.timeoutMs === 'number' ? Promise.reject(new Error('ETIMEDOUT')) : new Promise<never>(() => {})
       return { value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    if (!node) throw new Error('ENOENT: node')
-    const [path = '', since = '', needle = ''] = e.argv.slice(e.argv.indexOf('--') + 1)
+    if (!binary) throw new Error('ENOENT: spec-flow')
+    const [path = '', since = '', needle = ''] = e.argv.slice(2)
     const { n, last } = linesOf(files[stateFile(path)] ?? '', needle, Number(since))
     return { value: { exitCode: 0, stdout: [n, ...last].join('\n'), stderr: '', isStdoutTruncated: truncated, isStderrTruncated: false } }
   })
@@ -494,7 +497,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /^sent back/ })).toBeUndefined()
   })
 
-  test(`${surface}: a log over what one read takes is read by node`, async ($, on) => {
+  test(`${surface}: a log over what one read takes is read by the engine's binary`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const files: Record<string, string> = {
       phase: 'implement',
@@ -519,7 +522,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /could not be read/ })).toBeUndefined()
   })
 
-  test(`${surface}: a log that neither the view nor node can read is said, never drawn as nothing in it`, async ($, on) => {
+  test(`${surface}: a log that neither the view nor the binary can read is said, never drawn as nothing in it`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const files: Record<string, string> = {
       phase: 'implement',
@@ -529,7 +532,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       'orchestrator-scope-unmatched.log': '2026-10-17T04:00:00.000Z phase=implement tool=Read unattributed\n',
       'human-turn-unmatched.log': '2026-10-17T04:10:00.000Z case-3 check stood down: no answer recorded — fix-login\n',
     }
-    world(on, files, { unreadable: Object.keys(files).filter(f => f.endsWith('.log')), node: false })
+    world(on, files, { unreadable: Object.keys(files).filter(f => f.endsWith('.log')), binary: false })
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
     await clock.advance(2_000)
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -683,7 +686,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: /^ planner 0\/6$/ }), 'the default the hook falls back to').toBeDefined()
   })
 
-  test(`${surface}: what node hands back past what one read takes is said, never shown cut`, async ($, on) => {
+  test(`${surface}: what the binary hands back past what one read takes is said, never shown cut`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     world(on, { phase: 'implement', 'phase.session': ME, 'run-trace.log': 'x\n' }, { unreadable: ['run-trace.log'], truncated: true })
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
@@ -694,7 +697,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`${surface}: a log unread in another session's run is not said here`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
-    world(on, { phase: 'implement', 'phase.session': 'session-other', 'run-trace.log': 'x\n' }, { unreadable: ['run-trace.log'], node: false })
+    world(on, { phase: 'implement', 'phase.session': 'session-other', 'run-trace.log': 'x\n' }, { unreadable: ['run-trace.log'], binary: false })
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
     await clock.advance(2_000)
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -705,7 +708,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: a log this session's run could not read is not said once the run is another session's`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const files: Record<string, string> = { phase: 'implement', 'phase.session': ME, 'run-trace.log': 'x\n' }
-    world(on, files, { unreadable: ['run-trace.log'], node: false })
+    world(on, files, { unreadable: ['run-trace.log'], binary: false })
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
     await clock.advance(2_000)
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -1034,3 +1037,24 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(status).toEqual([])
   })
 }
+
+// The view's copy of the engine's readers, held to the answers the hooks give
+// (internal/e2e/readers_test.go holds the Go copy to the same table).
+test('the live view reads as the hooks do: every answer in readers.golden.ts', () => {
+  expect(MAX_BLOCKS).toBe(GOLDEN.maxBlocks)
+  expect(KEEP).toBe(GOLDEN.keep)
+  expect(BUDGETS).toEqual(GOLDEN.budgets)
+  for (const c of GOLDEN.parseReturn) expect(parseReturn(c.text), c.text).toEqual(c.want)
+  for (const c of GOLDEN.projectConfig) {
+    const { settings, problem } = projectConfig(c.text)
+    expect({ settings, problem: problem === '' ? '' : /does not parse/.test(problem) ? 'parse' : 'object' }, c.text).toEqual({ settings: c.settings, problem: c.problem })
+  }
+  for (const c of GOLDEN.budgetCap) {
+    const cap = budgetCap(c.text, c.role)
+    expect(Number.isNaN(cap) ? null : cap, `${c.role} ${c.text}`).toBe(c.want)
+  }
+  for (const c of GOLDEN.milestoneRef) expect(milestoneRef(c.prompt), JSON.stringify(c.prompt)).toEqual(c.want)
+  for (const c of GOLDEN.linesOf) {
+    expect(linesOf(c.text, c.needle, c.since === '-Infinity' ? -Infinity : Number(c.since)), `${c.since} ${c.needle}`).toEqual(c.want)
+  }
+})

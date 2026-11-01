@@ -1,13 +1,13 @@
 # ADR-018 — the engine records a revision, not a version
 
-**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `scripts/engine-revision.mjs`, `hooks/gate.mjs`, `scripts/gate-fixture.mjs` · **Extends:** ADR-003, ADR-016
+**Date:** 2026-08-23 · **Status:** accepted · **Governs:** `scripts/engine-revision.mjs`, `hooks/gate.mjs`, `scripts/gate-fixture.mjs` · **Extends:** ADR-003 · the fallback `v?` once there is no package version, per [ADR-051](051-the-engine-is-one-binary-per-platform-committed-with-its-source.md)
 
 **Question.** Every gate-history line carries `engine=`, read from
 `package.json`'s `version`. What is it for, and can it do it?
 
 **Measured.** The version moved once, at extraction, so every gate since
 recorded `engine=0.1.0`. Its stated reason — exposing drift between the plugin
-and a version-ranged dependency — ended with ADR-016. Only the plugin copy
+and a version-ranged dependency — ended when nothing was published to a registry (ADR-051). Only the plugin copy
 writes history lines, and the npm copy has no `.git` (its commit survives only
 in the consuming repo's lockfile).
 
