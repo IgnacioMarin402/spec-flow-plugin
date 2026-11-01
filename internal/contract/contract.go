@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -200,7 +201,7 @@ func validate(c map[string]any, source string) []string {
 	if hasReport {
 		r := obj(report)
 		format, present := r["format"]
-		if f, ok := format.(string); !ok || !contains(testreport.Formats, f) {
+		if f, ok := format.(string); !ok || !slices.Contains(testreport.Formats, f) {
 			problems = append(problems, fmt.Sprintf("trace.report.format must be one of %s — got %s. ", strings.Join(testreport.Formats, ", "), JSON(format, present))+
 				"These are report formats, not runners: most runners can emit one behind a flag, and the format is what defines how a skipped test is marked.")
 		}
@@ -237,15 +238,6 @@ func validate(c map[string]any, source string) []string {
 		}
 	}
 	return problems
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 func text(v any) string {

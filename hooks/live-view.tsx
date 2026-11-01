@@ -20,7 +20,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnStepInput, TurnStepResult } from 'claude-code'
 
-// The engine's readers, held to the hooks' answers by hooks/readers.golden.json.
+// The engine's readers, held to the hooks' answers by hooks/readers.golden.ts.
 import { BUDGETS, MAX_BLOCKS, budgetCap, linesOf, milestoneRef, parseReturn, projectConfig } from './live-view-readers'
 import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from './live-view-state'
 

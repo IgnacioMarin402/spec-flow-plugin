@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -386,7 +387,7 @@ func TestEvals(t *testing.T) {
 			if omits, ok := milestoneOmits[c.name]; ok {
 				var want []string
 				for _, f := range template {
-					if !contains(omits, f) {
+					if !slices.Contains(omits, f) {
 						want = append(want, f)
 					}
 				}

@@ -80,7 +80,7 @@ type Return struct {
 }
 
 var (
-	statusLine = regexp.MustCompile(`(?m)^[ \t>#*]*STATUS:[ \t*]*([A-Z_]+)`)
+	statusLine = jsre.MustCompile(`^[ \t>#*]*STATUS:[ \t*]*([A-Z_]+)`, "m")
 	fenceLine  = regexp.MustCompile("^\\s*```")
 	kvLine     = regexp.MustCompile(`^[ \t>*]*([A-Z][A-Z_]+):[ \t*]*(.*)$`)
 )
@@ -90,12 +90,12 @@ var (
 // A repeated key keeps its first value. run-trace and the agent gate both read
 // it here.
 func ParseReturn(text string) *Return {
-	loc := statusLine.FindStringSubmatchIndex(text)
-	if loc == nil {
+	m := statusLine.Exec(text)
+	if m == nil {
 		return nil
 	}
-	r := &Return{Status: text[loc[2]:loc[3]], Fields: map[string]string{}}
-	lines := lineRe.Split(text[loc[0]:], -1)
+	r := &Return{Status: m.Group(1), Fields: map[string]string{}}
+	lines := lineRe.Split(text[m.Index:], -1)
 	for _, line := range lines[1:] {
 		if fenceLine.MatchString(line) {
 			break

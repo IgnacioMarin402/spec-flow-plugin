@@ -12,6 +12,7 @@ import (
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/engine"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/gitscope"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hookio"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/proc"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/shell"
 )
@@ -35,9 +36,24 @@ func set(list []string) map[string]bool {
 	return m
 }
 
-// Path-SHAPED, as unscoped reads argv[1]: a subcommand (`run`) or a flag's
-// value (`--max-warnings 0`) is not a scope.
-func namesAPath(args []string) bool {
+// redirect is a token that sends a stream somewhere: `>`, `2>>`, `&>`,
+// `2>&1`, `<`, its target attached or the token after it.
+var redirect = regexp.MustCompile(`^(?:\d*|&)(?:>>?|<)(&\d+|&-)?(.*)$`)
+
+// Path-SHAPED, as unscoped reads argv[1]: a subcommand (`run`), a flag's
+// value (`--max-warnings 0`) or where the output goes (`> out.log`) is not a
+// scope.
+func namesAPath(tokens []string) bool {
+	var args []string
+	for i := 0; i < len(tokens); i++ {
+		if m := redirect.FindStringSubmatch(tokens[i]); m != nil {
+			if m[1] == "" && m[2] == "" {
+				i++ // the target is the next token
+			}
+			continue
+		}
+		args = append(args, tokens[i])
+	}
 	for _, a := range args {
 		if !strings.HasPrefix(a, "-") && a != "." && a != "./" && pathChar.MatchString(a) {
 			return true
@@ -195,7 +211,7 @@ var (
 	writable        = []string{".claude/state/", "specflow/"}
 	readable        = append(append([]string{}, writable...), "specs/", ".spec-flow/", ".claude/")
 	hooksOnly       = regexp.MustCompile(`^\.claude/state/[^/]+\.log$`)
-	attributedTrace = regexp.MustCompile(`(?m) (?:read|write) file=.* agent_id=[\w-]+$| test verdict=.* agent_id=[\w-]+$`)
+	attributedTrace = jsre.MustCompile(` (?:read|write) file=.* agent_id=[\w-]+$| test verdict=.* agent_id=[\w-]+$`, "m")
 	redirectTarget  = regexp.MustCompile(`(?:^|[^0-9&>])>>?\s*([^\s&|;<>]+)`)
 	sedInPlace      = regexp.MustCompile(`^-[a-zA-Z]*i`)
 )
@@ -342,7 +358,7 @@ func OrchestratorScope(c *hookio.Ctx) {
 		return // a subagent: its role decides what it touches
 	}
 	trace, _ := hookio.ReadText(filepath.Join(hookio.StateDir(root), "run-trace.log"))
-	if !attributedTrace.MatchString(trace) {
+	if !attributedTrace.Test(trace) {
 		hookio.AppendLine(filepath.Join(hookio.StateDir(root), "orchestrator-scope-unmatched.log"), fmt.Sprintf("%s phase=%s tool=%s unattributed", hookio.NowISO(), phase, hookio.JSString(p["tool_name"])))
 		return
 	}

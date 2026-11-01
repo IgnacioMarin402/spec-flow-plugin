@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,16 +51,7 @@ func PhaseOwnerPath(root string) string {
 var RunPhases = []string{"spec", "plan", "review", "implement", "blocked"}
 
 // IsRunPhase reports whether phase arms anything.
-func IsRunPhase(phase string) bool { return contains(RunPhases, phase) }
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
+func IsRunPhase(phase string) bool { return slices.Contains(RunPhases, phase) }
 
 // Any git failure reads as "not tracked", which arms: a git that could not be
 // asked must never be why a hook stands down.
@@ -295,16 +287,8 @@ func Keys(m map[string]any) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sortStrings(keys)
+	slices.Sort(keys)
 	return keys
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 // Exists reports whether path exists.

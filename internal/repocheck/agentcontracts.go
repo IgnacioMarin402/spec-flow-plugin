@@ -22,6 +22,7 @@ package repocheck
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agentblocks"
@@ -124,7 +125,7 @@ func AgentContracts(root string) Report {
 	}
 	if len(fields) > 0 {
 		for _, f := range sortedKeys(NotReviewed) {
-			if !contains(fields, f) {
+			if !slices.Contains(fields, f) {
 				add(`NotReviewed exempts "%s", which the milestone template no longer declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`, f)
 			}
 		}
@@ -161,7 +162,7 @@ func AgentContracts(root string) Report {
 		if !scoped {
 			field = key
 		}
-		if scoped && !contains(returnedBy[field], agent) || !scoped && returnedBy[field] == nil {
+		if scoped && !slices.Contains(returnedBy[field], agent) || !scoped && returnedBy[field] == nil {
 			add(`NotRouted exempts "%s", which no routed agent's return block declares. Remove the entry — an exemption nobody can reach is a decision about a field that does not exist.`, key)
 		}
 	}

@@ -19,7 +19,21 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) exec "$dir/darwin-arm64/spec-flow" "$@" ;;
   MINGW* | MSYS* | CYGWIN*) exec "$dir/spec-flow.exe" "$@" ;;
 esac
-# Exit 1, not 2: on a PreToolUse hook 2 would deny every tool call on this
-# machine, and Claude Code shows a non-blocking error as a hook error notice.
+# No binary for this platform. Exit 1, not 2: on a PreToolUse hook 2 would
+# deny every tool call on this machine, and Claude Code shows a non-blocking
+# error as a hook error notice. The gate is the exception: armed, a stop it
+# cannot judge is refused, once per stop, as the gate refuses one — passed
+# through, the milestone would read as verified.
 echo "spec-flow: this engine ships no binary for $(uname -s) $(uname -m)." >&2
+if [ "$1" = hook ] && [ "$2" = gate ]; then
+  input=$(cat)
+  case $input in
+    *'"stop_hook_active":true'* | *'"stop_hook_active": true'*) exit 1 ;;
+  esac
+  phase=$(tr -d ' \t\r\n' < "${CLAUDE_PROJECT_DIR:-.}/.claude/state/phase" 2>/dev/null)
+  if [ "$phase" = implement ]; then
+    echo '{"decision":"block","reason":"GATE FAILED — this engine ships no binary for this platform, so nothing was linted, tested or traced: treat NOTHING as verified. Do not change the phase. Show this to a human: spec-flow runs on Linux and macOS on x86-64 or arm64, and on Windows on x86-64."}'
+    exit 0
+  fi
+fi
 exit 1

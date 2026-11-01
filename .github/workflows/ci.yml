@@ -45,6 +45,10 @@ jobs:
         if: runner.os != 'Windows'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
+      # go.mod is an input to the reproducible build: kept as tidy writes it.
+      - name: Tidy
+        run: go mod tidy -diff
+
       - name: Vet
         run: go vet ./...
 

@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hookio"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/specshape"
 )
 
@@ -25,7 +25,7 @@ type event struct {
 	kind string // turn-end, or a prompt's source
 }
 
-var eventLine = regexp.MustCompile(`(?m)^(\S+Z) (turn-end|prompt from=(\S+))\s*$`)
+var eventLine = jsre.MustCompile(`^(\S+Z) (turn-end|prompt from=(\S+))\s*$`, "m")
 
 func events(root string) []event {
 	text, ok := hookio.ReadText(filepath.Join(root, ".claude", "state", Log))
@@ -33,14 +33,14 @@ func events(root string) []event {
 		return nil
 	}
 	var out []event
-	for _, m := range eventLine.FindAllStringSubmatch(text, -1) {
-		at, err := time.Parse(time.RFC3339Nano, m[1])
+	for _, m := range eventLine.ExecAll(text) {
+		at, err := time.Parse(time.RFC3339Nano, m.Group(1))
 		if err != nil {
 			continue
 		}
-		kind := m[2]
-		if m[3] != "" {
-			kind = m[3]
+		kind := m.Group(2)
+		if m.Group(3) != "" {
+			kind = m.Group(3)
 		}
 		out = append(out, event{at, kind})
 	}

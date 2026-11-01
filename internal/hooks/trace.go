@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agentblocks"
@@ -15,6 +16,7 @@ import (
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/engine"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/gitscope"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hookio"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/shell"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/specshape"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/spectime"
@@ -30,10 +32,10 @@ var (
 	chainParts    = regexp.MustCompile(`;|&&|\|\||\||&|\n`)
 	groupChars    = regexp.MustCompile("[()`]")
 	pmWord        = regexp.MustCompile(`^(pnpm|npm|npx|yarn|node)$`)
-	failedSummary = regexp.MustCompile(`(?m)^\s*(Tests:?|Test Suites:|Test Files)\s.*\bfailed\b`)
-	passedSummary = regexp.MustCompile(`(?m)^\s*Tests:?\s.*\bpassed\b`)
+	failedSummary = jsre.MustCompile(`^\s*(Tests:?|Test Suites:|Test Files)\s.*\bfailed\b`, "m")
+	passedSummary = jsre.MustCompile(`^\s*Tests:?\s.*\bpassed\b`, "m")
 	noTests       = regexp.MustCompile(`(?i)\bNo tests? (files )?found\b`)
-	couldNotFind  = regexp.MustCompile(`(?m)^Could not find '`)
+	couldNotFind  = jsre.MustCompile(`^Could not find '`, "m")
 	singlePipe    = regexp.MustCompile(`(^|[^|])\|([^|]|$)`)
 	notFound      = regexp.MustCompile(`Exit code 12[67]\b|command not found|is not recognized as`)
 	wordAgentID   = regexp.MustCompile(`^[\w-]+$`)
@@ -72,7 +74,7 @@ func runsRunner(cmd, testName string) bool {
 	if len(words) > 0 && argv.Basename(at(i)) == words[0] {
 		all := true
 		for _, w := range words[1:] {
-			if i+1 > len(tokens) || !contains(tokens[i+1:], w) {
+			if i+1 > len(tokens) || !slices.Contains(tokens[i+1:], w) {
 				all = false
 			}
 		}
@@ -139,15 +141,15 @@ func traceTest(input map[string]any, res any, testName string, failure *testFail
 	}
 	verdict, why := "?", ""
 	switch {
-	case failedSummary.MatchString(out) || strings.Contains(out, "✕"):
+	case failedSummary.Test(out) || strings.Contains(out, "✕"):
 		verdict = "red"
-	case passedSummary.MatchString(out):
+	case passedSummary.Test(out):
 		if failure != nil {
 			why = "summary-passed"
 		} else {
 			verdict = "green"
 		}
-	case noTests.MatchString(out) || couldNotFind.MatchString(out):
+	case noTests.MatchString(out) || couldNotFind.Test(out):
 		verdict = "none"
 	case failure == nil:
 		why = "no-summary"
@@ -188,7 +190,7 @@ func traceReturn(p hookio.Payload, traceFile, missLog string) string {
 		agentID = s
 	}
 	if agentID != "" {
-		if trace, ok := hookio.ReadText(traceFile); ok && regexp.MustCompile(`(?m) agent type=.* agent_id=`+regexp.QuoteMeta(agentID)+`(\s|$)`).MatchString(trace) {
+		if trace, ok := hookio.ReadText(traceFile); ok && jsre.MustCompile(` agent type=.* agent_id=`+regexp.QuoteMeta(agentID)+`(\s|$)`, "m").Test(trace) {
 			return ""
 		}
 	}
@@ -226,7 +228,9 @@ func traceReturn(p hookio.Payload, traceFile, missLog string) string {
 	return ""
 }
 
-func whitespace(s string) string { return regexp.MustCompile(`\s+`).ReplaceAllString(s, "-") }
+var spaces = regexp.MustCompile(`\s+`)
+
+func whitespace(s string) string { return spaces.ReplaceAllString(s, "-") }
 
 var editTools = regexp.MustCompile(`^(Write|Edit|MultiEdit)$`)
 
@@ -361,7 +365,7 @@ func pathIn(raw string) string {
 type problem struct{ why, reason string }
 
 func problemWith(ret *agentblocks.Return, statuses []string, root string) *problem {
-	if !contains(statuses, ret.Status) {
+	if !slices.Contains(statuses, ret.Status) {
 		return &problem{"undeclared-status", fmt.Sprintf("`STATUS: %s` is not a status your contract declares (%s), and the orchestrator routes only those. Return the one that fits.", ret.Status, strings.Join(statuses, ", "))}
 	}
 	for _, key := range ret.Order {
@@ -508,11 +512,11 @@ func specWriterProblems(ret *agentblocks.Return, text, root, agentID, trace, pha
 	}
 	var expected []string
 	for _, d := range own {
-		if f := specshape.CapabilityOf(d.ID, specs); f != "" && !contains(expected, f) {
+		if f := specshape.CapabilityOf(d.ID, specs); f != "" && !slices.Contains(expected, f) {
 			expected = append(expected, f)
 		}
 	}
-	if readme := filepath.Join(specsDir, "README.md"); hookio.Exists(readme) && !contains(expected, readme) {
+	if readme := filepath.Join(specsDir, "README.md"); hookio.Exists(readme) && !slices.Contains(expected, readme) {
 		expected = append(expected, readme)
 	}
 	if len(expected) == 0 {
@@ -523,7 +527,7 @@ func specWriterProblems(ret *agentblocks.Return, text, root, agentID, trace, pha
 	lines := strings.Split(trace, "\n")
 	attributed := false
 	for _, l := range lines {
-		if attributedTrace.MatchString(l) {
+		if attributedTrace.Test(l) {
 			attributed = true
 		}
 	}

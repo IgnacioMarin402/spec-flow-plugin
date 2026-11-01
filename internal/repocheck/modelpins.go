@@ -13,6 +13,7 @@ package repocheck
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agents"
@@ -83,7 +84,7 @@ func ModelPins(root string) Report {
 			continue
 		}
 		declared := m[1]
-		if !contains(agents.Aliases, declared) {
+		if !slices.Contains(agents.Aliases, declared) {
 			r.Problems = append(r.Problems, fmt.Sprintf("agents/%s routes to `%s`, which is not one of the tier aliases (%s). A pinned id freezes this agent on one model as the tiers move past it — see ADR-013.", file, declared, strings.Join(agents.Aliases, ", ")))
 			continue
 		}
@@ -103,7 +104,7 @@ func ModelPins(root string) Report {
 		}
 		_, inherits := InheritsEffort[name]
 		switch {
-		case hasEffort && !contains(agents.EffortLevels, effort):
+		case hasEffort && !slices.Contains(agents.EffortLevels, effort):
 			r.Problems = append(r.Problems, fmt.Sprintf("agents/%s declares `effort: %s`, which is not one of %s. Nothing downstream will complain: a spawn discards an effort it cannot read, so a typo here is a setting that looks applied and is not — see ADR-015.", file, effort, strings.Join(agents.EffortLevels, ", ")))
 			continue
 		case !hasEffort && !inherits:
@@ -130,13 +131,4 @@ func ModelPins(root string) Report {
 	}
 	r.OK = fmt.Sprintf("%d file(s) name no version; %d agent(s) route by tier.\n  %s", len(scanned), len(routing), strings.Join(routing, "\n  "))
 	return r
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

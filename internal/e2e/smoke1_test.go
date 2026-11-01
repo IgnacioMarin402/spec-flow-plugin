@@ -297,6 +297,28 @@ func TestNoGateCmdsReadsAScriptHandedAPathAndAnAssignedEnvironment(t *testing.T)
 	}
 }
 
+// A redirection names where the output goes, not what the run covers.
+func TestNoGateCmdsReadsNoRedirectionAsAScope(t *testing.T) {
+	for _, c := range []struct {
+		cmd  string
+		want int
+	}{
+		{"npm test > out.log", 2},
+		{"npm test 2>&1 > /tmp/t.txt", 2},
+		{"npm run test >out.log; cat out.log", 2},
+		{"npm test -- --watch >> run.log", 2},
+		{"ftest run > out.log", 2},
+		{"ftest run &> /tmp/all.txt", 2},
+		{"ftest tests/a.spec.ts > out.log", 0},
+		{"npm test -- tests/a.spec.ts 2>&1 > out.log", 0},
+	} {
+		t.Run(c.cmd, func(t *testing.T) {
+			repo := makeRepo(t, repoOpts{})
+			expectStatus(t, runHook(t, "no-gate-cmds", bash(c.cmd), repo), c.want, c.cmd)
+		})
+	}
+}
+
 func TestRunTraceLogsASourceWrite(t *testing.T) {
 	repo := makeRepo(t, repoOpts{})
 	expectStatus(t, runHook(t, "run-trace", map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": "example/thing.ts"}}, repo), 0, "run-trace")

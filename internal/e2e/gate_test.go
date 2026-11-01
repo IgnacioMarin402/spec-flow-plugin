@@ -258,6 +258,11 @@ func TestGate(t *testing.T) {
 			}
 			mustMatch(t, `result=fail:hook-error`, r.history, "blocked, but left no hook-error line")
 		}},
+		// The block sends a human to the stack on stderr: it has to be there.
+		{"an unexpected throw inside the engine leaves its stack on stderr", gateOpts{crash: true}, func(t *testing.T, r gateRun) {
+			mustMatch(t, `simulated engine defect`, r.Stderr, "stderr does not say what threw")
+			mustMatch(t, `unscoped[./-]`, r.Stderr, "stderr carries no stack naming where it threw")
+		}},
 		// A timed-out hook renders no decision; a surviving `running` line is the evidence.
 		{"an armed gate records the attempt before it runs anything", gateOpts{}, func(t *testing.T, r gateRun) {
 			mustNotMatch(t, `result=running`, r.history, "the run left its own `running` line behind")
@@ -707,4 +712,26 @@ func TestGateClaudeCodeVersion(t *testing.T) {
 			mustMatch(t, ` cc=`+regexp.QuoteMeta(c.want)+` `, r.history, "cc=")
 		})
 	}
+}
+
+// `done` disarms every hook, so it is earned or refused: an engine defect in
+// the checks that judge it is no evidence it was earned.
+func TestADoneIsNotEarnedByAnEngineDefect(t *testing.T) {
+	engine := crashingEngine(t)
+	writeDone := bash(`printf 'done' > .claude/state/phase`)
+	t.Run("with no gate pass on HEAD", func(t *testing.T) {
+		repo := makeRepo(t, repoOpts{})
+		seedGateHistory(t, repo, "fail:behaviour")
+		r := Hook{Engine: engine}.run(t, "phase-guard", writeDone, repo)
+		expectStatus(t, r, 2, "an unearned done went through a crash")
+		mustMatch(t, `gate has not passed`, r.Stderr, "the checks after the crash did not run")
+	})
+	t.Run("with the gate passed, the checks that could not run are said", func(t *testing.T) {
+		changedInPort(t, "the JavaScript engine left the checks' half silent")
+		repo := makeRepo(t, repoOpts{})
+		seedGateHistory(t, repo, "pass")
+		r := Hook{Engine: engine}.run(t, "phase-guard", writeDone, repo)
+		expectStatus(t, r, 2, "done went through with the project's checks never run")
+		mustMatch(t, `could not run`, r.Stderr, "the refusal does not say the checks could not run")
+	})
 }

@@ -475,5 +475,4 @@ func gateFailClosed(c *hookio.Ctx, r any) {
 	hookio.Block(c.Stdout, fmt.Sprintf("GATE FAILED — the gate itself threw before it could judge anything: %s. ", hookio.ErrText(r))+
 		"This is a defect in the engine, not in the milestone: nothing was linted, tested or traced, so treat NOTHING as verified. "+
 		"Do not retry blindly and do not change the phase. Show this to a human, with the stack from stderr.")
-	fmt.Fprintf(c.Stderr, "[spec-flow] gate threw: %s\n", hookio.ErrText(r))
 }

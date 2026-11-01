@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -390,7 +391,7 @@ func reporterKey(test []string, testName string) string {
 	if _, ok := reporterFlags[testName]; testName != "" && ok {
 		return testName
 	}
-	if len(test) > 0 && argv.Basename(test[0]) == "node" && contains(test, "--test") {
+	if len(test) > 0 && argv.Basename(test[0]) == "node" && slices.Contains(test, "--test") {
 		return "node"
 	}
 	return ""
@@ -425,7 +426,7 @@ func uniqueOf(lists ...[]string) []string {
 	var out []string
 	for _, l := range lists {
 		for _, s := range l {
-			if !contains(out, s) {
+			if !slices.Contains(out, s) {
 				out = append(out, s)
 			}
 		}
@@ -1041,7 +1042,7 @@ func scaffold(root, reportPath string) []string {
 // Init is `spec-flow init [--force] [--translator]`.
 func Init(args []string) int {
 	root := projectRoot()
-	force, wantsTranslator := contains(args, "--force"), contains(args, "--translator")
+	force, wantsTranslator := slices.Contains(args, "--force"), slices.Contains(args, "--translator")
 	configPath := filepath.Join(root, ".spec-flow", "config.json")
 	// A contract inside a package is one no gate runs against (ADR-027).
 	if err := gitscope.AssertRepoRoot(root); err != nil {

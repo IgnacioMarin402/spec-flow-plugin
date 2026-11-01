@@ -347,3 +347,9 @@ func TestHookInventory(t *testing.T) {
 		t.Fatalf("a call site naming a path the package does not ship passed.\n%s", r)
 	}
 }
+
+func TestLineEndsFindsAMultilineGoRegexp(t *testing.T) {
+	flag := "(?" + "m)"
+	reported(t, LineEnds(tree(t, map[string]string{"internal/x/x.go": "package x\n\nvar re = regexp.MustCompile(`" + flag + "^a$`)\n"})), "internal/x/x.go")
+	clean(t, LineEnds(tree(t, map[string]string{"internal/x/x.go": "package x\n\nvar re = jsre.MustCompile(`^a$`, \"m\")\n", "internal/x/x_test.go": "package x\n\nvar re = regexp.MustCompile(`" + flag + "^a$`)\n"})), "jsre, or a test, was reported")
+}

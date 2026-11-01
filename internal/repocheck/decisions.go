@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -55,7 +56,7 @@ func Decisions(root string) Report {
 	cited := map[string][]string{}
 	for _, f := range surfaces(root, CiteDirs, CiteExts, CiteFiles, decisionsSelf) {
 		for _, m := range citation.FindAllStringSubmatch(readRel(root, f), -1) {
-			if !contains(cited[m[1]], f) {
+			if !slices.Contains(cited[m[1]], f) {
 				cited[m[1]] = append(cited[m[1]], f)
 			}
 		}

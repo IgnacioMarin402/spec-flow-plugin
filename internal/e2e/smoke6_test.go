@@ -710,3 +710,26 @@ func TestConfigShowsTheContractAsTheHooksReadIt(t *testing.T) {
 		t.Fatalf("a contract that does not parse was shown as read: %s", r.Out())
 	}
 }
+
+// With no report-only linter declared, `--no-fix` has nothing to run: the
+// changed files are never the command, and the check never reads green.
+func TestCheckNoFixWithNoReportOnlyLinter(t *testing.T) {
+	repo := makeRepo(t, repoOpts{contractEdit: func(c map[string]any) {
+		delete(sub(c, "verify"), "lint_no_fix")
+		sub(c, "verify")["scope_globs"] = []any{"*.sh"}
+	}})
+	git(t, repo, "checkout", "-q", "-b", "feature")
+	write(t, filepath.Join(repo, "scripts", "deploy.sh"), "#!/bin/sh\ntouch DEPLOY-SCRIPT-RAN\n")
+	os.Chmod(filepath.Join(repo, "scripts", "deploy.sh"), 0o755)
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-qm", "work")
+	r := run(repo, []string{"CLAUDE_PROJECT_DIR="}, "", cliArgv(engineDir, "check", "--no-fix")...)
+	if exists(filepath.Join(repo, "DEPLOY-SCRIPT-RAN")) {
+		t.Fatalf("a changed file ran as the linter:\n%s", r.Out())
+	}
+	if r.Status == 0 {
+		t.Fatalf("check --no-fix passed with no linter run:\n%s", r.Out())
+	}
+	changedInPort(t, "the JavaScript engine crashed here")
+	mustMatch(t, `lint_no_fix`, r.Out(), "the refusal does not name the field to declare")
+}

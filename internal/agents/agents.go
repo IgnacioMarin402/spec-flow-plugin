@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hookio"
@@ -75,16 +76,23 @@ func NameishFields(input map[string]any) []string {
 // MatchAgent is the candidate the fields name as a whole word,
 // case-insensitive and lowercased, or `""`. Getting either wrong fails OPEN and
 // silently: arm-gate would not arm the phase.
+// matchers are MatchAgent's patterns, one per list of candidates.
+var matchers sync.Map
+
 func MatchAgent(nameish, candidates []string) string {
 	if len(candidates) == 0 {
 		return ""
 	}
-	quoted := make([]string, len(candidates))
-	for i, c := range candidates {
-		quoted[i] = regexp.QuoteMeta(c)
+	key := strings.Join(candidates, "\x00")
+	re, ok := matchers.Load(key)
+	if !ok {
+		quoted := make([]string, len(candidates))
+		for i, c := range candidates {
+			quoted[i] = regexp.QuoteMeta(c)
+		}
+		re, _ = matchers.LoadOrStore(key, regexp.MustCompile(`(?i)(^|[^a-zA-Z])(`+strings.Join(quoted, "|")+`)($|[^a-zA-Z])`))
 	}
-	re := regexp.MustCompile(`(?i)(^|[^a-zA-Z])(` + strings.Join(quoted, "|") + `)($|[^a-zA-Z])`)
-	if m := re.FindStringSubmatch(strings.Join(nameish, " ")); m != nil {
+	if m := re.(*regexp.Regexp).FindStringSubmatch(strings.Join(nameish, " ")); m != nil {
 		return strings.ToLower(m[2])
 	}
 	return ""

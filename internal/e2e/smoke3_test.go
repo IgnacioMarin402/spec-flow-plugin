@@ -383,6 +383,16 @@ func TestPhaseGuardReadsTheValueTheShellWrites(t *testing.T) {
 		mustMatch(t, `gate has not passed`, r.Stderr, "it was not judged as a done")
 		mustNotMatch(t, `not a phase this engine knows`, r.Stderr, "it was denied as an unknown phase")
 	})
+	// Each escape writes a byte, and a phase holding one is no phase any hook
+	// reads: let through, the write would disarm the run it claims.
+	t.Run("an escape that writes a byte no phase holds is refused", func(t *testing.T) {
+		for _, c := range []string{`printf 'implement\a' > .claude/state/phase`, `printf 'implement\e' > .claude/state/phase`, `printf 'implement\b' > .claude/state/phase`,
+			`printf '\0' > .claude/state/phase`, `printf 'implement\007' > .claude/state/phase`, `printf 'implement\x07' > .claude/state/phase`, `echo -e 'implement\a' > .claude/state/phase`} {
+			repo := makeRepo(t, repoOpts{phase: "plan"})
+			r := runHook(t, "phase-guard", bash(c), repo)
+			expectStatus(t, r, 2, c+" wrote a phase no hook reads")
+		}
+	})
 	t.Run("a literal backslash bash echo writes is not a phase", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{noContract: true, noGit: true, phase: "idle"})
 		r := runHook(t, "phase-guard", bash(`echo 'spec\n' > .claude/state/phase`), repo)

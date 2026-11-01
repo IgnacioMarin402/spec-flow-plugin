@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -166,7 +167,7 @@ func readTap(text string) Report {
 // no executed test: zero cases means the suite never ran; cases all skipped
 // means it ran and proved nothing.
 func Read(format, path, root string) Report {
-	if !contains(Formats, format) {
+	if !slices.Contains(Formats, format) {
 		f, _ := json.Marshal(format)
 		if format == "" {
 			f = []byte("undefined")
@@ -190,13 +191,4 @@ func Read(format, path, root string) Report {
 		return readJunit(string(b))
 	}
 	return readTap(string(b))
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

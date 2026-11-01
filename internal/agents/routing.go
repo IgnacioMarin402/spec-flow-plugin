@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/engine"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
 )
 
 // Aliases are the tiers a spawn may be routed to — measured: a hook rewriting
@@ -27,9 +29,9 @@ var EffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 type Agent struct{ Model, Effort string }
 
 var (
-	nameField   = regexp.MustCompile(`(?m)^name:[ \t]*(\S+)`)
-	modelField  = regexp.MustCompile(`(?m)^model:[ \t]*(\S+)`)
-	effortField = regexp.MustCompile(`(?m)^effort:[ \t]*(\S+)`)
+	nameField   = jsre.MustCompile(`^name:[ \t]*(\S+)`, "m")
+	modelField  = jsre.MustCompile(`^model:[ \t]*(\S+)`, "m")
+	effortField = jsre.MustCompile(`^effort:[ \t]*(\S+)`, "m")
 )
 
 // AgentsDir is `<engine>/agents`, never the consuming repository's.
@@ -39,8 +41,12 @@ var AgentsDir = func() string { return filepath.Join(engine.Root(), "agents") }
 // Claude Code obeys — a second copy would be a claim about the routing. Empty
 // when unreadable, which every caller treats as "no opinion".
 func Shipped() map[string]Agent {
+	dir := AgentsDir()
+	if cached, ok := shipped.Load(dir); ok {
+		return cached.(map[string]Agent)
+	}
 	agents := map[string]Agent{}
-	entries, err := os.ReadDir(AgentsDir())
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return agents
 	}
@@ -48,7 +54,7 @@ func Shipped() map[string]Agent {
 		if !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(AgentsDir(), e.Name()))
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
@@ -62,27 +68,32 @@ func Shipped() map[string]Agent {
 		}
 		head := text[3 : 3+end]
 		name := strings.TrimSuffix(e.Name(), ".md")
-		if m := nameField.FindStringSubmatch(head); m != nil {
-			name = m[1]
+		if m := nameField.Exec(head); m != nil {
+			name = m.Group(1)
 		}
-		model := modelField.FindStringSubmatch(head)
+		model := modelField.Exec(head)
 		if model == nil {
 			continue
 		}
-		a := Agent{Model: model[1]}
-		if m := effortField.FindStringSubmatch(head); m != nil {
-			a.Effort = m[1]
+		a := Agent{Model: model.Group(1)}
+		if m := effortField.Exec(head); m != nil {
+			a.Effort = m.Group(1)
 		}
 		agents[strings.ToLower(name)] = a
 	}
+	shipped.Store(dir, agents)
 	return agents
 }
 
+// shipped is Shipped by agents directory: a hook reads it several times, and
+// what ships does not change while it runs.
+var shipped sync.Map
+
 // Roles are the shipped agents' names, sorted.
 func Roles() []string {
-	shipped := Shipped()
-	names := make([]string, 0, len(shipped))
-	for n := range shipped {
+	agents := Shipped()
+	names := make([]string, 0, len(agents))
+	for n := range agents {
 		names = append(names, n)
 	}
 	sort.Strings(names)
@@ -157,13 +168,13 @@ func ProjectRouting(root string, shipped map[string]string) (routing map[string]
 	for _, raw := range names {
 		tier := m[raw]
 		name := strings.ToLower(raw)
-		if len(known) > 0 && !contains(known, name) {
+		if len(known) > 0 && !slices.Contains(known, name) {
 			problems = append(problems, fmt.Sprintf(`"agents": { "%s": ... } names no agent this plugin ships (%s). `, raw, strings.Join(known, ", "))+
 				"A name nothing matches routes nothing, and reads exactly like a routing that works.")
 			continue
 		}
 		t, ok := tier.(string)
-		if !ok || !contains(Aliases, t) {
+		if !ok || !slices.Contains(Aliases, t) {
 			problems = append(problems, fmt.Sprintf(`"agents": { "%s": %s } is not one of %s. `, raw, jsonText(tier), strings.Join(Aliases, ", "))+
 				"A spawn only accepts a tier — a full model id is refused by the tool call itself.")
 			continue
@@ -176,15 +187,6 @@ func ProjectRouting(root string, shipped map[string]string) (routing map[string]
 func jsonText(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // ResolveModel is the tier agent will run on and who decided it. `project`

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -193,7 +194,7 @@ func PluginPaths(root string) Report {
 		}
 	}
 	for _, h := range sortedKeys(inManifest) {
-		if !contains(HookNames, h) {
+		if !slices.Contains(HookNames, h) {
 			add("hooks.json registers `hook %s`, which the binary does not dispatch", h)
 		}
 	}
@@ -209,7 +210,7 @@ func PluginPaths(root string) Report {
 	}
 	entries, _ := os.ReadDir(filepath.Join(root, "hooks"))
 	for _, e := range entries {
-		if n := e.Name(); strings.HasSuffix(n, ".tsx") && !strings.HasSuffix(n, ".test.tsx") && !contains(modules, n) {
+		if n := e.Name(); strings.HasSuffix(n, ".tsx") && !strings.HasSuffix(n, ".test.tsx") && !slices.Contains(modules, n) {
 			add("hooks/%s exists but hooks.json never names it in modules — it ships and never loads", n)
 		}
 	}

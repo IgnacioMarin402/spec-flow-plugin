@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/canrun"
@@ -59,7 +61,7 @@ func GatePassedHead(root string) *bool {
 var (
 	producerStart = jsre.MustCompile("[^;&|\\n(`]*$", "")
 	producerRe    = regexp.MustCompile(`(?:^|\s)(printf|echo)\s+`)
-	escapeRe      = regexp.MustCompile(`\\(0[0-7]{0,3}|.)`)
+	escapeRe      = regexp.MustCompile(`\\(0[0-7]{0,3}|[1-7][0-7]{0,2}|x[0-9A-Fa-f]{1,2}|.)`)
 	shellEscaped  = regexp.MustCompile(`\\(.)`)
 	dqEscaped     = regexp.MustCompile("\\\\([\\\\$`\"\n])")
 )
@@ -76,27 +78,34 @@ func shellWord(tok string) string {
 	return strings.Trim(shellEscaped.ReplaceAllString(tok, "$1"), `'"`)
 }
 
-// interpret applies printf's (and `echo -e`'s) backslash escapes.
+// interpret applies printf's (and `echo -e`'s) backslash escapes, each to
+// the byte the shell writes for it; `\c` ends the output. A value the reader
+// cannot read as a phase must reach the closed-set check as written.
 func interpret(s string) string {
-	return escapeRe.ReplaceAllStringFunc(s, func(e string) string {
-		switch e[1] {
-		case 'n':
-			return "\n"
-		case 't':
-			return "\t"
-		case 'r':
-			return "\r"
-		case 'v':
-			return "\v"
-		case 'f':
-			return "\f"
-		case 'a', 'b', 'e', '0':
-			return ""
-		case '\\':
-			return `\`
+	var b strings.Builder
+	at := 0
+	for _, m := range escapeRe.FindAllStringIndex(s, -1) {
+		b.WriteString(s[at:m[0]])
+		at = m[1]
+		e := s[m[0]+1 : m[1]]
+		switch {
+		case e == "c":
+			return b.String()
+		case e[0] == 'x' && len(e) > 1:
+			n, _ := strconv.ParseUint(e[1:], 16, 8)
+			b.WriteByte(byte(n))
+		case e[0] >= '0' && e[0] <= '7':
+			n, _ := strconv.ParseUint(e, 8, 16)
+			b.WriteByte(byte(n))
+		default:
+			if r, ok := map[byte]string{'n': "\n", 't': "\t", 'r': "\r", 'v': "\v", 'f': "\f", 'a': "\a", 'b': "\b", 'e': "\x1b", 'E': "\x1b", '\\': `\`}[e[0]]; ok {
+				b.WriteString(r)
+			} else {
+				b.WriteString(s[m[0]:m[1]])
+			}
 		}
-		return e
-	})
+	}
+	return b.String() + s[at:]
 }
 
 // bashWrittenValue is the value a Bash command writes into the phase file, as
@@ -265,7 +274,7 @@ func PhaseGuard(c *hookio.Ctx) {
 
 	// ---- a write that STARTS a run is decided from where it starts ---------
 	if !inRun {
-		if !contains(startsARun, written) {
+		if !slices.Contains(startsARun, written) {
 			return // arms nothing
 		}
 		if _, err := canrun.CheckStart(root); err != nil {
@@ -280,8 +289,10 @@ func PhaseGuard(c *hookio.Ctx) {
 		return
 	}
 
-	if !contains(Phases, written) {
-		c.Fail(fmt.Sprintf("[spec-flow] Denied: '%s' is not a phase this engine knows.\n\n", written) +
+	if !slices.Contains(Phases, written) {
+		// A byte the terminal would swallow is shown, or the refusal reads as one of a phase.
+		shown := strings.Trim(strconv.QuoteToGraphic(written), `"`)
+		c.Fail(fmt.Sprintf("[spec-flow] Denied: '%s' is not a phase this engine knows.\n\n", shown) +
 			fmt.Sprintf("The phase vocabulary is a CLOSED SET: %s. Every enforcement hook ", strings.Join(Phases, ", ")) +
 			"decides whether it is armed by matching this file against those values, and each one " +
 			fmt.Sprintf("falls through to \"not my business\" on anything else — so writing '%s' would run ", written) +
@@ -293,7 +304,7 @@ func PhaseGuard(c *hookio.Ctx) {
 	}
 
 	// ---- leaving `spec` needs a spec its first gate would accept -----------
-	if phase == "spec" && contains(leavesSpec, written) {
+	if phase == "spec" && slices.Contains(leavesSpec, written) {
 		if found := spectime.LeavingSpec(root); len(found) > 0 {
 			c.Deny(fmt.Sprintf("writing '%s' while the spec is not ready to build from:\n  - %s\n\n", written, strings.Join(found, "\n  - ")) +
 				"Hand these to a new spec-writer with specflow/<SLUG>/ (MODE=TRIAGE for a /spec-fix brief). For a /spec-flow " +
@@ -331,23 +342,32 @@ func PhaseGuard(c *hookio.Ctx) {
 	// Degrades quietly on a bad contract: refusing an unearned `done` is this
 	// check's job, policing the contract is the gate's.
 	var atBase []string
-	if cfg, err := contract.Load(root); err == nil {
-		for _, ch := range unscoped.Run(root, cfg).Checks {
-			if ch.RC != 0 {
-				failures = append(failures, fmt.Sprintf("--- %s ---\n%s", ch.Name, ch.Out))
+	func() {
+		// An engine defect here is no evidence `done` was earned: said, and the
+		// checks below still run.
+		defer func() {
+			if r := recover(); r != nil {
+				failures = append(failures, fmt.Sprintf("--- the project's checks ---\nthe engine could not run them (%v), so nothing says they pass.", r))
+			}
+		}()
+		if cfg, err := contract.Load(root); err == nil {
+			for _, ch := range unscoped.Run(root, cfg).Checks {
+				if ch.RC != 0 {
+					failures = append(failures, fmt.Sprintf("--- %s ---\n%s", ch.Name, ch.Out))
+				}
+			}
+			if base, err := gitscope.ResolveBase(root, cfg); err == nil {
+				atBase = gitscope.ChangesAtBase(root, base)
 			}
 		}
-		if base, err := gitscope.ResolveBase(root, cfg); err == nil {
-			atBase = gitscope.ChangesAtBase(root, base)
-		}
-	}
+	}()
 	// A change never folded is an unfinished run; one the base has is not
 	// this run's to fold (ADR-032).
 	if live := liveChanges(root); len(live) > 0 {
 		marked := make([]string, len(live))
 		for i, slug := range live {
 			marked[i] = slug
-			if contains(atBase, slug) {
+			if slices.Contains(atBase, slug) {
 				marked[i] = slug + " (the base branch has it: not this run's change)"
 			}
 		}

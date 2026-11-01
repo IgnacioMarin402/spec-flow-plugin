@@ -23,15 +23,16 @@ import (
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/contract"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/gitscope"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hookio"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/proc"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/specshape"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/testreport"
 )
 
 var (
-	scopeMarker = regexp.MustCompile(`(?m)^<!--\s*spec-scope:\s*(.+?)\s*-->$`)
+	scopeMarker = jsre.MustCompile(`^<!--\s*spec-scope:\s*(.+?)\s*-->$`, "m")
 	headingRe   = regexp.MustCompile(`^(#{1,6})\s+(\S+)`)
-	skillsField = regexp.MustCompile(`(?m)^[-*]?\s*\**Skills\**\s*:[ \t]*\S`)
+	skillsField = jsre.MustCompile(`^[-*]?\s*\**Skills\**\s*:[ \t]*\S`, "m")
 )
 
 // walk is every file under dir matching test. Dot-directories are skipped,
@@ -116,7 +117,7 @@ func Run(root string, list bool, stdout, stderr io.Writer) int {
 	for _, file := range specFiles {
 		r := rel(root, file)
 		text, _ := hookio.ReadText(file)
-		if scopeMarker.FindStringSubmatch(text) == nil {
+		if scopeMarker.Exec(text) == nil {
 			problems = append(problems, r+": missing the scope marker. Add `<!-- spec-scope: <the path this spec is about> -->` near the top.")
 		}
 		prefix := specshape.ExpectedPrefix(file)
@@ -462,7 +463,7 @@ func Run(root string, list bool, stdout, stderr io.Writer) int {
 		sort.Strings(files)
 		for _, f := range files {
 			text, _ := hookio.ReadText(filepath.Join(dir, f))
-			if !skillsField.MatchString(text) {
+			if !skillsField.Test(text) {
 				problems = append(problems, fmt.Sprintf("specflow/%s/milestones/%s has no `Skills:` field, or has one with nothing after the colon. Every milestone says which skills it needs — `none` when the answer is none, which is what a project shipping no skills always writes. Neither absent nor empty is that answer: the implementer cannot tell either apart from a planner that never looked, and loads nothing in all three cases.", slug, f))
 			}
 		}

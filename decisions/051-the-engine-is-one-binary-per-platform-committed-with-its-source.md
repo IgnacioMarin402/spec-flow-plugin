@@ -80,6 +80,9 @@ written:
   engine.
 
 **Cost.** About 18 MB of binaries per commit that changes the engine, in the
-repository's history for good. And on Windows the hooks rely on a spawn of
+repository's history for good. The engine runs on the five platforms it ships
+a binary for, no longer wherever node did: elsewhere the launcher answers every
+hook with an error notice, and an armed gate refuses the stop rather than let a
+milestone through unjudged. And on Windows the hooks rely on a spawn of
 `bin/spec-flow` resolving to `bin/spec-flow.exe`: Go's own spawn does, which
 CI exercises on Windows; Claude Code's has not been run here.

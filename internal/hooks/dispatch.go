@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agents"
@@ -256,7 +257,7 @@ func DispatchGuard(c *hookio.Ctx) {
 		if own == "implementer" && (phase == "done" || phase == "idle") {
 			return // arm-gate's, which denies it (ADR-044)
 		}
-		if contains(roles, own) && !hookio.StateIsTracked(root) {
+		if slices.Contains(roles, own) && !hookio.StateIsTracked(root) {
 			if phase == "" {
 				phase = "-"
 			}
@@ -292,9 +293,9 @@ func DispatchGuard(c *hookio.Ctx) {
 			extra = append(extra, agents.Field{Key: "files", Value: strings.Join(other, ",")})
 		}
 	}
-	if !contains(roles, agent) {
+	if !slices.Contains(roles, agent) {
 		why = append(why, "not-this-flow")
-	} else if agent != "implementer" && !contains(agents.DispatchedIn[phase], agent) {
+	} else if agent != "implementer" && !slices.Contains(agents.DispatchedIn[phase], agent) {
 		why = append(why, "phase")
 	}
 	if len(why) > 0 {
@@ -303,15 +304,6 @@ func DispatchGuard(c *hookio.Ctx) {
 		}
 		agents.RecordDispatch(root, p, phase, agent, "record", strings.Join(why, ","), extra...)
 	}
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 var preflightHeadings = map[string]string{

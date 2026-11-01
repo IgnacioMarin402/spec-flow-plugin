@@ -59,14 +59,15 @@ func Run(c *Ctx, main func(*Ctx), onError func(*Ctx, any)) (code int) {
 			return
 		}
 		code = 0
+		// Always, a handler or not: a report that sends a human to the stack
+		// on stderr has to find it there.
+		fmt.Fprintf(c.Stderr, "[spec-flow] hook error: %v\n%s\n", r, debug.Stack())
 		if onError != nil {
 			func() {
 				defer func() { _ = recover() }() // the handler must not be why this hook goes silent
 				onError(c, r)
 			}()
-			return
 		}
-		fmt.Fprintf(c.Stderr, "[spec-flow] hook error: %v\n%s\n", r, debug.Stack())
 	}()
 	main(c)
 	return 0

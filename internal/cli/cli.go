@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/engine"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/gitscope"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hookio"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/proc"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/spectime"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/spectrace"
@@ -45,18 +47,9 @@ var Commands = map[string]func([]string) int{
 
 func projectRoot() string { return hookio.ProjectDir() }
 
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
 // Trace is `spec-flow trace [--list]`.
 func Trace(args []string) int {
-	return spectrace.Run(projectRoot(), contains(args, "--list"), os.Stdout, os.Stderr)
+	return spectrace.Run(projectRoot(), slices.Contains(args, "--list"), os.Stdout, os.Stderr)
 }
 
 // Config is `spec-flow config`: the contract as every hook reads it, or why
@@ -85,7 +78,7 @@ func Config(args []string) int {
 // so "same files, same commands, same result" holds by construction.
 func Check(args []string) int {
 	root := projectRoot()
-	fix := !contains(args, "--no-fix")
+	fix := !slices.Contains(args, "--no-fix")
 	if err := gitscope.AssertRepoRoot(root); err != nil {
 		fmt.Fprintf(os.Stderr, "spec-flow check: %v\n", err)
 		return 1
@@ -123,7 +116,13 @@ func Check(args []string) int {
 			lint, label = cfg.Verify.LintNoFix, "(no fix)"
 		}
 		fmt.Printf("--- %s %s ---\n", cfg.Verify.LintName, label)
-		lintRc = inherit(root, append(append([]string{}, lint...), files...))
+		// With no linter the files appended would be the command itself.
+		if len(lint) == 0 {
+			fmt.Println("verify.lint_no_fix is not declared in .spec-flow/config.json, so --no-fix has no report-only linter to run. Declare it, or run `spec-flow check` without --no-fix.")
+			lintRc = 1
+		} else {
+			lintRc = inherit(root, append(append([]string{}, lint...), files...))
+		}
 		fmt.Println()
 	}
 	fmt.Printf("--- %s ---\n", cfg.Verify.TestName)
@@ -268,7 +267,7 @@ func Telemetry(args []string) int {
 	root := projectRoot()
 	state := filepath.Join(root, ".claude", "state")
 	offsetFile := filepath.Join(state, "run-offset")
-	if contains(args, "--mark") {
+	if slices.Contains(args, "--mark") {
 		_ = os.MkdirAll(state, 0o755)
 		offsets := map[string]int{}
 		total := 0
@@ -351,8 +350,8 @@ func nonBlank(path string) []string {
 }
 
 var (
-	fixHeading  = regexp.MustCompile(`(?m)^#\s*Fix\b`)
-	statusStamp = regexp.MustCompile(`(?m)^\*\*Status:\*\*\s*([A-Z]+)`)
+	fixHeading  = jsre.MustCompile(`^#\s*Fix\b`, "m")
+	statusStamp = jsre.MustCompile(`^\*\*Status:\*\*\s*([A-Z]+)`, "m")
 	milestoneMd = regexp.MustCompile(`^M(\d+)\.md$`)
 	mNumber     = regexp.MustCompile(`^M\d+$`)
 	resultField = regexp.MustCompile(` result=(\S+)`)
@@ -407,7 +406,7 @@ func Resume(args []string) (code int) {
 	}
 	var live []string
 	for _, e := range list(specflow) {
-		if d := e.Name(); d != "archive" && !contains(atBase, d) && hookio.Exists(filepath.Join(specflow, d, "spec.md")) {
+		if d := e.Name(); d != "archive" && !slices.Contains(atBase, d) && hookio.Exists(filepath.Join(specflow, d, "spec.md")) {
 			live = append(live, d)
 		}
 	}
@@ -431,7 +430,7 @@ func Resume(args []string) (code int) {
 		next("BLOCKED", "the gate reached its attempt cap and wrote `blocked` itself; a human decides from .claude/state/gate-failure.log.")
 	}
 	slug := asked
-	if contains(atBase, slug) {
+	if slices.Contains(atBase, slug) {
 		next("NONE", fmt.Sprintf("specflow/%s/ is on the base branch, so no run of this branch created it; a run cannot start over it (ADR-032).", slug))
 	}
 	if slug == "" {
@@ -459,10 +458,10 @@ func Resume(args []string) (code int) {
 		next("NONE", fmt.Sprintf("specflow/%s/spec.md does not exist, live or archived.", slug))
 	}
 	spec := read(filepath.Join(dir, "spec.md"))
-	fix := fixHeading.MatchString(spec)
+	fix := fixHeading.Test(spec)
 	status := ""
-	if m := statusStamp.FindStringSubmatch(spec); m != nil {
-		status = m[1]
+	if m := statusStamp.Exec(spec); m != nil {
+		status = m.Group(1)
 	}
 	proposal, plan := hookio.Exists(filepath.Join(dir, "proposal.md")), hookio.Exists(filepath.Join(dir, "plan.md"))
 	var milestones []int
@@ -670,7 +669,7 @@ func Models(args []string) int {
 	if v := os.Getenv("CLAUDE_CODE_EFFORT_LEVEL"); v != "" {
 		envLevel = &found{v, "the environment"}
 	}
-	valid := envLevel != nil && contains(agents.EffortLevels, strings.ToLower(envLevel.value))
+	valid := envLevel != nil && slices.Contains(agents.EffortLevels, strings.ToLower(envLevel.value))
 
 	meta := agents.Shipped()
 	shipped := agents.ShippedRouting()

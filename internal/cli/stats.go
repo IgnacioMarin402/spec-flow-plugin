@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -266,7 +267,7 @@ func runCovers(target, test string, proof proofLayout) string {
 type proofLayout struct{ suffix, dir string }
 
 func baseOf(p string) string {
-	parts := regexp.MustCompile(`[\\/]`).Split(p, -1)
+	parts := pathSep.Split(p, -1)
 	return parts[len(parts)-1]
 }
 
@@ -274,10 +275,11 @@ func iso(t time.Time) string { return hookio.ISO(t) }
 
 var (
 	reqID       = jsre.MustCompile(`(?<![A-Z0-9])REQ-([A-Z0-9-]+)-\d{3}(?!\d)`, "")
-	scopeMark   = regexp.MustCompile(`(?m)^<!--\s*spec-scope:\s*(.+?)\s*-->$`)
+	scopeMark   = jsre.MustCompile(`^<!--\s*spec-scope:\s*(.+?)\s*-->$`, "m")
 	filesField  = jsre.MustCompile(`(?:^|\n)[-*][ \t]*\**Files to add\/change\**[ \t]*:([\s\S]*?)(?=\n[-*][ \t]*\**[A-Z][^:\n]*\**[ \t]*:|\n#|$)`, "")
 	namedPathRe = regexp.MustCompile(`[\w.@-]+(?:/[\w.@-]+)+/?`)
-	h2Split     = regexp.MustCompile(`(?m)^## `)
+	h2Split     = jsre.MustCompile(`^## `, "m")
+	pathSep     = regexp.MustCompile(`[\\/]`)
 	deltasStart = regexp.MustCompile(`^Requirement deltas`)
 	archiveRead = regexp.MustCompile(`specflow[\\/]archive`)
 	absOrDrive  = regexp.MustCompile(`^([a-zA-Z]:)?/`)
@@ -295,7 +297,7 @@ func normPath(p string) string {
 func Stats(args []string) int {
 	root := projectRoot()
 	state := filepath.Join(root, ".claude", "state")
-	rawDump := contains(args, "--raw")
+	rawDump := slices.Contains(args, "--raw")
 	var warn []string
 	say := func(format string, a ...any) { fmt.Printf(format+"\n", a...) }
 
@@ -447,7 +449,7 @@ func Stats(args []string) int {
 			if m := extOfGlob.FindStringSubmatch(g); m != nil {
 				ext = m[1] // `lib/*.ts` names `.ts` as `*.ts` does
 			}
-			if strings.HasPrefix(ext, ".") && !contains(exts, ext) {
+			if strings.HasPrefix(ext, ".") && !slices.Contains(exts, ext) {
 				exts = append(exts, ext)
 			}
 		}
@@ -572,7 +574,7 @@ func Stats(args []string) int {
 							w = v
 						}
 					}
-					if !contains(whys, w) {
+					if !slices.Contains(whys, w) {
 						whys = append(whys, w)
 					}
 				}
@@ -883,7 +885,7 @@ func Stats(args []string) int {
 				if _, ok := e.Get("phase"); !ok {
 					p = "?"
 				}
-				if !contains(phases, p) {
+				if !slices.Contains(phases, p) {
 					phases = append(phases, p)
 				}
 			}
@@ -1237,11 +1239,11 @@ func byRoleRuns(runs []*run, say func(string, ...any)) {
 				rows[key] = rw
 				order = append(order, key)
 			}
-			if id := e.F("agent_id"); id != "" && !contains(rw.agents, id) {
+			if id := e.F("agent_id"); id != "" && !slices.Contains(rw.agents, id) {
 				rw.agents = append(rw.agents, id)
 			}
 			// The effort on the return line is the consulting agent's.
-			if hasBack && back.F("effort") != "" && e.F("advisor") != "true" && !contains(rw.efforts, back.F("effort")) {
+			if hasBack && back.F("effort") != "" && e.F("advisor") != "true" && !slices.Contains(rw.efforts, back.F("effort")) {
 				rw.efforts = append(rw.efforts, back.F("effort"))
 			}
 			rw.in += n(e, "in")
@@ -1372,7 +1374,7 @@ func changeDir(root, name string) string {
 func changeScope(root, dir, specsDir string) (dirs, from []string) {
 	text := func(f string) string { t, _ := hookio.ReadText(f); return t }
 	deltas := ""
-	for _, s := range h2Split.Split(text(filepath.Join(dir, "spec.md")), -1) {
+	for _, s := range h2Split.Split(text(filepath.Join(dir, "spec.md"))) {
 		if deltasStart.MatchString(s) {
 			deltas = s
 			break
@@ -1380,21 +1382,21 @@ func changeScope(root, dir, specsDir string) (dirs, from []string) {
 	}
 	var caps []string
 	for _, m := range reqID.ExecAll(deltas) {
-		if c := strings.ToLower(m.Group(1)); !contains(caps, c) {
+		if c := strings.ToLower(m.Group(1)); !slices.Contains(caps, c) {
 			caps = append(caps, c)
 		}
 	}
 	add := func(d string) {
-		if d != "" && !contains(dirs, d) {
+		if d != "" && !slices.Contains(dirs, d) {
 			dirs = append(dirs, d)
 		}
 	}
 	for _, c := range caps {
-		m := scopeMark.FindStringSubmatch(text(filepath.Join(root, specsDir, c+".md")))
+		m := scopeMark.Exec(text(filepath.Join(root, specsDir, c+".md")))
 		if m == nil {
 			continue
 		}
-		add(normPath(m[1]))
+		add(normPath(m.Group(1)))
 		from = append(from, specsDir+"/"+c+".md")
 	}
 	named := 0
