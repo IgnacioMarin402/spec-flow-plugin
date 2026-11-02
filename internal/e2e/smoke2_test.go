@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -673,21 +674,22 @@ func TestRunTraceTestRuns(t *testing.T) {
 }
 
 // hooksJSON is the plugin's hook registrations.
+type hookEntry struct {
+	Command   string
+	Args      []string
+	Shell     string
+	OnFailure string `json:"onFailure"`
+}
+
 func hooksJSON(t *testing.T) map[string][]struct {
 	Matcher string
-	Hooks   []struct {
-		Command string
-		Args    []string
-	}
+	Hooks   []hookEntry
 } {
 	t.Helper()
 	var m struct {
 		Hooks map[string][]struct {
 			Matcher string
-			Hooks   []struct {
-				Command string
-				Args    []string
-			}
+			Hooks   []hookEntry
 		}
 	}
 	root := repoRoot
@@ -700,9 +702,15 @@ func hooksJSON(t *testing.T) map[string][]struct {
 	return m.Hooks
 }
 
-func runsHook(args []string, name string) bool {
-	for i, a := range args {
-		if strings.HasSuffix(a, "/hooks/"+name+".mjs") || (a == name && i > 0 && args[i-1] == "hook") {
+var launcherCommand = regexp.MustCompile(`^"\$\{CLAUDE_PLUGIN_ROOT\}/bin/spec-flow" hook ([a-z-]+)$`)
+
+// runsHook says whether a manifest entry runs hook name.
+func runsHook(h hookEntry, name string) bool {
+	if m := launcherCommand.FindStringSubmatch(h.Command); m != nil {
+		return m[1] == name
+	}
+	for _, a := range h.Args {
+		if strings.HasSuffix(a, "/hooks/"+name+".mjs") {
 			return true
 		}
 	}
@@ -713,7 +721,7 @@ func TestHooksJSONRegistersRunTraceForAFailingBashCall(t *testing.T) {
 	for _, e := range hooksJSON(t)["PostToolUseFailure"] {
 		if regexp.MustCompile(`(^|\|)Bash(\||$)`).MatchString(e.Matcher) {
 			for _, h := range e.Hooks {
-				if runsHook(h.Args, "run-trace") {
+				if runsHook(h, "run-trace") {
 					return
 				}
 			}
@@ -722,21 +730,74 @@ func TestHooksJSONRegistersRunTraceForAFailingBashCall(t *testing.T) {
 	t.Fatal("no PostToolUseFailure entry runs run-trace on Bash — a red test run is never traced")
 }
 
+// shellOf is how Claude Code runs a shell-form hook here: `sh -c` on macOS and
+// Linux, Git Bash on Windows.
+func shellOf(t *testing.T) []string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return []string{"sh", "-c"}
+	}
+	return []string{gitBash(t), "-c"}
+}
+
+// gitBash is Git for Windows' bash, found beside the git on PATH: a bare
+// `bash` there may be WSL's.
+func gitBash(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "--exec-path").Output()
+	if err != nil {
+		t.Fatalf("no git to find Git Bash beside: %v", err)
+	}
+	for dir := filepath.Clean(strings.TrimSpace(string(out))); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if bash := filepath.Join(dir, "bin", "bash.exe"); exists(bash) {
+			return bash
+		}
+	}
+	t.Fatalf("no Git Bash above %s", strings.TrimSpace(string(out)))
+	return ""
+}
+
 // The manifest is a call site like any other: each entry, run exactly as
-// Claude Code runs it — its command and args, the plugin root substituted, no
-// shell — reaches a hook, which outside a run lets the call through.
+// Claude Code runs it — through the shell, the plugin root substituted —
+// reaches a hook, which outside a run lets the call through.
 func TestEveryHooksJSONEntryRunsAsWritten(t *testing.T) {
 	repo := t.TempDir()
 	for event, groups := range hooksJSON(t) {
 		for _, g := range groups {
 			for _, h := range g.Hooks {
-				argv := []string{strings.ReplaceAll(h.Command, "${CLAUDE_PLUGIN_ROOT}", engineDir)}
-				for _, a := range h.Args {
-					argv = append(argv, strings.ReplaceAll(a, "${CLAUDE_PLUGIN_ROOT}", engineDir))
+				var argv []string
+				if len(h.Args) == 0 {
+					argv = append(shellOf(t), strings.ReplaceAll(h.Command, "${CLAUDE_PLUGIN_ROOT}", filepath.ToSlash(engineDir)))
+				} else {
+					argv = []string{strings.ReplaceAll(h.Command, "${CLAUDE_PLUGIN_ROOT}", engineDir)}
+					for _, a := range h.Args {
+						argv = append(argv, strings.ReplaceAll(a, "${CLAUDE_PLUGIN_ROOT}", engineDir))
+					}
 				}
-				r := run(os.TempDir(), []string{"CLAUDE_PROJECT_DIR=" + repo}, toJSON(map[string]any{"hook_event_name": event, "session_id": "s"}), argv...)
+				r := run(os.TempDir(), []string{"CLAUDE_PROJECT_DIR=" + repo, "CLAUDE_PLUGIN_ROOT=" + engineDir}, toJSON(map[string]any{"hook_event_name": event, "session_id": "s"}), argv...)
 				if r.Status != 0 {
-					t.Errorf("%s %v exited %d: %s", event, h.Args, r.Status, r.Out())
+					t.Errorf("%s %q exited %d: %s", event, h.Command, r.Status, r.Out())
+				}
+			}
+		}
+	}
+}
+
+// Every hook runs the launcher in a shell, the only spawn that is the same
+// documented one on every platform (ADR-052). Where Windows has no Git Bash the
+// shell is PowerShell, which cannot run it: a PreToolUse hook failing there
+// blocks the call unless it says to continue, and the engine would stop every
+// Read, Write and spawn instead of standing down.
+func TestEveryHookRunsTheLauncherAndAPreToolUseHookContinuesWhereItCannotRun(t *testing.T) {
+	changedInPort(t, "the JavaScript engine ran each hook under node")
+	for event, groups := range hooksJSON(t) {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				if len(h.Args) > 0 || h.Shell != "" || !launcherCommand.MatchString(h.Command) {
+					t.Errorf("%s: %q is not the launcher in the default shell", event, h.Command)
+				}
+				if event == "PreToolUse" && h.OnFailure != "continue" {
+					t.Errorf("%s %q: onFailure is %q, not \"continue\"", event, h.Command, h.OnFailure)
 				}
 			}
 		}

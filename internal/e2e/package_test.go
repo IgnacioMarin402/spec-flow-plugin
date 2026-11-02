@@ -24,7 +24,7 @@ func TestACloneRunsAsItShips(t *testing.T) {
 
 	repo := makeRepo(t, repoOpts{})
 	shipped := func(engine string, args ...string) Result {
-		return run(repo, []string{"CLAUDE_PROJECT_DIR="}, "", append([]string{filepath.Join(engine, "bin", "spec-flow")}, args...)...)
+		return run(repo, []string{"CLAUDE_PROJECT_DIR="}, "", launch(t, engine, args...)...)
 	}
 	r := shipped(clone, "check")
 	if r.Status != 0 {

@@ -17,14 +17,14 @@ import (
 	"regexp"
 )
 
-// targets are the platforms the launcher names; Windows runs its binary
-// directly, where `bin/spec-flow` resolves to `bin/spec-flow.exe`.
+// targets are the platforms the launcher (bin/spec-flow) names: every hook
+// runs it in a shell, Git Bash on Windows, and it picks one of these.
 var targets = []struct{ goos, goarch, out string }{
 	{"linux", "amd64", "bin/linux-amd64/spec-flow"},
 	{"linux", "arm64", "bin/linux-arm64/spec-flow"},
 	{"darwin", "amd64", "bin/darwin-amd64/spec-flow"},
 	{"darwin", "arm64", "bin/darwin-arm64/spec-flow"},
-	{"windows", "amd64", "bin/spec-flow.exe"},
+	{"windows", "amd64", "bin/windows-amd64/spec-flow.exe"},
 }
 
 var goLine = regexp.MustCompile(`(?m)^go (\S+)$`)

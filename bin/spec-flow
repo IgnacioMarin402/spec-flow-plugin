@@ -1,6 +1,6 @@
 #!/bin/sh
-# Runs this engine's binary for the platform it is on. Every hook and command
-# goes through here on macOS and Linux; Windows runs bin/spec-flow.exe itself.
+# Runs this engine's binary for the platform it is on. Every hook goes through
+# here, in a shell: sh on macOS and Linux, Git Bash on Windows (ADR-052).
 # Resolved through any symlink first, so a link to it on PATH still finds the
 # binaries beside the real file.
 self=$0
@@ -17,7 +17,7 @@ case "$(uname -s)-$(uname -m)" in
   Linux-aarch64 | Linux-arm64) exec "$dir/linux-arm64/spec-flow" "$@" ;;
   Darwin-x86_64) exec "$dir/darwin-amd64/spec-flow" "$@" ;;
   Darwin-arm64) exec "$dir/darwin-arm64/spec-flow" "$@" ;;
-  MINGW* | MSYS* | CYGWIN*) exec "$dir/spec-flow.exe" "$@" ;;
+  MINGW* | MSYS* | CYGWIN*) exec "$dir/windows-amd64/spec-flow.exe" "$@" ;;
 esac
 # No binary for this platform. Exit 1, not 2: on a PreToolUse hook 2 would
 # deny every tool call on this machine, and Claude Code shows a non-blocking

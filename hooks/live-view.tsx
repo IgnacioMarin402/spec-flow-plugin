@@ -126,7 +126,8 @@ async function statKey($: EngineInterface, path: string): Promise<string> {
 /**
  * A log's lines that count (`linesOf`): none when there is no log, and null
  * when it is there and could not be read. Past what one read takes, the
- * engine's binary streams it; Windows runs it as `bin/spec-flow.exe`.
+ * engine's binary streams it. A mod has no shell: it runs the launcher, and
+ * where that cannot start (Windows), the binary the launcher would (ADR-052).
  */
 async function logLines($: EngineInterface, file: string, needle: string, since: number): Promise<{ n: number; last: string[] } | null> {
   const path = `${root}/.claude/state/${file}`
@@ -138,8 +139,9 @@ async function logLines($: EngineInterface, file: string, needle: string, since:
   if ((await statKey($, path)) === '') return { n: 0, last: [] }
   try {
     const argv = ['lines', path, String(since), needle]
-    const engine = `${$.plugin.root}/bin/spec-flow`
-    const out = await $.process.run([engine, ...argv], { cwd: root, timeoutMs: 5_000 }).catch(() => $.process.run([`${engine}.exe`, ...argv], { cwd: root, timeoutMs: 5_000 }))
+    const bin = `${$.plugin.root}/bin`
+    const init = { cwd: root, timeoutMs: 5_000 }
+    const out = await $.process.run([`${bin}/spec-flow`, ...argv], init).catch(() => $.process.run([`${bin}/windows-amd64/spec-flow.exe`, ...argv], init))
     const [head = '', ...last] = out.stdout.split('\n')
     return out.exitCode === 0 && !out.isStdoutTruncated && /^\d+$/.test(head) ? { n: Number(head), last: last.filter(Boolean) } : null
   } catch {

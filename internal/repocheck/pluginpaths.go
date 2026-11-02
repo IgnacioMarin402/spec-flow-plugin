@@ -42,7 +42,9 @@ var HookNames = func() []string {
 var (
 	// The trailing class stops at whatever markdown wrapped it.
 	placeholder = regexp.MustCompile(`\$\{CLAUDE_PLUGIN_ROOT\}/([A-Za-z0-9._\-/]+)`)
-	registered  = regexp.MustCompile(`"hook",\s*"([A-Za-z0-9._-]+)"`)
+	// Every entry is the launcher in a shell (ADR-052); one spelled otherwise
+	// is not counted as registering anything.
+	registered = regexp.MustCompile(`^"\$\{CLAUDE_PLUGIN_ROOT\}/bin/spec-flow" hook ([A-Za-z0-9._-]+)$`)
 )
 
 // The shapes the engine writes a state path in. The file name may be a
@@ -184,9 +186,21 @@ func PluginPaths(root string) Report {
 	// manifest never registers ships and never fires; one the manifest
 	// registers and the binary lacks is a guarantee it cannot keep.
 	manifest := readRel(root, "hooks/hooks.json")
+	var registrations struct {
+		Hooks map[string][]struct {
+			Hooks []struct{ Command string }
+		}
+	}
+	json.Unmarshal([]byte(manifest), &registrations)
 	inManifest := map[string]bool{}
-	for _, m := range registered.FindAllStringSubmatch(manifest, -1) {
-		inManifest[m[1]] = true
+	for _, groups := range registrations.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				if m := registered.FindStringSubmatch(h.Command); m != nil {
+					inManifest[m[1]] = true
+				}
+			}
+		}
 	}
 	for _, h := range HookNames {
 		if !inManifest[h] {

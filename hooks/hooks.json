@@ -5,7 +5,7 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "human-turn"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook human-turn" }
         ]
       }
     ],
@@ -13,7 +13,7 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "session-start"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook session-start" }
         ]
       }
     ],
@@ -21,40 +21,40 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "no-gate-cmds"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook no-gate-cmds", "onFailure": "continue" }
         ]
       },
       {
         "matcher": "Bash|Write|Edit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "phase-guard"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook phase-guard", "onFailure": "continue" }
         ]
       },
       {
         "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit|Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "orchestrator-scope"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook orchestrator-scope", "onFailure": "continue" }
         ]
       },
       {
         "matcher": "Task|Agent|SendMessage",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "preflight"] },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "opus-budget"] },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "arm-gate"] },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "dispatch-guard"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook preflight", "onFailure": "continue" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook opus-budget", "onFailure": "continue" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook arm-gate", "onFailure": "continue" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook dispatch-guard", "onFailure": "continue" }
         ]
       },
       {
         "matcher": "Task|Agent",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "model-route"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook model-route", "onFailure": "continue" }
         ]
       },
       {
         "matcher": "SendMessage",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "stale-resume"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook stale-resume", "onFailure": "continue" }
         ]
       }
     ],
@@ -62,25 +62,25 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "lint-on-write"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook lint-on-write" }
         ]
       },
       {
         "matcher": "Task|Agent",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "register-agent"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook register-agent" }
         ]
       },
       {
         "matcher": "AskUserQuestion",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "human-turn"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook human-turn" }
         ]
       },
       {
         "matcher": "Write|Edit|Read|Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "run-trace"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook run-trace" }
         ]
       }
     ],
@@ -88,7 +88,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "run-trace"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook run-trace" }
         ]
       }
     ],
@@ -96,8 +96,8 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "run-trace"] },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "agent-gate"] }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook run-trace" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook agent-gate" }
         ]
       }
     ],
@@ -105,9 +105,9 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "token-trace"] },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "human-turn"] },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/spec-flow", "args": ["hook", "gate"], "timeout": 1800 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook token-trace" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook human-turn" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook gate", "timeout": 1800 }
         ]
       }
     ]

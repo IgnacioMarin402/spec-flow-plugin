@@ -13,7 +13,7 @@ import (
 
 func TestTheLauncherFailsAnArmedGateClosedWhereNoBinaryShips(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows runs bin/spec-flow.exe, not the launcher")
+		t.Skip("a fake uname on PATH needs an executable on Windows")
 	}
 	changedInPort(t, "the JavaScript engine had no launcher")
 	fake := t.TempDir()
@@ -44,5 +44,27 @@ func TestTheLauncherFailsAnArmedGateClosedWhereNoBinaryShips(t *testing.T) {
 			t.Fatalf("hook %s with no run armed: exit %d, blocked %v; want the notice alone (exit 1)", h, r.Status, r.Blocked())
 		}
 		mustMatch(t, `ships no binary for FreeBSD amd64`, r.Stderr, "the notice does not name the platform")
+	}
+}
+
+// Every hook runs the launcher in a shell, Git Bash on Windows: there it picks
+// the Windows binary from bin/windows-amd64/, as it picks every other one.
+func TestTheLauncherPicksTheWindowsBinaryUnderGitBash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a fake uname on PATH needs an executable on Windows")
+	}
+	changedInPort(t, "the JavaScript engine had no launcher")
+	fake := t.TempDir()
+	write(t, filepath.Join(fake, "uname"), "#!/bin/sh\ncase $1 in -s) echo MINGW64_NT-10.0-26100 ;; -m) echo x86_64 ;; esac\n")
+	os.Chmod(filepath.Join(fake, "uname"), 0o755)
+	engine := t.TempDir()
+	write(t, filepath.Join(engine, "bin", "spec-flow"), read(filepath.Join(repoRoot, "bin", "spec-flow")))
+	os.Chmod(filepath.Join(engine, "bin", "spec-flow"), 0o755)
+	stand := filepath.Join(engine, "bin", "windows-amd64", "spec-flow.exe")
+	write(t, stand, "#!/bin/sh\necho \"windows binary: $*\"\n")
+	os.Chmod(stand, 0o755)
+	r := run(os.TempDir(), []string{"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, "", filepath.Join(engine, "bin", "spec-flow"), "hook", "gate")
+	if r.Status != 0 || r.Stdout != "windows binary: hook gate\n" {
+		t.Fatalf("Git Bash did not reach bin/windows-amd64/spec-flow.exe (exit %d):\n%s", r.Status, r.Out())
 	}
 }

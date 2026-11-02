@@ -256,7 +256,7 @@ func stateTable(names ...string) string {
 func paths(t *testing.T, files map[string]string, modules ...string) Report {
 	var entries []string
 	for _, h := range HookNames {
-		entries = append(entries, `{"type":"command","command":"x","args":["hook","`+h+`"]}`)
+		entries = append(entries, `{"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook `+h+`"}`)
 	}
 	mods := ""
 	if len(modules) > 0 {
@@ -265,6 +265,7 @@ func paths(t *testing.T, files map[string]string, modules ...string) Report {
 	return PluginPaths(tree(t, merged(map[string]string{
 		"internal/base/base.go": "package base\n\nfunc f(state string) { appendLine(filepath.Join(state, \"base.log\")) }\n",
 		"REFERENCE.md":          stateTable(),
+		"bin/spec-flow":         "#!/bin/sh\n",
 		"hooks/hooks.json":      `{"hooks":{"Stop":[{"hooks":[` + strings.Join(entries, ",") + `]}]}` + mods + `}`,
 	}, files)))
 }
@@ -335,12 +336,17 @@ func TestModuleInventory(t *testing.T) {
 }
 
 func TestHookInventory(t *testing.T) {
-	r := PluginPaths(tree(t, map[string]string{"hooks/hooks.json": `{"hooks":{"Stop":[{"hooks":[{"command":"x","args":["hook","nonesuch"]}]}]}}`}))
+	r := PluginPaths(tree(t, map[string]string{"hooks/hooks.json": `{"hooks":{"Stop":[{"hooks":[{"command":"\"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow\" hook nonesuch"}]}]}}`}))
 	if !strings.Contains(r.String(), "registers `hook nonesuch`, which the binary does not dispatch") {
 		t.Fatalf("a manifest entry for a hook the binary lacks passed.\n%s", r)
 	}
 	if !strings.Contains(r.String(), "dispatches `hook gate` and hooks.json never registers it") {
 		t.Fatalf("a hook the binary dispatches and the manifest never registers passed.\n%s", r)
+	}
+	// Exec form is the spawn ADR-052 left: an entry spelled that way registers nothing.
+	r = PluginPaths(tree(t, map[string]string{"hooks/hooks.json": `{"hooks":{"Stop":[{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/bin/spec-flow","args":["hook","gate"]}]}]}}`}))
+	if !strings.Contains(r.String(), "dispatches `hook gate` and hooks.json never registers it") {
+		t.Fatalf("an exec-form entry was counted as registering the gate.\n%s", r)
 	}
 	r = PluginPaths(tree(t, map[string]string{"commands/run.md": "Run `${CLAUDE_PLUGIN_ROOT}/bin/nonesuch`.\n"}))
 	if !strings.Contains(r.String(), "commands/run.md:1  bin/nonesuch does not exist in this package") {
