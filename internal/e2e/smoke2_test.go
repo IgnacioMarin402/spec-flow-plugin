@@ -569,6 +569,23 @@ func TestRunTraceTestRuns(t *testing.T) {
 			t.Fatalf("got %q", got)
 		}
 	})
+	// A run handed to a shell, and one after an escaped quote, are runs.
+	t.Run("reads a run through a shell and past an escaped quote", func(t *testing.T) {
+		repo := makeRepo(t, repoOpts{})
+		for _, c := range []string{`sh -c 'npx ftest run tests/a.spec.ts'`, `git commit -m "a \"b" && npx ftest run tests/a.spec.ts && echo "c"`, `sh -c 'npx ftest run'`, `git commit -m "a \"b" && npx ftest run && echo "c"`} {
+			runHook(t, "run-trace", bashFailure(c, "Exit code 1\nexpected 3, got undefined", nil), repo)
+		}
+		if got := allOf(`test (verdict=\S+ target=\S+)`, traceText(repo)); got != "verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=? target=-,verdict=? target=-" {
+			t.Fatalf("got %q", got)
+		}
+	})
+	t.Run("a commit message naming the runner is no run", func(t *testing.T) {
+		repo := makeRepo(t, repoOpts{})
+		runHook(t, "run-trace", bashFailure(`git commit -m "ftest tests/a.spec.ts" && false`, "Exit code 1", nil), repo)
+		if v := verdictOf(repo); v != "(nothing traced)" {
+			t.Fatalf("traced %s: %s", v, traceText(repo))
+		}
+	})
 	t.Run("does not call an interrupted test run red", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
 		runHook(t, "run-trace", bashFailure("npx ftest run tests/a.spec.ts", "Interrupted", map[string]any{"is_interrupt": true}), repo)

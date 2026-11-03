@@ -1,7 +1,7 @@
-// Package shell reads a Bash command the way the phase-write readers and
-// orchestrator-scope need it: which parts a shell treats as text, and where a
-// write lands after a `cd`. One scanner for every reader (B69): two readings
-// of one command's quoting would disagree about what it writes.
+// Package shell reads a Bash command the way every hook that reads one needs
+// it: which parts a shell treats as text, and where a write lands after a
+// `cd`. One scanner for every reader (B69): two readings of one command's
+// quoting would disagree about what it runs or writes.
 package shell
 
 import (
@@ -76,6 +76,16 @@ type pendingDoc struct {
 // cannot close is left as code: read as code, a command names more writes,
 // never fewer.
 func Kinds(cmd string) []byte {
+	kinds := scan(cmd)
+	if runsText.Test(Masked(cmd, kinds)) {
+		return nil
+	}
+	return kinds
+}
+
+// scan is what each byte of cmd is to a shell, read as if no program ran its
+// text as code.
+func scan(cmd string) []byte {
 	n := len(cmd)
 	kinds := make([]byte, n)
 	mark := func(from, to int, kind byte) {
@@ -346,10 +356,86 @@ func Kinds(cmd string) []byte {
 	}
 
 	code(0)
-	if runsText.Test(Masked(cmd, kinds)) {
-		return nil
-	}
 	return kinds
+}
+
+// MaskRune keeps a quoted or escaped character inside its word: whitespace and
+// `> | & ; <` move into the private-use range, which Unmask undoes.
+func MaskRune(r rune) rune {
+	if strings.ContainsRune(" \t\n\r\f\v<>|&;", r) {
+		return 0xE000 + r
+	}
+	return r
+}
+
+// Unmask is s with what MaskRune moved put back.
+func Unmask(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 0xE000 && r <= 0xE07F {
+			return r - 0xE000
+		}
+		return r
+	}, s)
+}
+
+// A list ends where the next one starts: a pipeline stays one, so the text
+// `echo "…" | sh` hands its shell is in the list that runs it.
+var listSep = regexp.MustCompile(`;|&&|\|\||\n`)
+
+// Words is cmd as the readers of its words take it: quote marks, comments,
+// heredocs and line continuations gone, and each quoted or escaped word whole,
+// masked by MaskRune. In a list that runs text as code (`sh -c '…'`, `eval`,
+// `… | bash`), that text is read as a command of its own between `;`s: read
+// as text, `sh -c 'npm test'` runs no test.
+func Words(cmd string) string {
+	kinds := scan(cmd)
+	masked := Masked(cmd, kinds)
+	var b strings.Builder
+	last := 0
+	for _, m := range append(listSep.FindAllStringIndex(masked, -1), []int{len(cmd), len(cmd)}) {
+		if m[0] >= 2 && kinds[m[0]-2] == Quoting && cmd[m[0]-2:m[0]] == "\\\r" {
+			continue // `\` CR LF continues the line
+		}
+		writeWords(&b, cmd, kinds, last, m[0], runsText.Test(masked[last:m[0]]))
+		b.WriteString(cmd[m[0]:m[1]])
+		last = m[1]
+	}
+	return b.String()
+}
+
+func writeWords(b *strings.Builder, cmd string, kinds []byte, from, to int, runs bool) {
+	for k := from; k < to; {
+		switch kinds[k] {
+		case Code:
+			b.WriteByte(cmd[k])
+			k++
+		case Data:
+			k++
+		case Quoting:
+			k++
+			// A continued line: the backslash and its newline are not there.
+			if cmd[k-1] == '\\' && strings.HasPrefix(cmd[k:], "\n") {
+				k++
+			} else if cmd[k-1] == '\\' && strings.HasPrefix(cmd[k:], "\r\n") {
+				k += 2
+			}
+		default:
+			if !runs {
+				r, w := utf8.DecodeRuneInString(cmd[k:])
+				b.WriteRune(MaskRune(r))
+				k += w
+				continue
+			}
+			// One word of quoted text, as the program that runs it receives it.
+			var text []byte
+			for ; k < to && kinds[k] != Code && kinds[k] != Data; k++ {
+				if kinds[k] != Quoting {
+					text = append(text, cmd[k])
+				}
+			}
+			b.WriteString(" ; " + Words(string(text)) + " ; ")
+		}
+	}
 }
 
 // QuotedAsText is cmd with what a shell reads as text masked, byte for byte.

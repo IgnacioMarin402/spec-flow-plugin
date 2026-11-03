@@ -18,7 +18,6 @@ import (
 )
 
 var (
-	quotedRe     = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 	pathChar     = regexp.MustCompile(`[\\/.]`)
 	compoundSep  = regexp.MustCompile(`&&|\|\||;|\|`)
 	assignment   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
@@ -68,13 +67,9 @@ func classify(cmd string, d denied) string {
 		return ""
 	}
 	// Quoted text and heredoc bodies are data: a commit message saying
-	// `; ftest covers it` runs nothing. A quoted path still scopes.
-	command := quotedRe.ReplaceAllStringFunc(strings.SplitN(cmd, "<<", 2)[0], func(q string) string {
-		if pathChar.MatchString(q[1 : len(q)-1]) {
-			return " ./quoted "
-		}
-		return " "
-	})
+	// `; ftest covers it` runs nothing. A quoted path still scopes, and text
+	// handed to a shell (`sh -c 'npm test'`) is read as the command it is.
+	command := shell.Words(cmd)
 	// A compound command is denied if ANY of its parts is.
 	for _, part := range compoundSep.Split(command, -1) {
 		t := strings.Fields(part)
@@ -148,7 +143,7 @@ func classify(cmd string, d denied) string {
 // NoGateCmds — PreToolUse on Bash — keeps WHOLE-REPO lint and test runs out of
 // a run: the full output is mostly about files the milestone never touched,
 // and it lands in the agent's context. The scoped forms stay allowed, and only
-// during `implement`. A consistency guard, not a security boundary: `sh -c`
+// during `implement`. A consistency guard, not a security boundary: a script
 // or an alias evades it, and the gate re-runs the real checks on Stop.
 func NoGateCmds(c *hookio.Ctx) {
 	root := hookio.ProjectDir()
@@ -242,24 +237,6 @@ func readableRel(rel string) bool {
 	return under(rel, readable) || (!strings.Contains(rel, "/") && strings.HasSuffix(rel, ".md"))
 }
 
-// A quoted or escaped word keeps its whitespace and its `> | & ; <` as
-// characters: masked into the private-use range, restored on the way out.
-func maskRune(r rune) rune {
-	if strings.ContainsRune(" \t\n\r\f\v<>|&;", r) {
-		return 0xE000 + r
-	}
-	return r
-}
-
-func unmask(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r >= 0xE000 && r <= 0xE07F {
-			return r - 0xE000
-		}
-		return r
-	}, s)
-}
-
 // bashWrites are the paths a command writes, moves or deletes, as far as its
 // plain forms say.
 func bashWrites(cmd string) []string {
@@ -274,7 +251,7 @@ func bashWrites(cmd string) []string {
 			case shell.Code:
 				b.WriteString(cmd[k : k+w])
 			default:
-				b.WriteRune(maskRune(r))
+				b.WriteRune(shell.MaskRune(r))
 			}
 			k += w
 		}
@@ -322,7 +299,7 @@ func bashWrites(cmd string) []string {
 	}
 	var out []string
 	for _, p := range paths {
-		if p = unmask(p); p != "" && !strings.HasPrefix(p, "&") && p != "/dev/null" {
+		if p = shell.Unmask(p); p != "" && !strings.HasPrefix(p, "&") && p != "/dev/null" {
 			out = append(out, p)
 		}
 	}
