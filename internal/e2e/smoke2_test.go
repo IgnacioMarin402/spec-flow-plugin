@@ -569,13 +569,14 @@ func TestRunTraceTestRuns(t *testing.T) {
 			t.Fatalf("got %q", got)
 		}
 	})
-	// A run handed to a shell, and one after an escaped quote, are runs.
+	// A run handed to a shell, in an argument or a heredoc, and one after an
+	// escaped quote, are runs.
 	t.Run("reads a run through a shell and past an escaped quote", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
-		for _, c := range []string{`sh -c 'npx ftest run tests/a.spec.ts'`, `git commit -m "a \"b" && npx ftest run tests/a.spec.ts && echo "c"`, `sh -c 'npx ftest run'`, `git commit -m "a \"b" && npx ftest run && echo "c"`} {
+		for _, c := range []string{`sh -c 'npx ftest run tests/a.spec.ts'`, `git commit -m "a \"b" && npx ftest run tests/a.spec.ts && echo "c"`, "bash <<EOF\nnpx ftest run tests/a.spec.ts\nEOF", `sh -c 'npx ftest run'`, `git commit -m "a \"b" && npx ftest run && echo "c"`} {
 			runHook(t, "run-trace", bashFailure(c, "Exit code 1\nexpected 3, got undefined", nil), repo)
 		}
-		if got := allOf(`test (verdict=\S+ target=\S+)`, traceText(repo)); got != "verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=? target=-,verdict=? target=-" {
+		if got := allOf(`test (verdict=\S+ target=\S+)`, traceText(repo)); got != "verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=? target=-,verdict=? target=-" {
 			t.Fatalf("got %q", got)
 		}
 	})
