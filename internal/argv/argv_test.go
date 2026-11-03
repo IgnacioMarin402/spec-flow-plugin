@@ -163,3 +163,26 @@ func TestResolveLocalBin(t *testing.T) {
 		}
 	})
 }
+
+// A root has more than one spelling: Windows' short names (RUNNER~1), a
+// directory reached through a symlink (macOS's /var). The entrypoint is named
+// from the repository whichever spelling it was handed.
+func TestResolveLocalBinFromARootWithAnotherSpelling(t *testing.T) {
+	real := t.TempDir()
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := os.Symlink(real, root); err != nil {
+		t.Skip("symlinks not permitted on this machine")
+	}
+	packageEntry(t, root, "eslint", "bin/eslint.js")
+	shim(t, root, "eslint", "#!/bin/sh\nexec node  \"$basedir/../eslint/bin/eslint.js\" \"$@\"\n")
+	if got := ResolveLocalBin(root, "eslint"); got != "node_modules/eslint/bin/eslint.js" {
+		t.Errorf("the sh shim: got %q", got)
+	}
+	packageEntry(t, root, "vitest", "dist/cli.js")
+	if err := os.Symlink(filepath.Join("..", "vitest", "dist", "cli.js"), filepath.Join(root, "node_modules", ".bin", "vitest")); err != nil {
+		t.Skip("symlinks not permitted on this machine")
+	}
+	if got := ResolveLocalBin(root, "vitest"); got != "node_modules/vitest/dist/cli.js" {
+		t.Errorf("the symlinked bin: got %q", got)
+	}
+}

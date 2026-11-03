@@ -116,7 +116,13 @@ func ResolveLocalBin(root, binName string) string {
 		if err != nil {
 			return ""
 		}
-		return relPosix(root, real)
+		// A resolved path is named from the resolved root: a root has more
+		// than one spelling (a short name on Windows, a symlink elsewhere).
+		realRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return ""
+		}
+		return relPosix(realRoot, real)
 	}
 	b, err := os.ReadFile(shim)
 	if err != nil {
@@ -135,16 +141,11 @@ func ResolveLocalBin(root, binName string) string {
 	return relPosix(root, full)
 }
 
+// relPosix is path from root, with `/`; both spelled the same way.
 func relPosix(root, path string) string {
-	realRoot, err := filepath.EvalSymlinks(root)
+	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		realRoot = root
-	}
-	rel, err := filepath.Rel(realRoot, path)
-	if err != nil {
-		if rel, err = filepath.Rel(root, path); err != nil {
-			return ""
-		}
+		return ""
 	}
 	return toPosix(rel)
 }
