@@ -240,16 +240,6 @@ confirming the offered `build`. That route has not been run to green:
 installed. **Done:** a scaffold, installed, from `init` to a green `spec-flow
 check`, with what the adopter still had to supply recorded.
 
-### B70 — two readers still pair quotes by hand
-
-`no-gate-cmds` and `run-trace`'s test reader take quoted text as text with
-`/"[^"]*"|'[^']*'/` and a cut at `<<`: an escaped quote moves what they read,
-and a command handed to a shell is not read at all. During a run,
-`sh -c 'npm run test'` and `git commit -m "a \"b" && npm run test && echo "c"`
-both run the whole suite, and `no-gate-cmds` allows both. `shell.Kinds` in
-`internal/shell` reads either. **Done:** both read through it, with a
-hook test (`internal/e2e`) for each command above, red before.
-
 ## Deliberately not doing
 
 - **More agents or commands.** Five agents that provably close the loop is the

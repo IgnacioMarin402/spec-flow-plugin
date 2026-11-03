@@ -25,9 +25,7 @@ import (
 var (
 	runnerWrapper = regexp.MustCompile(`^(npx|pnpm|yarn|bunx)$`)
 	runnerSub     = regexp.MustCompile(`^(exec|dlx|run)$`)
-	lineCont      = regexp.MustCompile(`\\\r?\n`)
 	gitCmd        = regexp.MustCompile(`^\s*git(\s|$)`)
-	quotedNoSpace = regexp.MustCompile(`"([^"\s]+)"|'([^'\s]+)'`)
 	redirection   = regexp.MustCompile(`\d*[<>]{1,2}&?\s*[^\s;|&<>]*`)
 	chainParts    = regexp.MustCompile(`;|&&|\|\||\||&|\n`)
 	groupChars    = regexp.MustCompile("[()`]")
@@ -94,13 +92,19 @@ func traceTest(input map[string]any, res any, testName string, failure *testFail
 	if testName == "" {
 		return "" // no contract read -> no runner name to look for
 	}
-	raw := lineCont.ReplaceAllString(strings.SplitN(hookio.JSString(input["command"]), "<<", 2)[0], " ")
-	cmd := quotedRe.ReplaceAllString(raw, " ")
-	if gitCmd.MatchString(cmd) {
-		return ""
-	}
+	// Read through the shell's quoting: a commit message naming the runner runs
+	// nothing, and `sh -c '<runner> …'` runs it.
+	cmd := shell.Words(hookio.JSString(input["command"]))
 	namesRunner := regexp.MustCompile(`(^|[^a-zA-Z-])` + regexp.QuoteMeta(testName) + `([^a-zA-Z-]|$)`)
-	if !namesRunner.MatchString(cmd) {
+	// The commands in a chain that run it — not git, whose arguments only name
+	// it — and what each was handed, past any redirection.
+	var runs []string
+	for _, part := range chainParts.Split(cmd, -1) {
+		if namesRunner.MatchString(part) && !gitCmd.MatchString(part) {
+			runs = append(runs, strings.TrimSpace(groupChars.ReplaceAllString(part, " ")))
+		}
+	}
+	if len(runs) == 0 {
 		return ""
 	}
 	var out string
@@ -118,19 +122,15 @@ func traceTest(input map[string]any, res any, testName string, failure *testFail
 		s, _ := res.(string)
 		out = strings.Join(append(parts, s), "\n")
 	}
-	// What the runner was handed: the paths of the commands in a chain that
-	// run it, past any redirection.
-	t := quotedRe.ReplaceAllString(quotedNoSpace.ReplaceAllString(raw, " $1$2 "), " ")
-	t = redirection.ReplaceAllString(t, " ")
 	var targets []string
-	for _, part := range chainParts.Split(t, -1) {
-		if !namesRunner.MatchString(part) {
-			continue
-		}
-		for _, tok := range strings.Fields(groupChars.ReplaceAllString(part, " ")) {
+	runner := false
+	for _, part := range runs {
+		runner = runner || runsRunner(part, testName)
+		for _, tok := range strings.Fields(redirection.ReplaceAllString(part, " ")) {
 			segs := pathSeps.Split(tok, -1)
 			last := segs[len(segs)-1]
-			if !strings.HasPrefix(tok, "-") && strings.ContainsAny(tok, "/.") && !strings.Contains(last, testName) && !pmWord.MatchString(tok) {
+			// A word with quoted whitespace in it would split the trace line.
+			if !strings.HasPrefix(tok, "-") && strings.ContainsAny(tok, "/.") && !strings.Contains(last, testName) && !pmWord.MatchString(tok) && shell.Unmask(tok) == tok {
 				targets = append(targets, tok)
 			}
 		}
@@ -162,7 +162,7 @@ func traceTest(input map[string]any, res any, testName string, failure *testFail
 		why = "not-found"
 	case target == "-":
 		why = "no-path"
-	case !runsRunner(cmd, testName):
+	case !runner:
 		why = "not-the-runner"
 	default:
 		verdict = "red"

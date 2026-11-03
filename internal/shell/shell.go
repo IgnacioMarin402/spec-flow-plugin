@@ -1,7 +1,7 @@
-// Package shell reads a Bash command the way the phase-write readers and
-// orchestrator-scope need it: which parts a shell treats as text, and where a
-// write lands after a `cd`. One scanner for every reader (B69): two readings
-// of one command's quoting would disagree about what it writes.
+// Package shell reads a Bash command the way every hook that reads one needs
+// it: which parts a shell treats as text, and where a write lands after a
+// `cd`. One scanner for every reader (B69): two readings of one command's
+// quoting would disagree about what it runs or writes.
 package shell
 
 import (
@@ -68,7 +68,12 @@ var backticksOrSubst = regexp.MustCompile("\\$\\(|`")
 type pendingDoc struct {
 	word         string
 	quoted, tabs bool
+	at           int // its index in the heredocs scan returns
 }
+
+// heredoc is a `<<` operator at op and its body, cmd[from:to], the line that
+// ends it left out.
+type heredoc struct{ op, from, to int }
 
 // Kinds is what each byte of cmd is to a shell, or nil when the command runs
 // text as code and none of it is text. What runs inside quotes stays code —
@@ -76,8 +81,19 @@ type pendingDoc struct {
 // cannot close is left as code: read as code, a command names more writes,
 // never fewer.
 func Kinds(cmd string) []byte {
+	kinds, _ := scan(cmd)
+	if runsText.Test(Masked(cmd, kinds)) {
+		return nil
+	}
+	return kinds
+}
+
+// scan is what each byte of cmd is to a shell, read as if no program ran its
+// text as code, and its heredocs.
+func scan(cmd string) ([]byte, []heredoc) {
 	n := len(cmd)
 	kinds := make([]byte, n)
+	var docs []heredoc
 	mark := func(from, to int, kind byte) {
 		if to > n {
 			to = n
@@ -190,6 +206,8 @@ func Kinds(cmd string) []byte {
 			d.word = w5
 		}
 		d.quoted = !ok5 || esc == `\`
+		d.at = len(docs)
+		docs = append(docs, heredoc{op: i, from: n, to: n})
 		pending = append(pending, d)
 		mark(i, i+m[1], Data)
 		i += m[1]
@@ -197,9 +215,10 @@ func Kinds(cmd string) []byte {
 	// Each pending body, through the line that ends it. An unquoted heredoc
 	// expands, so a line of one holding `$(` or a backquote is left as code.
 	bodies := func() {
-		docs := pending
+		waiting := pending
 		pending = nil
-		for _, d := range docs {
+		for _, d := range waiting {
+			docs[d.at].from = min(i, n)
 			for i < n {
 				end := strings.IndexByte(cmd[i:], '\n')
 				if end == -1 {
@@ -213,6 +232,9 @@ func Kinds(cmd string) []byte {
 					cmp = strings.TrimLeft(line, "\t")
 				}
 				last := cmp == d.word
+				if last {
+					docs[d.at].to = i
+				}
 				if d.quoted || last || !backticksOrSubst.MatchString(line) {
 					mark(i, end, Data)
 				}
@@ -346,10 +368,301 @@ func Kinds(cmd string) []byte {
 	}
 
 	code(0)
-	if runsText.Test(Masked(cmd, kinds)) {
-		return nil
+	return kinds, docs
+}
+
+// MaskRune keeps a quoted or escaped character inside its word: whitespace and
+// `> | & ; <` move into the private-use range, which Unmask undoes.
+func MaskRune(r rune) rune {
+	if strings.ContainsRune(" \t\n\r\f\v<>|&;", r) {
+		return 0xE000 + r
 	}
-	return kinds
+	return r
+}
+
+// Unmask is s with what MaskRune moved put back.
+func Unmask(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 0xE000 && r <= 0xE07F {
+			return r - 0xE000
+		}
+		return r
+	}, s)
+}
+
+// A list ends where the next one starts: a pipeline stays one, so the text
+// `echo "…" | sh` hands its shell is in the list that runs it.
+var listSep = regexp.MustCompile(`;|&&|\|\||\n`)
+
+var (
+	// Shells run their `-c` value, or with no script named, their stdin.
+	shells = wordSet("sh bash zsh dash ksh mksh ash fish csh tcsh")
+	// These run only a `-c` value as a shell command.
+	dashC = wordSet("su script")
+	// Words before the program that leave it the program.
+	wrappers   = wordSet("sudo env exec command nohup time timeout nice ionice stdbuf xargs busybox")
+	assignWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+)
+
+func wordSet(s string) map[string]bool {
+	m := map[string]bool{}
+	for _, w := range strings.Fields(s) {
+		m[w] = true
+	}
+	return m
+}
+
+func baseName(s string) string {
+	return s[strings.LastIndexAny(s, `/\`)+1:]
+}
+
+func allDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// word is one word of a command, cmd[from:to], and text, what the program
+// receives.
+type word struct {
+	from, to int
+	text     string
+	target   bool // a redirect's file, not an argument
+	here     bool // `<<<`'s word: stdin
+}
+
+// command is one command of a pipeline; piped when the one before feeds its
+// stdin.
+type command struct {
+	words []word
+	docs  []heredoc
+	piped bool
+}
+
+// commands splits cmd[a:b], one list, into its commands and their words.
+func commands(cmd string, kinds []byte, docs []heredoc, a, b int) []command {
+	cmds := []command{{}}
+	var text []byte
+	from := -1
+	redirect, here := false, false
+	flush := func(k int) {
+		if from < 0 {
+			return
+		}
+		c := &cmds[len(cmds)-1]
+		c.words = append(c.words, word{from, k, string(text), redirect && !here, here})
+		from, text, redirect, here = -1, nil, false, false
+	}
+	for k := a; k < b; {
+		c := cmd[k]
+		switch {
+		case kinds[k] == Data:
+			flush(k)
+			for _, d := range docs {
+				if d.op == k {
+					cmds[len(cmds)-1].docs = append(cmds[len(cmds)-1].docs, d)
+				}
+			}
+			k++
+		case kinds[k] == Code && isSpace(c):
+			flush(k)
+			k++
+		case kinds[k] == Code && c == '|':
+			flush(k)
+			redirect, here = false, false
+			cmds = append(cmds, command{piped: true})
+			k++
+		case kinds[k] == Code && (c == '<' || c == '>'):
+			if allDigits(string(text)) && from >= 0 && kinds[k-1] == Code {
+				from, text = -1, nil // `2>`: the descriptor is the operator's
+			}
+			flush(k)
+			if strings.HasPrefix(cmd[k:], "<<<") {
+				here = true
+				k += 3
+				continue
+			}
+			redirect = true
+			k++
+		case kinds[k] == Code && c == '&':
+			flush(k)
+			if k+1 < b && cmd[k+1] == '>' || k > a && (cmd[k-1] == '>' || cmd[k-1] == '<') {
+				k++ // `&>`, `>&`: part of a redirect
+				continue
+			}
+			redirect, here = false, false
+			cmds = append(cmds, command{})
+			k++
+		case kinds[k] == Quoting:
+			if from < 0 {
+				from = k
+			}
+			k++
+			// A continued line: the backslash and its newline are not there.
+			if cmd[k-1] == '\\' && strings.HasPrefix(cmd[k:], "\n") {
+				k++
+			} else if cmd[k-1] == '\\' && strings.HasPrefix(cmd[k:], "\r\n") {
+				k += 2
+			}
+		default:
+			if from < 0 {
+				from = k
+			}
+			text = append(text, c)
+			k++
+		}
+	}
+	flush(b)
+	return cmds
+}
+
+// shellCode is what the commands of one pipeline hand a shell to run: words,
+// by where they start, and heredoc bodies. Only that — an argument to a
+// script, or text perl or awk reads, runs no shell command.
+func shellCode(cmds []command) (map[int]word, []heredoc) {
+	code := map[int]word{}
+	var bodies []heredoc
+	for ci, c := range cmds {
+		var args []word
+		for _, w := range c.words {
+			if !w.target && !w.here {
+				args = append(args, w)
+			}
+		}
+		runner := func(k int) bool {
+			p := baseName(args[k].text)
+			return shells[p] || dashC[p] || p == "eval"
+		}
+		i, wrapped := 0, false
+		for ; i < len(args); i++ {
+			t := args[i].text
+			if wrappers[baseName(t)] {
+				wrapped = true
+			} else if strings.HasPrefix(t, "-") {
+				// A wrapper's flag may take a value: `sudo -u ci bash`.
+				if wrapped && i+1 < len(args) && !runner(i+1) && !strings.HasPrefix(args[i+1].text, "-") {
+					i++
+				}
+			} else if !assignWord.MatchString(t) && !allDigits(t) {
+				break
+			}
+		}
+		if i == len(args) {
+			continue
+		}
+		prog, rest := baseName(args[i].text), args[i+1:]
+		if prog == "eval" {
+			for _, w := range rest {
+				code[w.from] = w
+			}
+			continue
+		}
+		if !shells[prog] && !dashC[prog] {
+			continue
+		}
+		stdin := shells[prog]
+	flags:
+		for j := 0; j < len(rest); j++ {
+			t := rest[j].text
+			switch {
+			case t == "-o" || t == "+o" || t == "-O" || t == "+O":
+				j++ // its value
+			case len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t, 'c'):
+				if j+1 < len(rest) {
+					code[rest[j+1].from] = rest[j+1]
+				}
+				stdin = false
+				break flags
+			case strings.HasPrefix(t, "-") || strings.HasPrefix(t, "+"):
+			case shells[prog]:
+				stdin = false // a script file, and its arguments
+				break flags
+			}
+		}
+		if !stdin {
+			continue
+		}
+		for _, w := range c.words {
+			if w.here {
+				code[w.from] = w
+			}
+		}
+		bodies = append(bodies, c.docs...)
+		if !c.piped || ci == 0 {
+			continue
+		}
+		var feed []word
+		for _, w := range cmds[ci-1].words {
+			if !w.target && !w.here {
+				feed = append(feed, w)
+			}
+		}
+		if len(feed) == 0 {
+			continue
+		}
+		switch baseName(feed[0].text) {
+		case "echo":
+			for _, w := range feed[1:] {
+				if !strings.HasPrefix(w.text, "-") {
+					code[w.from] = w
+				}
+			}
+		case "cat":
+			bodies = append(bodies, cmds[ci-1].docs...)
+		}
+	}
+	return code, bodies
+}
+
+// Words is cmd as the readers of its words take it: quote marks, comments,
+// heredocs and line continuations gone, and each quoted or escaped word whole,
+// masked by MaskRune. What a shell is handed to run — `sh -c '…'`, `eval`,
+// `echo '…' | sh`, a heredoc or `<<<` a shell reads — is read as a command of
+// its own between `;`s: read as text, `sh -c 'npm test'` runs no test.
+func Words(cmd string) string {
+	kinds, docs := scan(cmd)
+	masked := Masked(cmd, kinds)
+	var b strings.Builder
+	last := 0
+	for _, m := range append(listSep.FindAllStringIndex(masked, -1), []int{len(cmd), len(cmd)}) {
+		if m[0] >= 2 && kinds[m[0]-2] == Quoting && cmd[m[0]-2:m[0]] == "\\\r" {
+			continue // `\` CR LF continues the line
+		}
+		code, bodies := shellCode(commands(cmd, kinds, docs, last, m[0]))
+		writeWords(&b, cmd, kinds, last, m[0], code)
+		for _, d := range bodies {
+			b.WriteString(" ; " + Words(cmd[d.from:d.to]) + " ; ")
+		}
+		b.WriteString(cmd[m[0]:m[1]])
+		last = m[1]
+	}
+	return b.String()
+}
+
+func writeWords(b *strings.Builder, cmd string, kinds []byte, from, to int, code map[int]word) {
+	for k := from; k < to; {
+		if w, ok := code[k]; ok {
+			b.WriteString(" ; " + Words(w.text) + " ; ")
+			k = w.to
+			continue
+		}
+		switch kinds[k] {
+		case Code:
+			b.WriteByte(cmd[k])
+			k++
+		case Data:
+			k++
+		case Quoting:
+			k++
+			if cmd[k-1] == '\\' && strings.HasPrefix(cmd[k:], "\n") {
+				k++
+			} else if cmd[k-1] == '\\' && strings.HasPrefix(cmd[k:], "\r\n") {
+				k += 2
+			}
+		default:
+			r, w := utf8.DecodeRuneInString(cmd[k:])
+			b.WriteRune(MaskRune(r))
+			k += w
+		}
+	}
 }
 
 // QuotedAsText is cmd with what a shell reads as text masked, byte for byte.

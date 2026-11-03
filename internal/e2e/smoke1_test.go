@@ -319,6 +319,40 @@ func TestNoGateCmdsReadsNoRedirectionAsAScope(t *testing.T) {
 	}
 }
 
+// Quotes read through the shell's own scanner. Text handed to a shell is
+// a command, and an escaped quote does not close its string.
+func TestNoGateCmdsReadsQuotingAsTheShellDoes(t *testing.T) {
+	for _, c := range []struct {
+		cmd  string
+		want int
+	}{
+		{`sh -c 'npm run test'`, 2},
+		{`git commit -m "a \"b" && npm run test && echo "c"`, 2},
+		{`echo "npm run test" | bash`, 2},
+		{`bash -c 'git commit -m "fix; ftest covers it"'`, 0},
+		{`sh -c 'npx ftest run tests/a.spec.ts'`, 0},
+		{`git commit -m "npm run test is green" && bash scripts/release.sh`, 0},
+		// A heredoc a shell reads is a script, wherever the shell takes it from.
+		{"bash <<EOF\nnpm run test\nEOF", 2},
+		{"sh <<'EOF'\nnpm run test\nEOF", 2},
+		{"cat <<EOF | sh\nnpm run test\nEOF", 2},
+		{`bash <<< "npm run test"`, 2},
+		{`sudo -u ci bash -lc "npm run test"`, 2},
+		// Only what the program runs as a shell command is one: an argument to
+		// a script, and text a perl or awk program reads, are text.
+		{`echo "npm run test" | perl -ne 'print'`, 0},
+		{`bash scripts/release.sh "npm run test"`, 0},
+		{`awk '{print "npm run test"}' log.txt`, 0},
+		{`echo "npm run test" | bash scripts/notify.sh`, 0},
+		{"npm run \\\n  test -- tests/a.spec.ts", 0},
+	} {
+		t.Run(c.cmd, func(t *testing.T) {
+			repo := makeRepo(t, repoOpts{})
+			expectStatus(t, runHook(t, "no-gate-cmds", bash(c.cmd), repo), c.want, c.cmd)
+		})
+	}
+}
+
 func TestRunTraceLogsASourceWrite(t *testing.T) {
 	repo := makeRepo(t, repoOpts{})
 	expectStatus(t, runHook(t, "run-trace", map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": "example/thing.ts"}}, repo), 0, "run-trace")
