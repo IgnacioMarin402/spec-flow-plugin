@@ -20,7 +20,7 @@ import (
 // CLAUDE_PROJECT_DIR: a real adopter in a terminal has none.
 func documented(t *testing.T, dir string, args ...string) Result {
 	t.Helper()
-	argv := append([]string{filepath.Join(engineDir, "bin", "spec-flow")}, args...)
+	argv := launch(t, engineDir, args...)
 	if oracle != "" {
 		argv = cliArgv(engineDir, args...)
 	}

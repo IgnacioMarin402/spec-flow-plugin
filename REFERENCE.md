@@ -417,7 +417,9 @@ git clone --depth 1 https://github.com/IgnacioMarin402/spec-flow-plugin .spec-fl
 
 `<clone>` can be the installed plugin's own directory — the copy the gate runs.
 Put `<clone>/bin` on `PATH` for the short `spec-flow`, which the `check` script
-`init` adds to `package.json` runs. Nothing is published to a registry, and
+`init` adds to `package.json` runs. On Windows `bin/spec-flow` runs from Git
+Bash; from PowerShell or `cmd`, run `<clone>/bin/windows-amd64/spec-flow.exe`,
+and put `<clone>/bin/windows-amd64` on `PATH` for the short name. Nothing is published to a registry, and
 `spec-flow` on npm is an unrelated package.
 
 ---

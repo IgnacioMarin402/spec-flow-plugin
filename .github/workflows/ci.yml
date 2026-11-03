@@ -23,9 +23,9 @@ jobs:
   verify:
     name: go · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # Windows too: hooks.json, a spawn with no shell and every `\`-vs-`/`
+    # Windows too: hooks.json, each OS's shell and every `\`-vs-`/`
     # assumption live exactly where a POSIX-only matrix cannot see them, and
-    # Windows runs bin/spec-flow.exe where the others run the launcher.
+    # Windows runs the launcher through Git Bash, as Claude Code does (ADR-052).
     # `fail-fast: false`: one red leg is a portability fact, not a reason to
     # discard the other.
     strategy:

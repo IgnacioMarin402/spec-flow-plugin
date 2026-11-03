@@ -66,6 +66,9 @@ A test naming an id no spec declares fails the same way.
   binary per platform, shipped in the plugin; it needs nothing installed, and
   CI runs it on Linux and Windows
   ([ADR-051](decisions/051-the-engine-is-one-binary-per-platform-committed-with-its-source.md))
+- On Windows, Git Bash — the shell Claude Code uses there. Without it no hook
+  runs, and each tool call shows a hook error instead
+  ([ADR-052](decisions/052-every-hook-runs-the-launcher-in-a-shell.md))
 
 ## Install
 

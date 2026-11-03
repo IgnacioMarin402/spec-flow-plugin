@@ -172,13 +172,20 @@ func run(dir string, env []string, stdin string, argv ...string) Result {
 	return Result{status, out.String(), errb.String()}
 }
 
-// binary is where an engine keeps the binary for this platform: Windows runs
-// bin/spec-flow.exe, found for bin/spec-flow; elsewhere the launcher picks one.
-func binary(engine string) string {
+// launch is `<engine>/bin/spec-flow <args>` as a shell runs it: the launcher,
+// through Git Bash on Windows (ADR-052).
+func launch(t *testing.T, engine string, args ...string) []string {
+	t.Helper()
+	argv := []string{filepath.Join(engine, "bin", "spec-flow")}
 	if runtime.GOOS == "windows" {
-		return filepath.Join(engine, "bin", "spec-flow.exe")
+		argv = []string{gitBash(t), filepath.ToSlash(argv[0])}
 	}
-	return filepath.Join(engine, "bin", runtime.GOOS+"-"+runtime.GOARCH, "spec-flow")
+	return append(argv, args...)
+}
+
+// binary is where an engine keeps the binary the launcher picks here.
+func binary(engine string) string {
+	return filepath.Join(engine, "bin", runtime.GOOS+"-"+runtime.GOARCH, exe("spec-flow"))
 }
 
 // hookArgv is how engine runs hook name.

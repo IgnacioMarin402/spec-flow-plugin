@@ -50,7 +50,8 @@ const stateFile = (path: string) => /[\\/]\.claude[\\/](?:state[\\/])?(.+)$/.exe
  * `mtimes` sets a file's modification time (mutable); a file in `unreadable` is
  * there and refuses a read, as one over 4 MiB does, and the engine's binary
  * reads it unless `binary` is false, or hands back more than one read takes
- * when `truncated`. On Windows the view runs it as `bin/spec-flow.exe`.
+ * when `truncated`. With `windows`, the launcher cannot start, as a shell
+ * script cannot there, and only bin/windows-amd64/spec-flow.exe answers.
  * `hold` is awaited inside a read, with the file's name, and inside git's call,
  * as `git`. With `gitHangs`, git never answers a call that sets no time limit,
  * and one that sets one fails, as the host fails it when the limit passes.
@@ -65,6 +66,7 @@ function world(
     mtimes = {},
     unreadable = [],
     binary = true,
+    windows = false,
     truncated = false,
     hold,
     gitHangs = false,
@@ -76,6 +78,7 @@ function world(
     mtimes?: Record<string, number>
     unreadable?: string[]
     binary?: boolean
+    windows?: boolean
     truncated?: boolean
     hold?: (file: string) => Promise<void>
     gitHangs?: boolean
@@ -95,12 +98,13 @@ function world(
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[stateFile(e.path)] ?? text.length, isLink: false } }
   })
   on('process.run', async (_, e) => {
-    if (!/[\\/]bin[\\/]spec-flow(?:\.exe)?$/.test(e.argv[0] ?? '') || e.argv[1] !== 'lines') {
+    const launcher = /[\\/]bin[\\/]spec-flow$/.test(e.argv[0] ?? '')
+    if ((!launcher && !/[\\/]bin[\\/]windows-amd64[\\/]spec-flow\.exe$/.test(e.argv[0] ?? '')) || e.argv[1] !== 'lines') {
       await hold?.('git')
       if (gitHangs) return typeof e.init?.timeoutMs === 'number' ? Promise.reject(new Error('ETIMEDOUT')) : new Promise<never>(() => {})
       return { value: { exitCode: tracked ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    if (!binary) throw new Error('ENOENT: spec-flow')
+    if (!binary || (windows && launcher)) throw new Error('ENOENT: spec-flow')
     const [path = '', since = '', needle = ''] = e.argv.slice(2)
     const { n, last } = linesOf(files[stateFile(path)] ?? '', needle, Number(since))
     return { value: { exitCode: 0, stdout: [n, ...last].join('\n'), stderr: '', isStdoutTruncated: truncated, isStderrTruncated: false } }
@@ -497,7 +501,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ text: /^sent back/ })).toBeUndefined()
   })
 
-  test(`${surface}: a log over what one read takes is read by the engine's binary`, async ($, on) => {
+  // Where the launcher cannot start, as on Windows, the view runs the binary itself.
+  for (const windows of [false, true]) test(`${surface}: a log over what one read takes is read by the engine's binary${windows ? ', on Windows' : ''}`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const files: Record<string, string> = {
       phase: 'implement',
@@ -509,7 +514,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       'run-offset': '{"run-trace.log":0,"gate-history.log":0}',
       'orchestrator-scope-unmatched.log': '2026-10-17T04:00:00.000Z phase=implement tool=Read unattributed\n',
     }
-    world(on, files, { unreadable: ['gate-history.log', 'run-trace.log', 'orchestrator-scope-unmatched.log'], mtimes: { 'run-offset': Date.parse('2026-10-17T03:30:00Z') } })
+    world(on, files, { unreadable: ['gate-history.log', 'run-trace.log', 'orchestrator-scope-unmatched.log'], mtimes: { 'run-offset': Date.parse('2026-10-17T03:30:00Z') }, windows })
     await $.session.start({ cwd: ROOT, surface, isInteractive: true })
     await clock.advance(2_000)
     await $.agent.spawn(spawn('spec-flow:implementer', 'work on specflow/x/milestones/M1.md'))
