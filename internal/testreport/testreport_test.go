@@ -190,6 +190,245 @@ func TestNodeTapTodoIsNotProof(t *testing.T) {
 	}
 }
 
+// ---- a verdict per test
+
+// One run over two files, as each emitter reported it: area's file imports a
+// module that does not exist yet, so REQ-GEO-001 never ran; in perim's,
+// REQ-GEO-002 failed and REQ-GEO-003 passed. Run under node 24.22.2; only the
+// absolute paths were rewritten to `/v/`, by script. mocha 12.0.3 over the
+// same two files wrote no report at all.
+
+const nodeJunitNoLoad = `<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testcase name="cap/node/area.test.mjs" time="0.061817" classname="test" file="/v/cap/node/area.test.mjs" failure="test failed">
+		<failure type="testCodeFailure" message="test failed">
+[Error: test failed] { code: 'ERR_TEST_FAILURE', failureType: 'testCodeFailure', cause: 'test failed', exitCode: 1, signal: null }
+		</failure>
+	</testcase>
+	<testcase name="REQ-GEO-002 perimeter of a square" time="0.001671" classname="test" file="/v/cap/node/perim.test.mjs" failure="0 == 8">
+		<failure type="testCodeFailure" message="0 == 8">
+[Error [ERR_TEST_FAILURE]: 0 == 8] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: AssertionError [ERR_ASSERTION]: 0 == 8
+      at TestContext.&lt;anonymous> (file:///v/cap/node/perim.test.mjs:4:58)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 8,
+    operator: '==',
+    diff: 'simple'
+  }
+}
+		</failure>
+	</testcase>
+	<testcase name="REQ-GEO-003 perimeter of nothing" time="0.000639" classname="test" file="/v/cap/node/perim.test.mjs"/>
+	<!-- tests 3 -->
+	<!-- suites 0 -->
+	<!-- pass 1 -->
+	<!-- fail 2 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 87.745664 -->
+</testsuites>
+`
+
+const nodeTapNoLoad = `TAP version 13
+# node:internal/modules/esm/resolve:272
+#     throw new ERR_MODULE_NOT_FOUND(
+#           ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/v/cap/node/area.mjs' imported from /v/cap/node/area.test.mjs
+#     at finalizeResolution (node:internal/modules/esm/resolve:272:11)
+#     at moduleResolve (node:internal/modules/esm/resolve:879:10)
+#     at defaultResolve (node:internal/modules/esm/resolve:1006:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:705:20)
+#     at \#resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)
+#     at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)
+#     at \#resolve (node:internal/modules/esm/loader:687:17)
+#     at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
+#     at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)
+#     at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {
+#   code: 'ERR_MODULE_NOT_FOUND',
+#   url: 'file:///v/cap/node/area.mjs'
+# }
+# Node.js v24.22.2
+# Subtest: cap/node/area.test.mjs
+not ok 1 - cap/node/area.test.mjs
+  ---
+  duration_ms: 68.248338
+  type: 'test'
+  location: '/v/cap/node/area.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: REQ-GEO-002 perimeter of a square
+not ok 2 - REQ-GEO-002 perimeter of a square
+  ---
+  duration_ms: 1.751202
+  type: 'test'
+  location: '/v/cap/node/perim.test.mjs:4:1'
+  failureType: 'testCodeFailure'
+  error: '0 == 8'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 8
+  actual: 0
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///v/cap/node/perim.test.mjs:4:58)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.start (node:internal/test_runner/test:1262:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+  ...
+# Subtest: REQ-GEO-003 perimeter of nothing
+ok 3 - REQ-GEO-003 perimeter of nothing
+  ---
+  duration_ms: 0.265809
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 1
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 97.795254
+`
+
+const jestJunitNoLoad = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="2" failures="1" errors="0" time="0.677">
+  <testsuite name="undefined" errors="0" failures="1" skipped="0" timestamp="2026-11-04T21:22:58" time="0.308" tests="2">
+    <testcase classname=" REQ-GEO-002 perimeter of a square" name=" REQ-GEO-002 perimeter of a square" time="0.006">
+      <failure>Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: 8
+Received: 0
+    at Object.toBe (/v/cap/jest/perim.test.js:2:68)
+    at Promise.finally.completed (/v/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/v/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)
+    at _callCircusTest (/v/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at _runTestInContext (/v/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)
+    at runTestWithContext (/v/node_modules/jest-circus/build/jestAdapterInit.js:996:5)
+    at _runTestsForDescribeBlockOnce (/v/node_modules/jest-circus/build/jestAdapterInit.js:1008:11)
+    at _runTestsForDescribeBlock (/v/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at run (/v/node_modules/jest-circus/build/jestAdapterInit.js:789:3)
+    at runAndTransformResultsToJestFormat (/v/node_modules/jest-circus/build/jestAdapterInit.js:2300:21)
+    at jestAdapter (/v/node_modules/jest-circus/build/runner.js:111:19)
+    at runTestInternal (/v/node_modules/jest-runner/build/testWorker.js:247:16)
+    at runTest (/v/node_modules/jest-runner/build/testWorker.js:315:7)
+    at Object.worker (/v/node_modules/jest-runner/build/testWorker.js:479:12)</failure>
+    </testcase>
+    <testcase classname=" REQ-GEO-003 perimeter of nothing" name=" REQ-GEO-003 perimeter of nothing" time="0">
+    </testcase>
+  </testsuite>
+</testsuites>`
+
+const vitestNoLoad = `<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="3" failures="2" errors="0" time="0.009661289">
+    <testsuite name="cap/vt/area.spec.mjs" timestamp="2026-11-04T21:22:59.503Z" hostname="vm" tests="1" failures="1" errors="0" skipped="0" time="0">
+        <testcase classname="cap/vt/area.spec.mjs" name="cap/vt/area.spec.mjs" time="0">
+            <failure message="Cannot find module &apos;./area.mjs&apos; imported from /v/cap/vt/area.spec.mjs" type="Error">
+Error: Cannot find module &apos;./area.mjs&apos; imported from /v/cap/vt/area.spec.mjs
+ ❯ cap/vt/area.spec.mjs:2:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: &apos;ERR_MODULE_NOT_FOUND&apos; }
+            </failure>
+        </testcase>
+    </testsuite>
+    <testsuite name="cap/vt/perim.spec.mjs" timestamp="2026-11-04T21:22:59.510Z" hostname="vm" tests="2" failures="1" errors="0" skipped="0" time="0.009661289">
+        <testcase classname="cap/vt/perim.spec.mjs" name="REQ-GEO-002 perimeter of a square" time="0.00771756">
+            <failure message="expected +0 to be 8 // Object.is equality" type="AssertionError">
+AssertionError: expected +0 to be 8 // Object.is equality
+
+- Expected
++ Received
+
+- 8
++ 0
+
+ ❯ cap/vt/perim.spec.mjs:3:68
+            </failure>
+        </testcase>
+        <testcase classname="cap/vt/perim.spec.mjs" name="REQ-GEO-003 perimeter of nothing" time="0.000466628">
+        </testcase>
+    </testsuite>
+</testsuites>
+`
+
+func TestAFileThatDidNotLoadReportsNoTestOfItsOwn(t *testing.T) {
+	for _, e := range []struct{ emitter, format, text string }{
+		{"node 24.22.2 --test-reporter=junit", "junit", nodeJunitNoLoad},
+		{"node 24.22.2 --test-reporter=tap", "tap", nodeTapNoLoad},
+		{"jest 30.5.2 with jest-junit 17.0.0", "junit", jestJunitNoLoad},
+		{"vitest 5.1.0 --reporter=junit", "junit", vitestNoLoad},
+	} {
+		r := read(t, e.format, e.text)
+		if r.Error != "" {
+			t.Errorf("%s: refused a valid report: %s", e.emitter, r.Error)
+			continue
+		}
+		for _, c := range []struct{ id, want string }{{"REQ-GEO-001", Absent}, {"REQ-GEO-002", Fail}, {"REQ-GEO-003", Pass}} {
+			if got := r.Verdict(c.id); got != c.want {
+				t.Errorf("%s: %s read %s, want %s (ran %q, failed %q)", e.emitter, c.id, got, c.want, r.Names, r.Failed)
+			}
+		}
+	}
+}
+
+// A test that did not run is absent however it was kept from running.
+func TestASkipAndATodoAreAbsent(t *testing.T) {
+	for _, e := range []struct{ emitter, format, text string }{
+		{"vitest 4.1.10 --reporter=junit", "junit", vitest},
+		{"mocha 11.8.0 --reporter xunit", "junit", mocha},
+		{"node 24 --test-reporter=junit", "junit", nodeJunit},
+		{"node 24 --test-reporter=tap", "tap", nodeTap},
+	} {
+		r := read(t, e.format, e.text)
+		if got := r.Verdict("REQ-AUTH-001"); got != Pass {
+			t.Errorf("%s: the test that ran read %s", e.emitter, got)
+		}
+		if got := r.Verdict("REQ-AUTH-002"); got != Absent {
+			t.Errorf("%s: the skipped test read %s", e.emitter, got)
+		}
+	}
+	// A todo whose body failed is not a failure: the suite exited 0.
+	if got := read(t, "tap", nodeTapTodo).Verdict("REQ-A-003"); got != Absent {
+		t.Errorf("a failing todo read %s", got)
+	}
+}
+
+// What mocha leaves when a file does not load: nothing to read is not "absent".
+func TestNoReportIsUnknown(t *testing.T) {
+	if got := Read("junit", "nope.xml", t.TempDir()).Verdict("REQ-GEO-001"); got != Unknown {
+		t.Fatalf("a report never written read %s", got)
+	}
+}
+
+// The id is matched as spec-trace binds it, `_` spelling included.
+func TestVerdictBindsAsSpecTrace(t *testing.T) {
+	r := read(t, "junit", `<testsuites><testcase name="test_REQ_A_001_rejects"><error message="boom"/></testcase><testcase name="REQ-A-0020 fails"><failure/></testcase></testsuites>`)
+	if got := r.Verdict("REQ-A-001"); got != Fail {
+		t.Fatalf("an <error> on test_REQ_A_001 read %s: %+v", got, r)
+	}
+	if got := r.Verdict("REQ-A-002"); got != Absent {
+		t.Fatalf("REQ-A-0020 was read as REQ-A-002: %s", got)
+	}
+}
+
 // ---- the shapes a hand-written fixture would not have produced
 
 func TestJunitShapes(t *testing.T) {

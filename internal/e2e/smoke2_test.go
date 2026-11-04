@@ -546,12 +546,67 @@ func allOf(pattern, text string) string {
 // What jest prints for a test written ahead of its module, from a real run.
 const jestSuiteFailed = "FAIL tests/a.spec.ts\n  ● Test suite failed to run\n\n    tests/a.spec.ts:1:20 - error TS2307: Cannot find module './a' or its corresponding type declarations.\n\nTest Suites: 1 failed, 1 total\nTests:       0 total\nSnapshots:   0 total"
 
+// A test that failed, as this hook reads one: the runner's own count of the
+// tests that failed, here in vitest's words.
+const ftestRed = "Exit code 1\nexpected 3, got undefined\n\n Test Files  1 failed (1)\n      Tests  1 failed (1)"
+
+func withRunner(name string) repoOpts {
+	return repoOpts{contractEdit: func(c map[string]any) { sub(c, "verify")["test_name"] = name }}
+}
+
 func TestRunTraceTestRuns(t *testing.T) {
 	// A non-zero exit never reaches PostToolUse: read only from there, no red run.
 	t.Run("logs a failing scoped test run as red", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
-		runHook(t, "run-trace", bashFailure("npx ftest run tests/a.spec.ts", "Exit code 1\nexpected 3, got undefined", nil), repo)
+		runHook(t, "run-trace", bashFailure("npx ftest run tests/a.spec.ts", ftestRed, nil), repo)
 		mustMatch(t, `test verdict=red target=tests/a\.spec\.ts`, traceText(repo), "a failing test run was not recorded as red")
+	})
+	// A test written ahead of its module meets one of two outcomes: its file
+	// does not load, and none of its tests ran; or it loads and one fails.
+	for _, c := range []struct{ runner, testName, cmd, out, want string }{
+		{"jest 30.5.2", "jest", "npx jest tests/load.test.js", jestLoad, "absent"},
+		{"jest 30.5.2", "jest", "npx jest tests/fail.test.js", jestFail, "red"},
+		{"vitest 5.1.0", "vitest", "npx vitest run vt/load.spec.mjs", vitestLoad, "absent"},
+		{"vitest 5.1.0", "vitest", "npx vitest run vt/fail.spec.mjs", vitestFail, "red"},
+		{"mocha 12.0.3", "mocha", "npx mocha mo/load.spec.js", mochaLoad, "absent"},
+		{"mocha 12.0.3", "mocha", "npx mocha mo/fail.spec.js", mochaFail, "red"},
+		{"node 24.22.2", "node --test", "node --test tests/load.test.mjs", node24Load, "absent"},
+		{"node 24.22.2", "node --test", "node --test tests/fail.test.mjs", node24Fail, "red"},
+		{"node 22.23.4", "node --test", "node --test tests/load.test.mjs", node22Load, "absent"},
+		{"node 22.23.4", "node --test", "node --test tests/fail.test.mjs", node22Fail, "red"},
+	} {
+		t.Run(c.runner+": "+map[string]string{"absent": "a file that did not load is absent, never red", "red": "a test that failed is red"}[c.want], func(t *testing.T) {
+			repo := makeRepo(t, withRunner(c.testName))
+			runHook(t, "run-trace", bashFailure(c.cmd, "Exit code 1\n"+c.out, nil), repo)
+			if got := verdictOf(repo); got != c.want {
+				t.Fatalf("want %s, got %s: %s", c.want, got, traceText(repo))
+			}
+		})
+	}
+	// node --test names a file it could not load by the path it was handed,
+	// less a leading `./`; given a glob, the shell hands it each file matched.
+	t.Run("node --test: a file that did not load is absent however its path was written", func(t *testing.T) {
+		repo := makeRepo(t, withRunner("node --test"))
+		for _, cmd := range []string{"node --test ./tests/load.test.mjs", "node --test tests/*.test.mjs"} {
+			runHook(t, "run-trace", bashFailure(cmd, "Exit code 1\n"+node24Load, nil), repo)
+		}
+		if got := allOf(`test verdict=(\S+)`, traceText(repo)); got != "absent,absent" {
+			t.Fatalf("want absent,absent, got %q", got)
+		}
+	})
+	t.Run("node --test: a test that failed beside a file that did not load is red", func(t *testing.T) {
+		repo := makeRepo(t, withRunner("node --test"))
+		runHook(t, "run-trace", bashFailure("node --test tests/*.test.mjs", "Exit code 1\n"+node24Mixed, nil), repo)
+		if got := verdictOf(repo); got != "red" {
+			t.Fatalf("want red, got %s: %s", got, traceText(repo))
+		}
+	})
+	// The hook reads a red run off the runner's count; a failure it cannot
+	// read could as well be a file that did not load.
+	t.Run("a failure that names no failed test is unjudged, never red", func(t *testing.T) {
+		repo := makeRepo(t, repoOpts{})
+		runHook(t, "run-trace", bashFailure("npx ftest run tests/a.spec.ts", "Exit code 1\nError: Cannot find module './a'", nil), repo)
+		mustMatch(t, `test verdict=\? target=tests/a\.spec\.ts why=no-summary`, traceText(repo), "a failure the hook cannot read was given a verdict")
 	})
 	t.Run("targets only what the runner ran in a chain of commands", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
@@ -574,9 +629,9 @@ func TestRunTraceTestRuns(t *testing.T) {
 	t.Run("reads a run through a shell and past an escaped quote", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
 		for _, c := range []string{`sh -c 'npx ftest run tests/a.spec.ts'`, `git commit -m "a \"b" && npx ftest run tests/a.spec.ts && echo "c"`, "bash <<EOF\nnpx ftest run tests/a.spec.ts\nEOF", `sh -c 'npx ftest run'`, `git commit -m "a \"b" && npx ftest run && echo "c"`} {
-			runHook(t, "run-trace", bashFailure(c, "Exit code 1\nexpected 3, got undefined", nil), repo)
+			runHook(t, "run-trace", bashFailure(c, ftestRed, nil), repo)
 		}
-		if got := allOf(`test (verdict=\S+ target=\S+)`, traceText(repo)); got != "verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=? target=-,verdict=? target=-" {
+		if got := allOf(`test (verdict=\S+ target=\S+)`, traceText(repo)); got != "verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=red target=tests/a.spec.ts,verdict=red target=-,verdict=red target=-" {
 			t.Fatalf("got %q", got)
 		}
 	})
@@ -592,7 +647,7 @@ func TestRunTraceTestRuns(t *testing.T) {
 		runHook(t, "run-trace", bashFailure("npx ftest run tests/a.spec.ts", "Interrupted", map[string]any{"is_interrupt": true}), repo)
 		mustMatch(t, `test verdict=\? target=tests/a\.spec\.ts`, traceText(repo), "an interrupted run was given a verdict")
 	})
-	// A red verdict credits test-first, so red only when the runner failed on a path.
+	// A red verdict credits test-first, so red only when the runner reports a test that failed.
 	t.Run("a failing command that only names the runner is not a red run", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
 		runHook(t, "run-trace", bashFailure("grep -n ftest package.json", "Exit code 1", nil), repo)
@@ -603,7 +658,6 @@ func TestRunTraceTestRuns(t *testing.T) {
 	for _, c := range []struct{ name, cmd, err, want string }{
 		{"a runner the shell could not find is not a red run", "ftest tests/a.spec.ts", "Exit code 127\nbash: line 1: ftest: command not found", "?"},
 		{"a failing run whose own summary says every test passed is not red", "npx ftest run tests/a.spec.ts", "Exit code 1\n      Tests  3 passed (3)\nERROR: Coverage for lines (12%) does not meet global threshold (80%)", "?"},
-		{"a runner launched as node <its script> that fails on a path is a red run", "node --experimental-vm-modules node_modules/ftest/bin/ftest.js tests/a.spec.ts", "Exit code 1\nexpected 3, got undefined", "red"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			repo := makeRepo(t, repoOpts{})
@@ -621,17 +675,24 @@ func TestRunTraceTestRuns(t *testing.T) {
 			t.Fatalf("want none,none, got %q", got)
 		}
 	})
-	t.Run("a suite that failed to run is red even when a pipe hid the exit status", func(t *testing.T) {
-		repo := makeRepo(t, repoOpts{})
-		runHook(t, "run-trace", map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": map[string]any{"command": "npx ftest tests/a.spec.ts 2>&1 | tail -20"}, "tool_response": map[string]any{"stdout": jestSuiteFailed, "stderr": ""}}, repo)
-		if got := verdictOf(repo); got != "red" {
-			t.Fatalf("want red, got %s: %s", got, traceText(repo))
-		}
-	})
+	// A pipe's exit status is its last command's; the runner's count is still read.
+	for _, c := range []struct{ name, out, want string }{
+		{"a suite that failed to run is absent, never red, even when a pipe hid the exit status", jestSuiteFailed, "absent"},
+		{"a test that failed is red even when a pipe hid the exit status", jestFail, "red"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			repo := makeRepo(t, repoOpts{})
+			runHook(t, "run-trace", map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": map[string]any{"command": "npx ftest tests/a.spec.ts 2>&1 | tail -20"}, "tool_response": map[string]any{"stdout": c.out, "stderr": ""}}, repo)
+			if got := verdictOf(repo); got != c.want {
+				t.Fatalf("want %s, got %s: %s", c.want, got, traceText(repo))
+			}
+		})
+	}
 	// init writes the runner as `node <entrypoint>`, the implementer runs what
 	// the contract names, and this hook must recognise it — checked against
-	// what init actually writes.
-	t.Run("the test argv init writes, run on a path and failing, is a red run", func(t *testing.T) {
+	// what init actually writes. Recognised, a failure it cannot read is
+	// unjudged; another program's would be excused as not-the-runner.
+	t.Run("the test argv init writes, run on a path and failing, is the runner's run", func(t *testing.T) {
 		repo := makeRepo(t, repoOpts{})
 		write(t, filepath.Join(repo, "node_modules", "jest", "bin", "jest.js"), "process.exit(0);\n")
 		shim := filepath.Join(repo, "node_modules", ".bin", "jest")
@@ -659,9 +720,9 @@ func TestRunTraceTestRuns(t *testing.T) {
 		sub(c, "verify")["test"], sub(c, "verify")["test_name"] = toAny(written.Verify.Test), written.Verify.TestName
 		write(t, filepath.Join(repo, ".spec-flow", "config.json"), toJSON(c))
 		cmd := strings.Join(written.Verify.Test, " ") + " tests/a.spec.ts"
-		runHook(t, "run-trace", bashFailure(cmd, "Exit code 1\n"+jestSuiteFailed, nil), repo)
-		if got := verdictOf(repo); got != "red" {
-			t.Fatalf("want red for `%s`, got %s: %s", cmd, got, traceText(repo))
+		runHook(t, "run-trace", bashFailure(cmd, "Exit code 1\nexpected 3, got undefined", nil), repo)
+		if got := allOf(`test verdict=\? \S+ why=(\S+)`, traceText(repo)); got != "no-summary" {
+			t.Fatalf("want why=no-summary for `%s`, got %q: %s", cmd, got, traceText(repo))
 		}
 	})
 	t.Run("node running a script that is not the runner is not a red run", func(t *testing.T) {
@@ -678,8 +739,9 @@ func TestRunTraceTestRuns(t *testing.T) {
 		runHook(t, "run-trace", bashFailure("ftest tests/a.spec.ts", "Exit code 127\nbash: line 1: ftest: command not found", nil), repo)
 		runHook(t, "run-trace", map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": map[string]any{"command": "npx ftest tests/a.spec.ts | tail -5"}, "tool_response": map[string]any{"stdout": "some output", "stderr": ""}}, repo)
 		runHook(t, "run-trace", bashFailure("grep -rn ftest tests/a.spec.ts", "Exit code 1", nil), repo)
-		if got := allOf(`test verdict=\? \S+ why=(\S+)`, traceText(repo)); got != "interrupted,not-found,pipe,not-the-runner" {
-			t.Fatalf("want interrupted,not-found,pipe,not-the-runner, got %q", got)
+		runHook(t, "run-trace", bashFailure("node --experimental-vm-modules node_modules/ftest/bin/ftest.js tests/a.spec.ts", "Exit code 1\nexpected 3, got undefined", nil), repo)
+		if got := allOf(`test verdict=\? \S+ why=(\S+)`, traceText(repo)); got != "interrupted,not-found,pipe,not-the-runner,no-summary" {
+			t.Fatalf("want interrupted,not-found,pipe,not-the-runner,no-summary, got %q", got)
 		}
 	})
 	t.Run("is silent outside a run", func(t *testing.T) {

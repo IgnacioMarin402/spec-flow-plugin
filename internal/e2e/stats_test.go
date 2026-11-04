@@ -432,6 +432,23 @@ func TestStats(t *testing.T) {
 				wantAll(t, testFirst(r.Out()), "?    lib/orders/place.ts  (a test run the trace could not judge: pipe)")
 				wantAll(t, r.Out(), "unmeasured, not missed")
 			}},
+		// A file that did not load ran none of its tests: no test was seen to fail.
+		{"a test run only while its file did not load is not red-first",
+			statsRun{trace: []string{writeAt(1, "tests/orders/place.spec.ts"), ranPlace(2, "absent", ""), writeAt(3, "lib/orders/place.ts")}},
+			func(t *testing.T, r Result) {
+				wantAll(t, testFirst(r.Out()), "MISS lib/orders/place.ts  (did-not-load)")
+				wantAll(t, r.Out(), "1 of 1 source file(s) had their test run before the code only while the test file could not load")
+				wantNone(t, r.Out(), "called a run that did not load a missing run", "show no red test run")
+			}},
+		{"a red run after one that did not load is red-first",
+			statsRun{trace: []string{writeAt(1, "tests/orders/place.spec.ts"), ranPlace(2, "absent", ""), ranPlace(3, "red", ""), writeAt(4, "lib/orders/place.ts")}},
+			func(t *testing.T, r Result) { wantAll(t, testFirst(r.Out()), "OK   lib/orders/place.ts  (red-first)") }},
+		// Only a run of this test speaks for it, and one that did not load says nothing of another.
+		{"a run that did not load, of other tests or a glob, leaves the test missed",
+			statsRun{trace: threePairs(ranOn(10, "absent", "tests/orders/place.spec.ts", ""), ranOn(11, "absent", "tests/orders/*.spec.ts", ""))},
+			func(t *testing.T, r Result) {
+				wantAll(t, testFirst(r.Out()), "MISS lib/orders/place.ts  (did-not-load)", "MISS lib/orders/ship.ts  (no-red-run)")
+			}},
 		{"a `?` from before why= existed is unmeasured too",
 			statsRun{trace: []string{writeAt(1, "tests/orders/place.spec.ts"), ranPlace(2, "?", ""), writeAt(3, "lib/orders/place.ts")}},
 			func(t *testing.T, r Result) {
@@ -576,4 +593,20 @@ func TestStats(t *testing.T) {
 			c.check(t, statsReport(t, c.run))
 		})
 	}
+}
+
+// End to end, hook to report: a test written ahead of its module and run
+// while its file could not load, then the module. Whatever the test asserts,
+// none of it ran, so the run cannot have shown that it can fail.
+func TestATestRunWhileItsFileDidNotLoadIsNotRedFirst(t *testing.T) {
+	repo := makeRepo(t, withRunner("jest"))
+	wrote := func(file string) {
+		runHook(t, "run-trace", map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Write", "tool_input": map[string]any{"file_path": filepath.Join(repo, file)}}, repo)
+	}
+	wrote("tests/orders/place.spec.ts")
+	runHook(t, "run-trace", bashFailure("npx jest tests/orders/place.spec.ts", "Exit code 1\n"+jestLoad, nil), repo)
+	wrote("lib/orders/place.ts")
+	out := testFirst(run(repo, []string{"CLAUDE_PROJECT_DIR=" + repo}, "", cliArgv(engineDir, "stats")...).Out())
+	wantNone(t, out, "credited a run whose file did not load as red-first", "red-first")
+	wantAll(t, out, "MISS "+filepath.Join(repo, "lib/orders/place.ts")+"  (did-not-load)")
 }
