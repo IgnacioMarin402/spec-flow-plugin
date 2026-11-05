@@ -3,3 +3,5 @@
 .claude-plugin/types/
 # Written by each `claude plugin eval` run.
 evals/results/
+# Cargo's build output.
+/target/

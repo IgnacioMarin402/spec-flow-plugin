@@ -5,6 +5,11 @@
 // against `node <checkout>/hooks/<name>.mjs` instead: how a case ported from
 // the JavaScript suite is shown to hold there too, and how a regression test
 // is shown to fail on the code before its fix.
+//
+// SPEC_FLOW_BINARY=<a built engine binary> runs every case against that
+// binary instead of this checkout's Go build, launcher and plugin files
+// unchanged: how a hook ported to Rust is held to the cases written for the
+// Go engine (ADR-054).
 package e2e
 
 import (
@@ -78,6 +83,14 @@ func setup() (int, error) {
 	_ = os.MkdirAll(filepath.Dir(launcher), 0o755)
 	if b, err := os.ReadFile(filepath.Join(repoRoot, "bin", "spec-flow")); err == nil {
 		_ = os.WriteFile(launcher, b, 0o755)
+	}
+	if bin := os.Getenv("SPEC_FLOW_BINARY"); bin != "" {
+		b, err := os.ReadFile(bin)
+		if err != nil {
+			return 1, fmt.Errorf("SPEC_FLOW_BINARY: %v", err)
+		}
+		_ = os.MkdirAll(filepath.Dir(binary(engineDir)), 0o755)
+		return 0, os.WriteFile(binary(engineDir), b, 0o755)
 	}
 	cmd := exec.Command("go", "build", "-o", binary(engineDir), "./cmd/spec-flow")
 	cmd.Dir = repoRoot

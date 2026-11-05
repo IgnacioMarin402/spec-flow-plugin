@@ -21,7 +21,7 @@ import (
 
 // TransitionDirs hold engine source, the tests included: no file is outside
 // the rule, and exempting the fixtures hid real history in four of them.
-var TransitionDirs = []string{"hooks", "cmd", "internal"}
+var TransitionDirs = []string{"hooks", "cmd", "internal", "engine"}
 
 // TransitionsExpected is the measured count over TransitionDirs. Change it in
 // the commit that changes the comments, saying which way it moved and why.
@@ -44,7 +44,7 @@ var (
 func TransitionLines(root string) (hits []string, files int) {
 	var all []string
 	for _, d := range TransitionDirs {
-		all = append(all, walk(root, d, []string{".go", ".ts", ".tsx"})...)
+		all = append(all, walk(root, d, []string{".go", ".rs", ".ts", ".tsx"})...)
 	}
 	for _, f := range all {
 		for i, line := range strings.Split(readRel(root, f), "\n") {

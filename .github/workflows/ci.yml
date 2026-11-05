@@ -98,3 +98,39 @@ jobs:
 
       - name: Live view behaviour
         run: claude plugin test .
+
+  # The Rust port (ADR-054): the binary engine/build.sh writes for this runner,
+  # held to the Go suite's cases for every hook ported so far. A hook joins the
+  # pattern in the change that ports it.
+  rust:
+    name: rust · ubuntu-latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # rust-toolchain.toml names the release, its components and the targets.
+      # zig links every target; the versions are the ones the build was
+      # measured with.
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          python3 -m pip install --user --break-system-packages ziglang==0.14.1
+          cargo install cargo-zigbuild --version 0.24.1 --locked
+
+      - name: Formatted
+        run: cargo fmt --check
+
+      - name: Lints
+        run: cargo clippy --release --locked -- -D warnings
+
+      - name: Build
+        run: TARGETS=x86_64-unknown-linux-musl engine/build.sh
+
+      - name: Ported hooks against the Go suite
+        env:
+          SPEC_FLOW_BINARY: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/spec-flow
+        run: go test ./internal/e2e -count=1 -run 'TestNoGateCmds|TestWholeRepoDenialHandsNoDisarm|TestACommittedPhaseArmsNothing/does_not_arm_the_whole-repo_deny'

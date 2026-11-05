@@ -3,6 +3,10 @@
 *.go text eol=lf
 go.mod text eol=lf
 go.sum text eol=lf
+*.rs text eol=lf
+Cargo.toml text eol=lf
+Cargo.lock text eol=lf
+rust-toolchain.toml text eol=lf
 bin/** -text -diff
 # After bin/**, which it overrides: the launcher is a script every hook runs.
 bin/spec-flow text eol=lf diff

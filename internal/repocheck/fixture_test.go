@@ -75,8 +75,8 @@ func clean(t *testing.T, r Report, why string) {
 
 var (
 	framework    = strings.Join([]string{"Nest", "JS"}, "")
-	couplingDirs = []string{"hooks", "cmd", "internal", "commands", "agents", "modes", ".claude/skills", "skills", "decisions", "evals"}
-	couplingExts = []string{".go", ".md", ".json", ".ts", ".tsx", ".sh", ".yaml"}
+	couplingDirs = []string{"hooks", "cmd", "internal", "engine", "commands", "agents", "modes", ".claude/skills", "skills", "decisions", "evals"}
+	couplingExts = []string{".go", ".rs", ".md", ".json", ".ts", ".tsx", ".sh", ".yaml"}
 	couplingDocs = []string{"README.md", "REFERENCE.md", "CLAUDE.md", "LICENSE", "BACKLOG.md", ".github/workflows/ci.yml", "bin/spec-flow"}
 )
 
@@ -122,8 +122,8 @@ func TestNoRepoRefsBoundaries(t *testing.T) {
 var (
 	pinnedID     = strings.Join([]string{"claude", "opus", "5"}, "-")
 	numberedTier = strings.Join([]string{"Opus", "5"}, " ")
-	pinDirs      = []string{"agents", "modes", "commands", "hooks", "cmd", "internal", "skills", ".claude/skills"}
-	pinExts      = []string{".go", ".md", ".json", ".ts", ".tsx"}
+	pinDirs      = []string{"agents", "modes", "commands", "hooks", "cmd", "internal", "engine", "skills", ".claude/skills"}
+	pinExts      = []string{".go", ".rs", ".md", ".json", ".ts", ".tsx"}
 	pinDocs      = []string{"README.md", "REFERENCE.md", "CLAUDE.md", "BACKLOG.md", ".github/workflows/ci.yml"}
 )
 

@@ -20,8 +20,8 @@ import (
 // citing another is a cross-reference, and counting it would let a record
 // keep itself alive.
 var (
-	CiteDirs  = []string{"hooks", "cmd", "internal", "commands", "agents", "modes", ".claude/skills", "skills"}
-	CiteExts  = []string{".go", ".md", ".json", ".ts", ".tsx"}
+	CiteDirs  = []string{"hooks", "cmd", "internal", "engine", "commands", "agents", "modes", ".claude/skills", "skills"}
+	CiteExts  = []string{".go", ".rs", ".md", ".json", ".ts", ".tsx"}
 	CiteFiles = []string{"README.md", "REFERENCE.md", "CLAUDE.md", "BACKLOG.md", ".github/workflows/ci.yml"}
 )
 
