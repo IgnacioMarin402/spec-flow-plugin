@@ -5,3 +5,5 @@
 evals/results/
 # Cargo's build output.
 /target/
+# Written by cargo-zigbuild in the directory it runs from.
+/.intentionally-empty-file.o
