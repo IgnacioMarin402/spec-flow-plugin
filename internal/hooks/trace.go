@@ -295,7 +295,8 @@ func wrotePhase(tool string, input map[string]any) bool {
 // and SubagentStop — the run's observable timeline. It enforces NOTHING and
 // always exits 0: what an agent read (the path only), wrote, ran as a test,
 // and returned. A payload it cannot read leaves its key names in
-// run-trace-unmatched.log.
+// run-trace-unmatched.log. The one call it answers is a test run whose file
+// did not load, with how to make it a red run.
 func RunTrace(c *hookio.Ctx) {
 	root := hookio.ProjectDir()
 	// Creates nothing, and a committed phase never started a run (ADR-017).
@@ -362,7 +363,20 @@ func RunTrace(c *hookio.Ctx) {
 		byAgent = " agent_id=" + s
 	}
 	hookio.AppendLine(traceFile, fmt.Sprintf("%s phase=%s%s %s%s", hookio.NowISO(), phase, id, line, byAgent))
+	// Said while the implementer can still turn the run into a red one, which
+	// nothing after it can (ADR-053). Context, not a block: the run harmed nothing.
+	if strings.HasPrefix(line, "test verdict=absent ") {
+		event := hookio.JSString(p["hook_event_name"])
+		if event == "" {
+			event = "PostToolUse"
+		}
+		fmt.Fprint(c.Stdout, hookio.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": event, "additionalContext": didNotLoad}}))
+	}
 }
+
+const didNotLoad = "[spec-flow] That test file did not load, so none of its tests ran: this is not a red run. " +
+	"If what it imports does not exist yet, write its signature first — exported, unimplemented — " +
+	"then run the test again and confirm it fails on what it asserts."
 
 var (
 	ownType     = regexp.MustCompile(`^spec-flow:([a-z][a-z-]*)$`)

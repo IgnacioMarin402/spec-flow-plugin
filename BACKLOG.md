@@ -23,10 +23,8 @@ that a test's result depends on the milestone's code, not that it asserts its
 requirement. "Passes before the code" flagged a correct prohibition beside two
 tests that assert nothing; "red before the code" passed a test with no
 assertion, red only because its function did not exist yet. A test file that
-does not load reports no id at all, and is never red. So a test whose file
-imports a new module cannot run red before that module is first written, the
-only window stats reads; a stub written first closes that window too. Whether a
-requirement has a test at all is spec-trace's binding, not this item.
+does not load reports no id at all, and is never red. Whether a requirement
+has a test at all is spec-trace's binding, not this item.
 
 **Candidate:** red-first as a report in both flows, never a gate: record before
 denying (ADR-035), a test's worth is read, not measured (ADR-020), and a run

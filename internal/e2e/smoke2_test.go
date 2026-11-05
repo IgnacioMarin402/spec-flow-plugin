@@ -601,6 +601,38 @@ func TestRunTraceTestRuns(t *testing.T) {
 			t.Fatalf("want red, got %s: %s", got, traceText(repo))
 		}
 	})
+	// Said as context on the event that carried the run: PostToolUseFailure
+	// for a failing exit, PostToolUse when a pipe hid it. Both reach the model
+	// (measured on 2.1.318).
+	t.Run("a run whose test file did not load is answered with how to make it red", func(t *testing.T) {
+		repo := makeRepo(t, withRunner("jest"))
+		for _, c := range []struct {
+			event   string
+			payload map[string]any
+		}{
+			{"PostToolUseFailure", bashFailure("npx jest tests/load.test.js", "Exit code 1\n"+jestLoad, nil)},
+			{"PostToolUse", map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": map[string]any{"command": "npx jest tests/load.test.js 2>&1 | tail -20"}, "tool_response": map[string]any{"stdout": jestLoad, "stderr": ""}}},
+		} {
+			r := runHook(t, "run-trace", c.payload, repo)
+			var out struct {
+				HookSpecificOutput struct{ HookEventName, AdditionalContext string } `json:"hookSpecificOutput"`
+			}
+			if r.Status != 0 || json.Unmarshal([]byte(r.Stdout), &out) != nil || out.HookSpecificOutput.HookEventName != c.event || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "write its signature first") {
+				t.Fatalf("%s: status %d, stdout %q", c.event, r.Status, r.Stdout)
+			}
+		}
+		if got := allOf(`test verdict=(\S+)`, traceText(repo)); got != "absent,absent" {
+			t.Fatalf("the answered runs were not recorded: %q", got)
+		}
+	})
+	t.Run("a red run, or one the hook cannot judge, is answered with nothing", func(t *testing.T) {
+		repo := makeRepo(t, withRunner("jest"))
+		for _, out := range []string{jestFail, "expected 3, got undefined"} {
+			if r := runHook(t, "run-trace", bashFailure("npx jest tests/fail.test.js", "Exit code 1\n"+out, nil), repo); r.Stdout != "" || r.Status != 0 {
+				t.Fatalf("answered a run that loaded: status %d, %q", r.Status, r.Stdout)
+			}
+		}
+	})
 	// The hook reads a red run off the runner's count; a failure it cannot
 	// read could as well be a file that did not load.
 	t.Run("a failure that names no failed test is unjudged, never red", func(t *testing.T) {

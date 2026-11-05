@@ -479,10 +479,12 @@ func Stats(args []string) int {
 		for _, r := range runs {
 			var order []string
 			firstWrite := map[string]int{}
+			writes := map[string][]int{}
 			for i, e := range r.trace {
 				if e.F("file") == "" || !strings.Contains(e.Raw, " write file=") {
 					continue // a READ says nothing about when a file was written
 				}
+				writes[e.F("file")] = append(writes[e.F("file")], i)
 				if _, ok := firstWrite[e.F("file")]; !ok {
 					firstWrite[e.F("file")] = i
 					order = append(order, e.F("file"))
@@ -536,9 +538,27 @@ func Stats(args []string) int {
 					e      tracelines.Entry
 					covers string
 				}
+				// Before the code is before the source's last write ahead of its
+				// first PASS: a stub is written so the test loads, its red run
+				// follows, and then the code (ADR-053).
+				var passAt *time.Time
+				if at := r.trace[sourceIdx].At; at != nil {
+					for _, g := range r.gate {
+						if g.F("result") == "pass" && g.At != nil && g.At.After(*at) {
+							passAt = g.At
+							break
+						}
+					}
+				}
+				until := sourceIdx
+				for _, i := range writes[file] {
+					if at := r.trace[i].At; passAt == nil || (at != nil && !at.After(*passAt)) {
+						until = max(until, i)
+					}
+				}
 				var between []run
 				for i, e := range r.trace {
-					if i > specIdx && i < sourceIdx && e.F("verdict") != "" {
+					if i > specIdx && i < until && e.F("verdict") != "" {
 						if cov := coversAt(e.F("target"), i); cov != "false" {
 							between = append(between, run{e, cov})
 						}
