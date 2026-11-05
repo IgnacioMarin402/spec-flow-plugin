@@ -5,9 +5,9 @@
 //
 // A reader never guesses: every failure is a reason, not an empty list, since
 // "no tests reported" and "the file was not there" are a red and a broken
-// contract. A FAILED test counts as executed; whether it passed is the suite's
-// exit code. A TODO never counts: it is the marking that hides a failure from
-// that exit code.
+// contract. A FAILED test counts as executed; whether the suite passed is its
+// exit code, and Failed names the tests that did not. A TODO never counts: it
+// is the marking that hides a failure from that exit code.
 package testreport
 
 import (
@@ -20,17 +20,49 @@ import (
 	"strings"
 
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/jsre"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/specshape"
 )
 
 // Formats the engine reads.
 var Formats = []string{"junit", "tap"}
 
-// Report is what a report says: the names of the tests that ran and how many
-// it skipped — or why it says nothing.
+// Report is what a report says: the names of the tests that ran, which of
+// those failed, and how many it skipped — or why it says nothing.
 type Report struct {
 	Names   []string
+	Failed  []string
 	Skipped int
 	Error   string
+}
+
+// What a report says of one requirement's test.
+const (
+	Pass    = "pass"
+	Fail    = "fail"
+	Absent  = "absent"
+	Unknown = "unknown"
+)
+
+// Verdict is what the report says of the tests whose names carry id, matched as
+// spec-trace binds them. A test it does not name as executed is Absent: skipped,
+// never written, or in a file that did not load. Such a file reports no test of
+// its own — node and vitest name one failed case after the file, jest-junit
+// reports nothing — so it never reads as a test that failed.
+func (r Report) Verdict(id string) string {
+	if r.Error != "" {
+		return Unknown
+	}
+	verdict := Absent
+	for _, name := range r.Names {
+		if !slices.Contains(specshape.IDsIn(name), id) {
+			continue
+		}
+		if slices.Contains(r.Failed, name) {
+			return Fail
+		}
+		verdict = Pass
+	}
+	return verdict
 }
 
 var (
@@ -100,18 +132,21 @@ func indexFrom(s, sub string, from int) int {
 var (
 	testcase  = regexp.MustCompile(`<testcase\b([^>]*?)(/)?>`)
 	skippedEl = regexp.MustCompile(`<skipped\b`)
+	failedEl  = regexp.MustCompile(`<(failure|error)\b`)
 	nameDq    = regexp.MustCompile(`\bname\s*=\s*"([^"]*)"`)
 	nameSq    = regexp.MustCompile(`\bname\s*=\s*'([^']*)'`)
 )
 
-// JUnit: every `<testcase>` anywhere, executed unless it holds `<skipped>`.
-// Root element, nesting and attribute order are free to differ.
+// JUnit: every `<testcase>` anywhere, executed unless it holds `<skipped>`,
+// failed when it holds `<failure>` or `<error>`. Root element, nesting and
+// attribute order are free to differ.
 func readJunit(xml string) Report {
 	r := Report{Names: []string{}}
 	doc := stripOpaque(xml)
 	for _, m := range testcase.FindAllStringSubmatchIndex(doc, -1) {
 		attrs := doc[m[2]:m[3]]
 		selfClosing := m[4] >= 0
+		failed := false
 		// The body is bounded by the NEXT `</testcase>`, or one skipped case
 		// late in the file would suppress every case before it.
 		if !selfClosing {
@@ -123,6 +158,7 @@ func readJunit(xml string) Report {
 				r.Skipped++
 				continue
 			}
+			failed = failedEl.MatchString(body)
 		}
 		name := nameDq.FindStringSubmatch(attrs)
 		if name == nil {
@@ -130,6 +166,9 @@ func readJunit(xml string) Report {
 		}
 		if name != nil {
 			r.Names = append(r.Names, decodeEntities(name[1]))
+			if failed {
+				r.Failed = append(r.Failed, decodeEntities(name[1]))
+			}
 		}
 	}
 	return r
@@ -158,21 +197,43 @@ func readTap(text string) Report {
 		}
 		if name := strings.TrimSpace(rest); name != "" {
 			r.Names = append(r.Names, name)
+			if m[1] != "" {
+				r.Failed = append(r.Failed, name)
+			}
 		}
 	}
 	return r
+}
+
+func formatError(format string) string {
+	if slices.Contains(Formats, format) {
+		return ""
+	}
+	f, _ := json.Marshal(format)
+	if format == "" {
+		f = []byte("undefined")
+	}
+	return "trace.report.format must be one of " + strings.Join(Formats, ", ") + " — got " + string(f)
+}
+
+// Parse reads text already in hand as a report in format: what a runner
+// printed in that format, where Read reads the file it wrote.
+func Parse(format, text string) Report {
+	if e := formatError(format); e != "" {
+		return Report{Error: e}
+	}
+	if format == "junit" {
+		return readJunit(text)
+	}
+	return readTap(text)
 }
 
 // Read reads `trace.report`. `skipped` separates the two ways a report names
 // no executed test: zero cases means the suite never ran; cases all skipped
 // means it ran and proved nothing.
 func Read(format, path, root string) Report {
-	if !slices.Contains(Formats, format) {
-		f, _ := json.Marshal(format)
-		if format == "" {
-			f = []byte("undefined")
-		}
-		return Report{Error: "trace.report.format must be one of " + strings.Join(Formats, ", ") + " — got " + string(f)}
+	if e := formatError(format); e != "" {
+		return Report{Error: e}
 	}
 	file := path
 	if !filepath.IsAbs(path) {
@@ -187,8 +248,5 @@ func Read(format, path, root string) Report {
 	if err != nil {
 		return Report{Error: "trace.report.path (" + path + ") could not be read: " + err.Error()}
 	}
-	if format == "junit" {
-		return readJunit(string(b))
-	}
-	return readTap(string(b))
+	return Parse(format, string(b))
 }

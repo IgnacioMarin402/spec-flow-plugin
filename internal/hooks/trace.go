@@ -3,6 +3,7 @@ package hooks
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -20,6 +21,7 @@ import (
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/shell"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/specshape"
 	"github.com/IgnacioMarin402/spec-flow-plugin/internal/spectime"
+	"github.com/IgnacioMarin402/spec-flow-plugin/internal/testreport"
 )
 
 var (
@@ -30,7 +32,10 @@ var (
 	chainParts    = regexp.MustCompile(`;|&&|\|\||\||&|\n`)
 	groupChars    = regexp.MustCompile("[()`]")
 	pmWord        = regexp.MustCompile(`^(pnpm|npm|npx|yarn|node)$`)
-	failedSummary = jsre.MustCompile(`^\s*(Tests:?|Test Suites:|Test Files)\s.*\bfailed\b`, "m")
+	// jest and vitest count the tests that failed apart from the files that
+	// did, and a file that did not load is only the second.
+	failedTests   = jsre.MustCompile(`^\s*Tests:?\s.*\bfailed\b`, "m")
+	failedFiles   = jsre.MustCompile(`^\s*(Test Suites:|Test Files)\s.*\bfailed\b`, "m")
 	passedSummary = jsre.MustCompile(`^\s*Tests:?\s.*\bpassed\b`, "m")
 	noTests       = regexp.MustCompile(`(?i)\bNo tests? (files )?found\b`)
 	couldNotFind  = jsre.MustCompile(`^Could not find '`, "m")
@@ -40,6 +45,15 @@ var (
 	skillMiss     = regexp.MustCompile(`SKILL_MISS:\s*([^\n"\\]+)`)
 	lowerWord     = regexp.MustCompile(`^[a-z]+$`)
 	pathSeps      = regexp.MustCompile(`[\\/]`)
+)
+
+var (
+	// mocha counts the tests that failed, and abandons the run, uncounted, on
+	// a file it cannot load.
+	mochaFailing = jsre.MustCompile(`^\s*[1-9]\d* failing\b`, "m")
+	mochaAborted = jsre.MustCompile(`^\s*Exception during run:`, "m")
+	// A failed case in node --test's default reporter; TAP is read as TAP.
+	specFailed = jsre.MustCompile(`^\s*✖ (.+) \(\d+(?:\.\d+)?ms\)\s*$`, "m")
 )
 
 // runsRunner says whether the runner is the program a command runs, rather
@@ -84,10 +98,35 @@ func runsRunner(cmd, testName string) bool {
 	return len(words) == 1 && name == testName
 }
 
-// traceTest is a scoped test run and whether it was red. The event is the
-// exit status: non-zero arrives as PostToolUseFailure. Red only when the
-// runner itself, run on a path, failed — a red verdict credits test-first, so
-// an unsure failure is `?`, and its `why=` says what was not given.
+// failedCases are the cases a run's output names as failed: `not ok` in TAP,
+// `✖ <name> (<n>ms)` from node --test's default reporter.
+func failedCases(out string) []string {
+	names := testreport.Parse("tap", out).Failed
+	for _, m := range specFailed.ExecAll(out) {
+		names = append(names, m.Group(1))
+	}
+	return names
+}
+
+// handed is whether name is one of the paths the run was handed: node --test
+// names a file it could not load by that path, as a failed case of its own.
+func handed(name string, targets []string) bool {
+	norm := func(p string) string {
+		return strings.TrimSuffix(strings.TrimPrefix(strings.ReplaceAll(p, `\`, "/"), "./"), "/")
+	}
+	for _, t := range targets {
+		if ok, _ := path.Match(norm(t), norm(name)); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// traceTest is a scoped test run and its verdict, read off what the runner
+// printed. Red only when it reports a test that failed: a red verdict credits
+// test-first, and a file that did not load ran none of its tests, so it is
+// `absent`, never red (see ADR-053). A failure the hook cannot read either way
+// is `?`, and its `why=` says what was not given.
 func traceTest(input map[string]any, res any, testName string, failure *testFailure) string {
 	if testName == "" {
 		return "" // no contract read -> no runner name to look for
@@ -139,10 +178,20 @@ func traceTest(input map[string]any, res any, testName string, failure *testFail
 	if target == "" {
 		target = "-"
 	}
+	testFailed, fileFailed := false, false
+	for _, name := range failedCases(out) {
+		if handed(name, targets) {
+			fileFailed = true
+		} else {
+			testFailed = true
+		}
+	}
 	verdict, why := "?", ""
 	switch {
-	case failedSummary.Test(out) || strings.Contains(out, "✕"):
+	case failedTests.Test(out) || strings.Contains(out, "✕") || mochaFailing.Test(out) || testFailed:
 		verdict = "red"
+	case fileFailed || failedFiles.Test(out) || mochaAborted.Test(out):
+		verdict = "absent"
 	case passedSummary.Test(out):
 		if failure != nil {
 			why = "summary-passed"
@@ -165,7 +214,7 @@ func traceTest(input map[string]any, res any, testName string, failure *testFail
 	case !runner:
 		why = "not-the-runner"
 	default:
-		verdict = "red"
+		why = "no-summary"
 	}
 	line := fmt.Sprintf("test verdict=%s target=%s", verdict, target)
 	if why != "" {
@@ -246,7 +295,8 @@ func wrotePhase(tool string, input map[string]any) bool {
 // and SubagentStop — the run's observable timeline. It enforces NOTHING and
 // always exits 0: what an agent read (the path only), wrote, ran as a test,
 // and returned. A payload it cannot read leaves its key names in
-// run-trace-unmatched.log.
+// run-trace-unmatched.log. The one call it answers is a test run whose file
+// did not load, with how to make it a red run.
 func RunTrace(c *hookio.Ctx) {
 	root := hookio.ProjectDir()
 	// Creates nothing, and a committed phase never started a run (ADR-017).
@@ -313,7 +363,20 @@ func RunTrace(c *hookio.Ctx) {
 		byAgent = " agent_id=" + s
 	}
 	hookio.AppendLine(traceFile, fmt.Sprintf("%s phase=%s%s %s%s", hookio.NowISO(), phase, id, line, byAgent))
+	// Said while the implementer can still turn the run into a red one, which
+	// nothing after it can (ADR-053). Context, not a block: the run harmed nothing.
+	if strings.HasPrefix(line, "test verdict=absent ") {
+		event := hookio.JSString(p["hook_event_name"])
+		if event == "" {
+			event = "PostToolUse"
+		}
+		fmt.Fprint(c.Stdout, hookio.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": event, "additionalContext": didNotLoad}}))
+	}
 }
+
+const didNotLoad = "[spec-flow] That test file did not load, so none of its tests ran: this is not a red run. " +
+	"If what it imports does not exist yet, write its signature first — exported, unimplemented — " +
+	"then run the test again and confirm it fails on what it asserts."
 
 var (
 	ownType     = regexp.MustCompile(`^spec-flow:([a-z][a-z-]*)$`)

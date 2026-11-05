@@ -12,28 +12,24 @@ In the adopting repo, 18 of 18 measured requirements had no red test run before
 their code — but that trace could not see a red run at all: a test command that
 exits non-zero arrives as `PostToolUseFailure`, which run-trace did not hear
 until this item was restated. Two real runs since, counted by target: of 6
-sources paired with a test, 1 had its test run red first, 1 had it run piped
-and 4 had no run of it, which is what stats reads now that it credits a run
-only to the tests its target names. A third milestone wrote its test, then a
-source with another name, with no run, and stats lists nothing: it pairs by
-basename.
+sources paired with a test, 1 had its test run red first (when a run whose file
+did not load still counted as red), 1 had it run piped and 4 had no run of it,
+which is what stats reads now that it credits a run only to the tests its
+target names. A third milestone wrote its test, then a source with another
+name, with no run, and stats lists nothing: it pairs by basename.
 
 What a red-first check can claim, measured on 8 tests (`node --test`, JUnit):
 that a test's result depends on the milestone's code, not that it asserts its
 requirement. "Passes before the code" flagged a correct prohibition beside two
 tests that assert nothing; "red before the code" passed a test with no
 assertion, red only because its function did not exist yet. A test file that
-does not load reports no id at all, and run-trace counts that load error as
-red, so stats prints "red-first" for an empty test today. Whether a requirement
+does not load reports no id at all, and is never red. Whether a requirement
 has a test at all is spec-trace's binding, not this item.
 
 **Candidate:** red-first as a report in both flows, never a gate: record before
 denying (ADR-035), a test's worth is read, not measured (ADR-020), and a run
 against the base runs the suite twice, where flaky tests exist. It needs first:
 
-- a verdict per test from the report — pass, fail, absent (did not load) or
-  unknown; `internal/testreport` reads names and skips only;
-- absent never counted as red, run-trace's verdict included;
 - a moment that blocks nothing: the implementer may not end a turn mid-red, and
   a worktree of the base has no installed dependencies;
 - what passed before the code handed to the fold's `GAPS` question as
@@ -43,7 +39,7 @@ A gate is refused for now in `/spec-fix` too: a case 2 raised from the fold's
 `GAPS` strengthens a test over correct code, so it is green before the fix, and
 the docs disagree on whether a case 3 changes the code. Gating `/spec-flow`
 would need an `ADDED … (existing)` kind a person approves at sign-off.
-**Done:** the report, with those four in place, read over three real runs
+**Done:** the report, with those in place, read over three real runs
 before any gate on it is proposed.
 
 ### B39 — model routing: decide by use, effort with it

@@ -479,10 +479,12 @@ func Stats(args []string) int {
 		for _, r := range runs {
 			var order []string
 			firstWrite := map[string]int{}
+			writes := map[string][]int{}
 			for i, e := range r.trace {
 				if e.F("file") == "" || !strings.Contains(e.Raw, " write file=") {
 					continue // a READ says nothing about when a file was written
 				}
+				writes[e.F("file")] = append(writes[e.F("file")], i)
 				if _, ok := firstWrite[e.F("file")]; !ok {
 					firstWrite[e.F("file")] = i
 					order = append(order, e.F("file"))
@@ -536,16 +538,34 @@ func Stats(args []string) int {
 					e      tracelines.Entry
 					covers string
 				}
+				// Before the code is before the source's last write ahead of its
+				// first PASS: a stub is written so the test loads, its red run
+				// follows, and then the code (ADR-053).
+				var passAt *time.Time
+				if at := r.trace[sourceIdx].At; at != nil {
+					for _, g := range r.gate {
+						if g.F("result") == "pass" && g.At != nil && g.At.After(*at) {
+							passAt = g.At
+							break
+						}
+					}
+				}
+				until := sourceIdx
+				for _, i := range writes[file] {
+					if at := r.trace[i].At; passAt == nil || (at != nil && !at.After(*passAt)) {
+						until = max(until, i)
+					}
+				}
 				var between []run
 				for i, e := range r.trace {
-					if i > specIdx && i < sourceIdx && e.F("verdict") != "" {
+					if i > specIdx && i < until && e.F("verdict") != "" {
 						if cov := coversAt(e.F("target"), i); cov != "false" {
 							between = append(between, run{e, cov})
 						}
 					}
 				}
 				var unjudged []run
-				red := false
+				red, unloaded := false, false
 				for _, b := range between {
 					v := b.e.F("verdict")
 					why, hasWhy := b.e.Get("why")
@@ -554,6 +574,10 @@ func Stats(args []string) int {
 					}
 					if v == "red" && b.covers == "true" {
 						red = true
+					}
+					// Its file did not load: none of its tests ran, red or not (ADR-053).
+					if v == "absent" && b.covers == "true" {
+						unloaded = true
 					}
 				}
 				status := "no-red-run"
@@ -564,6 +588,8 @@ func Stats(args []string) int {
 					status = "red-first"
 				case len(unjudged) > 0:
 					status = "no-verdict"
+				case unloaded:
+					status = "did-not-load"
 				}
 				var whys []string
 				for _, u := range unjudged {
@@ -593,7 +619,7 @@ func Stats(args []string) int {
 		say("  no source file was written alongside its own test in this trace.")
 	default:
 		across := map[string]bool{}
-		missed, unjudged := 0, 0
+		missed, unjudged, unloaded := 0, 0, 0
 		for _, v := range verdicts {
 			mark := map[string]string{"red-first": "OK  ", "no-verdict": "?   "}[v.status]
 			if mark == "" {
@@ -615,6 +641,9 @@ func Stats(args []string) int {
 			if v.status == "no-verdict" {
 				unjudged++
 			}
+			if v.status == "did-not-load" {
+				unloaded++
+			}
 		}
 		scope := ""
 		if len(across) > 1 {
@@ -622,6 +651,9 @@ func Stats(args []string) int {
 		}
 		if missed > 0 {
 			warn = append(warn, fmt.Sprintf("%d of %d source file(s)%s show no red test run before the code. A test written after the implementation mirrors it and passes on day one.", missed, len(verdicts), scope))
+		}
+		if unloaded > 0 {
+			warn = append(warn, fmt.Sprintf("%d of %d source file(s)%s had their test run before the code only while the test file could not load (verdict=absent in run-trace.log): no test in it ran, so none was seen to fail.", unloaded, len(verdicts), scope))
 		}
 		if unjudged > 0 {
 			warn = append(warn, fmt.Sprintf("%d of %d source file(s)%s had their test run before the code, with a verdict the trace could not read (why= in run-trace.log) — unmeasured, not missed.", unjudged, len(verdicts), scope))
