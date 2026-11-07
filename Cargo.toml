@@ -1,0 +1,25 @@
+[package]
+name = "spec-flow"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[[bin]]
+name = "spec-flow"
+path = "engine/main.rs"
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# What the committed binaries are built with: every byte depends on it.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+# A hook that crashes is caught and answered by its own protocol, so a panic
+# must unwind to the runner, not abort the process.
+panic = "unwind"

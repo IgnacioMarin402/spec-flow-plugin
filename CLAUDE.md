@@ -56,6 +56,9 @@ New prose files or directories go in `NoRepoFiles` / `NoRepoDirs` in
 - `go test ./...` is every check: the engine's behaviour, and this repository's
   checks on itself (`internal/repocheck`). `SPEC_FLOW_ORACLE=<dir>` runs the
   behaviour tests against another engine checkout instead of this one.
+- The Rust port (ADR-054): `engine/build.sh` builds it, and
+  `SPEC_FLOW_BINARY=<binary> go test ./internal/e2e -run <ported>` holds a
+  ported hook to the Go engine's cases.
 - The binaries in `bin/` are built from the source in the same commit; a test
   fails when they are not. Rebuild them with `go run ./internal/build`.
 - Evals run a model, so CI runs none:

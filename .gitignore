@@ -3,3 +3,7 @@
 .claude-plugin/types/
 # Written by each `claude plugin eval` run.
 evals/results/
+# Cargo's build output.
+/target/
+# Written by cargo-zigbuild in the directory it runs from.
+/.intentionally-empty-file.o

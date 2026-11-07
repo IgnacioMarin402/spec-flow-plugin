@@ -30,8 +30,8 @@ var InheritsEffort = map[string]string{
 // Where routing is described. `hooks`, `cmd` and `internal` route nothing,
 // but a version reaches prose through whichever file nobody thought to scan.
 var (
-	ModelPinDirs  = []string{"agents", "modes", "commands", "hooks", "cmd", "internal", "skills", ".claude/skills"}
-	ModelPinExts  = []string{".go", ".md", ".json", ".ts", ".tsx"}
+	ModelPinDirs  = []string{"agents", "modes", "commands", "hooks", "cmd", "internal", "engine", "skills", ".claude/skills"}
+	ModelPinExts  = []string{".go", ".rs", ".md", ".json", ".ts", ".tsx"}
 	ModelPinFiles = []string{"README.md", "REFERENCE.md", "CLAUDE.md", "BACKLOG.md", ".github/workflows/ci.yml"}
 )
 

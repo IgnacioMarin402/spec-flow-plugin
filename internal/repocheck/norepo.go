@@ -24,8 +24,8 @@ import (
 // least resistance for the vocabulary this keeps out. Both skill directories:
 // `.claude/skills` is this repo's own, `skills` ships to adopters (ADR-006).
 var (
-	NoRepoDirs  = []string{"hooks", "cmd", "internal", "commands", "agents", "modes", ".claude/skills", "skills", "decisions", "evals"}
-	NoRepoExts  = []string{".go", ".md", ".json", ".ts", ".tsx", ".sh", ".yaml"}
+	NoRepoDirs  = []string{"hooks", "cmd", "internal", "engine", "commands", "agents", "modes", ".claude/skills", "skills", "decisions", "evals"}
+	NoRepoExts  = []string{".go", ".rs", ".md", ".json", ".ts", ".tsx", ".sh", ".yaml"}
 	NoRepoFiles = []string{"README.md", "REFERENCE.md", "CLAUDE.md", "LICENSE", "BACKLOG.md", ".github/workflows/ci.yml", "bin/spec-flow"}
 )
 
