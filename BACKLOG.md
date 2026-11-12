@@ -6,6 +6,79 @@ the fix and green after.
 
 ## Open
 
+B70–B77 come first, in this order: the port of the engine to Rust (ADR-054),
+one PR each. A hook moves with the readers it needs, and is done when its Go
+e2e cases pass on the Rust binary in CI's `rust` job, its tests joining that
+job's `-run` pattern in the same PR. The Go engine ships until B76.
+
+### B70 — the small hooks, and the agents they read
+
+`session-start`, `human-turn`, `register-agent`, `stale-resume`,
+`model-route`; with them the agents module (routing, budgets, handback) and
+`humanturn`. The first ECMAScript pattern arrives here: `regress` behind the
+`jsre` API, offsets in bytes as Go's are. **Done:** their cases on the Rust
+binary; `jsre_test.go` and `agents_test.go` as `cargo test`, which the `rust`
+job runs.
+
+### B71 — the spawn guards
+
+`preflight`, `opus-budget`, `arm-gate`, `dispatch-guard`; with them `canrun`,
+`gitscope` (the base and the changed files), `specshape` and `spectime`.
+**Done:** their cases on the Rust binary; `gitscope_test.go`,
+`specshape_test.go` and `spectime_test.go` as `cargo test`.
+
+### B72 — the gate and its checks
+
+`gate`, its crash handler blocking the stop (a crash that exits 0 allows a stop
+nothing judged); `unscoped`, `spectrace` and `testreport`; and `spec-flow
+trace`, `check` and `config`, which run the same pipeline. **Done:**
+`gate_test.go` and `trace*_test.go` on the Rust binary; `testreport_test.go`
+and `unscoped_test.go` as `cargo test`; a panic put in a copy of the gate
+blocks the stop.
+
+### B73 — the file guards
+
+`phase-guard`, `orchestrator-scope`, `lint-on-write`; with them the rest of
+the shell scanner: what a command writes (`Kinds`, `ResolveCd`, the
+phase-write patterns, which need lookahead). **Done:** their cases on the Rust
+binary, `gate_test.go`'s phase-guard cases included.
+
+### B74 — the trace
+
+`run-trace`, `agent-gate`, `token-trace`; with them `agentblocks` and
+`tracelines`. These write what the live view reads, so the Rust readers are
+held to `hooks/readers.golden.ts` as the Go ones are; `readers_test.go` calls
+the Go readers in-process and needs a Rust counterpart. **Done:** their cases
+on the Rust binary (`token_test.go` included); the golden table read by a
+`cargo test`; `agentblocks_test.go` ported.
+
+### B75 — the commands
+
+`resume`, `status`, `lines` (the live view streams a long log through it),
+`telemetry`, `models`, `init`, `stats`. `stats` and `models` gate nothing:
+before either is ported, list what each does and who else does it, with B39.
+**Done:** `init_test.go`, `resume_test.go`, `stats_test.go` and
+`models_test.go` on the Rust binary.
+
+### B76 — the switch
+
+`bin/` built from the Rust source by `engine/build.sh`; a freshness test in
+place of `TestBinariesAreThisSource`, on the Linux leg; the Go engine source
+and `internal/build` removed. Before it: no e2e case imports the Go engine
+(`smoke1_test.go` reads `hooks.All`, `init_test.go` the contract,
+`models_test.go` the agents, `readers_test.go` the readers); `LineEnds` and
+the state names `PluginPaths` collects read the Rust source; the Windows leg
+runs the e2e cases on the `.exe` the Linux build wrote. **Done:** `go test
+./...` green on both legs with every case on the Rust binary the harness
+builds, and ADR-054's status saying the port is complete.
+
+### B77 — where the behaviour suite lives
+
+After B76 the e2e cases and `repocheck` are the only Go left, and a
+contributor needs both toolchains. **Needs a decision first:** keep Go as a
+black-box harness, or move both to `cargo test`. **Done:** that ADR, and
+CLAUDE.md's "Running it" matching it.
+
 ### B36 — test-first is not happening
 
 In the adopting repo, 18 of 18 measured requirements had no red test run before
