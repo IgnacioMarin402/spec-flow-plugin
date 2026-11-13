@@ -24,7 +24,6 @@ pub const ALIASES: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 
 /// What a subagent's frontmatter may declare. Nothing here APPLIES one: the
 /// project routes a tier, not an effort (ADR-015).
-#[allow(dead_code)] // read by `spec-flow models` (B75)
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// What a shipped agent's frontmatter declares; `effort` `""` inherits the

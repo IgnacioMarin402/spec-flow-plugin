@@ -4,7 +4,7 @@
 //! result" is structural.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -328,6 +328,23 @@ pub fn scope_matches_nothing(root: &Path, scope_globs: &[String]) -> bool {
     argv.extend(scope_globs.iter().map(String::as_str));
     let res = proc::git(root, &argv);
     res.ok() && res.stdout.trim().is_empty()
+}
+
+/// `p` with `.` and `..` resolved as text, as Go's `filepath.Clean` does.
+pub fn clean(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) =>
+            {
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// `path` from `root` with `/`, or `None` when it is outside it. Absolute

@@ -16,7 +16,6 @@ use crate::state;
 pub struct Entry {
     /// Milliseconds since the epoch.
     pub at: Option<f64>,
-    #[allow(dead_code)] // read by stats
     pub raw: String,
     pub fields: HashMap<String, String>,
 }
@@ -53,7 +52,6 @@ pub fn parse(line: &str) -> Entry {
 }
 
 /// The role an `agent type=` line names, the `spec-flow:` dropped.
-#[allow(dead_code)] // read by stats
 pub fn role_of(typ: &str) -> String {
     let r = agents::match_agent(&[typ.to_string()], &agents::roles());
     if r.is_empty() { typ.into() } else { r }

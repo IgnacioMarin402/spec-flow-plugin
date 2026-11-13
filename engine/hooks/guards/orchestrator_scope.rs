@@ -5,7 +5,7 @@
 //! A subagent's call carries its `agent_id`, the session's none — the whole
 //! test — so it arms only once the trace shows this build attributes calls.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -15,6 +15,7 @@ use serde_json::{Map, Value};
 use crate::hooks::{Exit, Input, deny};
 use crate::jsre::Re;
 use crate::payload::js_string;
+use crate::repo::gitscope::clean;
 use crate::shell::{self, Kind};
 use crate::state;
 
@@ -54,23 +55,6 @@ static SED_IN_PLACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-[a-zA-Z]*
 static COMPOUND_SEP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&&|\|\||;|\|").unwrap());
 static ASSIGNMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*=").unwrap());
-
-/// `p` with `.` and `..` resolved as text, as Go's `filepath.Clean` does.
-pub fn clean(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in p.components() {
-        match c {
-            Component::CurDir => {}
-            Component::ParentDir
-                if matches!(out.components().next_back(), Some(Component::Normal(_))) =>
-            {
-                out.pop();
-            }
-            c => out.push(c),
-        }
-    }
-    out
-}
 
 /// `path` relative to the repository with `/`, or `None` when outside it.
 fn in_repo(root: &Path, path: &str) -> Option<String> {

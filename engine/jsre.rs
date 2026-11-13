@@ -32,7 +32,6 @@ impl<'t> Match<'t> {
     }
 
     /// Whether group `i` took part in the match.
-    #[allow(dead_code)] // read by `spec-flow init` (B75)
     pub fn has(&self, i: usize) -> bool {
         matches!(self.groups.get(i), Some(Some(_)))
     }

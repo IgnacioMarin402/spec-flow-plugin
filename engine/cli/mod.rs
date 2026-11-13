@@ -2,7 +2,10 @@
 //! <command>`. A terminal and CI have neither `${CLAUDE_PLUGIN_ROOT}` nor
 //! Claude Code, so each command resolves the repository it judges itself.
 
-mod run_state;
+mod init;
+mod models;
+pub mod run_state;
+mod stats;
 
 use std::path::Path;
 
@@ -13,11 +16,14 @@ use crate::state;
 pub type Command = fn(&[String]) -> i32;
 
 /// `spec-flow <name>`, by name, sorted.
-pub const COMMANDS: [(&str, Command); 7] = [
+pub const COMMANDS: [(&str, Command); 10] = [
     ("check", check),
     ("config", config),
+    ("init", init::init),
     ("lines", run_state::lines),
+    ("models", models::models),
     ("resume", run_state::resume),
+    ("stats", stats::stats),
     ("status", run_state::status),
     ("telemetry", run_state::telemetry),
     ("trace", trace_cmd),

@@ -51,7 +51,7 @@ impl Report {
     /// spec-trace binds them. A file that did not load reports no test of its
     /// own — node and vitest name one failed case after the file, jest-junit
     /// reports nothing — so it never reads as a test that failed.
-    #[allow(dead_code)] // read by stats (B75)
+    #[allow(dead_code)] // its own tests read it; the Go engine's copy has no other reader either
     pub fn verdict(&self, id: &str) -> Verdict {
         if !self.error.is_empty() {
             return Verdict::Unknown;
