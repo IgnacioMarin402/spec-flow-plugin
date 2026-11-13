@@ -2,8 +2,8 @@
 //! run's first spawn and phase-guard at the write that starts one (ADR-028).
 //! One copy, so the two cannot drift.
 
-// `check_start` and the settings are phase-guard's (B73); what a run starts
-// from, the gate's (B72).
+// `check_start`, the settings and what a run starts from are phase-guard's
+// (B73).
 #![allow(dead_code)]
 
 use std::path::Path;

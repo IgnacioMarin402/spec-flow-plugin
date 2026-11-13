@@ -9,7 +9,8 @@
 // SPEC_FLOW_BINARY=<a built engine binary> runs every case against that
 // binary instead of this checkout's Go build, launcher and plugin files
 // unchanged: how a hook ported to Rust is held to the cases written for the
-// Go engine (ADR-054).
+// Go engine (ADR-054). SPEC_FLOW_CRASH_BINARY is that binary built to crash
+// in the gate's checks, for the cases that hold its fail-closed handler.
 package e2e
 
 import (

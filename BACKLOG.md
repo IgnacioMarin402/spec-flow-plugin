@@ -6,27 +6,17 @@ the fix and green after.
 
 ## Open
 
-B72–B77 come first, in this order: the port of the engine to Rust (ADR-054),
+B73–B77 come first, in this order: the port of the engine to Rust (ADR-054),
 one PR each. A hook moves with the readers it needs, and is done when its Go
 e2e cases pass on the Rust binary in CI's `rust` job, its tests joining that
 job's `-run` pattern in the same PR. The Go engine ships until B76.
-
-### B72 — the gate and its checks
-
-`gate`, its crash handler blocking the stop (a crash that exits 0 allows a stop
-nothing judged); `unscoped`, `spectrace`, `testreport` and the rest of
-`gitscope` (the changed files, the specs at the base); and `spec-flow trace`,
-`check` and `config`, which run the same pipeline. **Done:**
-`gate_test.go` and `trace*_test.go` on the Rust binary; `testreport_test.go`
-and `unscoped_test.go` as `cargo test`; a panic put in a copy of the gate
-blocks the stop.
 
 ### B73 — the file guards
 
 `phase-guard`, `orchestrator-scope`, `lint-on-write`; with them the rest of
 the shell scanner: what a command writes (`Kinds`, `ResolveCd`, the
 phase-write patterns, which need lookahead), and `gitscope`'s pathspec reader
-(`InScope`) unless B72 brought it. **Done:** their cases on the Rust binary,
+(`InScope`). **Done:** their cases on the Rust binary,
 `gate_test.go`'s phase-guard cases and the rest of `TestCase3` included.
 
 ### B74 — the trace
@@ -41,8 +31,10 @@ on the Rust binary (`token_test.go` included); the golden table read by a
 ### B75 — the commands
 
 `resume`, `status`, `lines` (the live view streams a long log through it),
-`telemetry`, `models`, `init`, `stats`. `stats` and `models` gate nothing:
-before either is ported, list what each does and who else does it, with B39.
+`telemetry`, `models`, `init`, `stats`; `TestColdStart` with them, the one
+case that holds `spec-flow check` red over a red suite. `stats` and `models`
+gate nothing: before either is ported, list what each does and who else does
+it, with B39.
 **Done:** `init_test.go`, `resume_test.go`, `stats_test.go` and
 `models_test.go` on the Rust binary.
 
