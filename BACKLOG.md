@@ -6,25 +6,19 @@ the fix and green after.
 
 ## Open
 
-B74–B77 come first, in this order: the port of the engine to Rust (ADR-054),
+B75–B77 come first, in this order: the port of the engine to Rust (ADR-054),
 one PR each. A hook moves with the readers it needs, and is done when its Go
 e2e cases pass on the Rust binary in CI's `rust` job, its tests leaving that
 job's `-skip` list in the same PR. The Go engine ships until B76.
 
-### B74 — the trace
-
-`run-trace`, `agent-gate`, `token-trace`; with them `agentblocks` and
-`tracelines`. These write what the live view reads, so the Rust readers are
-held to `hooks/readers.golden.ts` as the Go ones are; `readers_test.go` calls
-the Go readers in-process and needs a Rust counterpart. **Done:** their cases
-on the Rust binary (`token_test.go` included); the golden table read by a
-`cargo test`; `agentblocks_test.go` ported.
-
 ### B75 — the commands
 
 `resume`, `status`, `lines` (the live view streams a long log through it),
-`telemetry`, `models`, `init`, `stats`; `TestColdStart` with them, the one
-case that holds `spec-flow check` red over a red suite. `stats` and `models`
+`telemetry`, `models`, `init`, `stats`, and `tracelines`, which only stats and
+status read; `TestColdStart` with them, the one case that holds `spec-flow
+check` red over a red suite. `lines` and `Keep` are the rest of the golden
+table (`TestGoReadersAgreeWithTheLiveViews`); its other readers are held by a
+`cargo test` already. `stats` and `models`
 gate nothing: before either is ported, list what each does and who else does
 it, with B39.
 **Done:** `init_test.go`, `resume_test.go`, `stats_test.go` and
@@ -45,7 +39,9 @@ builds, and ADR-054's status saying the port is complete.
 ### B77 — where the behaviour suite lives
 
 After B76 the e2e cases and `repocheck` are the only Go left, and a
-contributor needs both toolchains. **Needs a decision first:** keep Go as a
+contributor needs both toolchains. `repocheck` reads agent contracts with
+`agentblocks.ReturnBlocks` and `UnroutedFields`, which the port has not taken:
+no hook reads them. **Needs a decision first:** keep Go as a
 black-box harness, or move both to `cargo test`. **Done:** that ADR, and
 CLAUDE.md's "Running it" matching it.
 

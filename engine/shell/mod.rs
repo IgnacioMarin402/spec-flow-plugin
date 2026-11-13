@@ -740,7 +740,6 @@ const INTO_PHASE: &str = r#"\s*(?:"[^"]*"|'[^']*'|[^'"\s|;&])*?(?:"[^"]*?|'[^']*
 pub static PHASE_REDIRECT: LazyLock<Re> =
     LazyLock::new(|| Re::new(&format!("(?:{REDIRECT_OP}){INTO_PHASE}"), ""));
 /// A redirect or a `tee` into the phase file.
-#[allow(dead_code)] // read by run-trace (B74)
 pub static PHASE_WRITE: LazyLock<Re> =
     LazyLock::new(|| Re::new(&format!("(?:{WRITE_OP}){INTO_PHASE}"), ""));
 

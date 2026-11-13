@@ -4,8 +4,6 @@
 //! port changes what a check accepts. Offsets are bytes into the input, as
 //! everywhere else here.
 
-#![allow(dead_code)] // `has` is read by readers B72–B75 port
-
 use std::ops::Range;
 
 /// A compiled ECMAScript pattern.
@@ -34,6 +32,7 @@ impl<'t> Match<'t> {
     }
 
     /// Whether group `i` took part in the match.
+    #[allow(dead_code)] // read by `spec-flow init` (B75)
     pub fn has(&self, i: usize) -> bool {
         matches!(self.groups.get(i), Some(Some(_)))
     }

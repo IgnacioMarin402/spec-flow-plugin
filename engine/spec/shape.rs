@@ -2,9 +2,6 @@
 //! spec, agrees a delta, a kind and an id are. One copy: a second would be a
 //! second opinion about what a CHANGED is. Pure — callers hand in text.
 
-// Capability specs by the ids they declare are read by run-trace (B74).
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::LazyLock;

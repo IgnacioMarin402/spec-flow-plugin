@@ -41,7 +41,8 @@ const READABLE: [&str; 5] = [
 
 static HOOKS_ONLY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\.claude/state/[^/]+\.log$").unwrap());
-static ATTRIBUTED_TRACE: LazyLock<Re> = LazyLock::new(|| {
+/// A trace line made by a subagent's call: this build attributes calls.
+pub static ATTRIBUTED_TRACE: LazyLock<Re> = LazyLock::new(|| {
     Re::new(
         r" (?:read|write) file=.* agent_id=[\w-]+$| test verdict=.* agent_id=[\w-]+$",
         "m",
@@ -55,7 +56,7 @@ static ASSIGNMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*=").unwrap());
 
 /// `p` with `.` and `..` resolved as text, as Go's `filepath.Clean` does.
-fn clean(p: &Path) -> PathBuf {
+pub fn clean(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
