@@ -1,7 +1,9 @@
-//! What a run is judged against: its repository root and its base. One
-//! resolver for the gate and the everyday check, so "same files, same result"
-//! is structural.
+//! What a run is judged against: its repository root, its base, and the
+//! files the branch changed. One
+//! resolver for the gate and the everyday check, so "same files, same
+//! result" is structural.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -181,6 +183,151 @@ pub fn changes_at_base(root: &Path, base: &str) -> Vec<String> {
         .into_iter()
         .filter(|n| n != "archive" && there.contains(&n.as_str()))
         .collect()
+}
+
+/// Every change spec under `specflow/`, live, archived or nested.
+const CHANGE_SPECS: &str = ":(glob)specflow/**/spec.md";
+
+/// The change specs `base` holds, by their path from `specflow/`.
+pub fn specs_at_base(root: &Path, base: &str) -> HashSet<String> {
+    // `./` with --full-tree reads the path from root, which spec-trace does
+    // not require to be the repository's top.
+    let res = proc::git(
+        root,
+        &[
+            "ls-tree",
+            "--full-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            &format!("{base}:./specflow"),
+        ],
+    );
+    if !res.ok() {
+        return HashSet::new();
+    }
+    res.stdout
+        .split('\0')
+        .filter(|p| *p == "spec.md" || p.ends_with("/spec.md"))
+        .map(String::from)
+        .collect()
+}
+
+/// A file as `base` holds it, by its path from root; `""` when absent.
+pub fn file_at_base(root: &Path, base: &str, rel: &str) -> String {
+    let res = proc::git(
+        root,
+        &["show", &format!("{base}:./{}", rel.replace('\\', "/"))],
+    );
+    if res.ok() { res.stdout } else { String::new() }
+}
+
+/// When an uncommitted change spec was written: after every commit.
+pub const UNCOMMITTED: i64 = i64::MAX;
+
+static COMMIT_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{40,64}$").unwrap());
+
+/// The change specs this branch wrote since `base`, by path from root, each
+/// with the place of the first commit that did, oldest 0 — `UNCOMMITTED` for
+/// one not committed yet (ADR-048).
+pub fn branch_writes(root: &Path, base: &str) -> HashMap<String, i64> {
+    let mut written = HashMap::new();
+    let log = proc::git(
+        root,
+        &[
+            "log",
+            "--reverse",
+            "--topo-order",
+            "--no-renames",
+            "--diff-filter=AM",
+            "--format=%x00%H",
+            "--name-only",
+            "-z",
+            "--relative",
+            &format!("{base}..HEAD"),
+            "--",
+            CHANGE_SPECS,
+        ],
+    );
+    if log.ok() {
+        let (mut commit, mut previous) = (-1i64, "");
+        for token in log.stdout.split('\0') {
+            let path = token.strip_prefix('\n').unwrap_or(token);
+            if previous.is_empty() && COMMIT_ID.is_match(token) {
+                commit += 1;
+            } else if !path.is_empty() && !written.contains_key(path) {
+                written.insert(path.to_string(), commit);
+            }
+            previous = token;
+        }
+    }
+    let diff = proc::git(
+        root,
+        &[
+            "diff",
+            "--name-only",
+            "-z",
+            "--relative",
+            "--no-renames",
+            "--diff-filter=AM",
+            "HEAD",
+            "--",
+            CHANGE_SPECS,
+        ],
+    );
+    if diff.ok() {
+        for path in diff.stdout.split('\0').filter(|p| !p.is_empty()) {
+            written.entry(path.to_string()).or_insert(UNCOMMITTED);
+        }
+    }
+    written
+}
+
+/// The union of the branch's committed and working-tree changes, the staged
+/// ones and the untracked files, minus deletions. `base` is required: a
+/// default resolved here would never see `verify.base_ref`.
+pub fn changed_files(root: &Path, scope_globs: &[String], base: &str) -> Vec<String> {
+    let with = |args: &[&str]| {
+        let mut argv: Vec<&str> = args.to_vec();
+        argv.extend(scope_globs.iter().map(String::as_str));
+        proc::git(root, &argv)
+    };
+    let lists = [
+        with(&["diff", "--name-only", "--diff-filter=ACMR", base, "--"]),
+        with(&[
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            "--cached",
+            "--",
+        ]),
+        with(&["ls-files", "--others", "--exclude-standard", "--"]),
+    ];
+    let mut set = std::collections::BTreeSet::new();
+    for res in lists.iter().filter(|r| r.ok()) {
+        for f in res
+            .stdout
+            .split('\n')
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
+            if std::fs::metadata(root.join(f)).is_ok_and(|m| m.is_file()) {
+                set.insert(f.to_string());
+            }
+        }
+    }
+    set.into_iter().collect()
+}
+
+/// Whether `scope_globs` matches nothing this repository tracks: a contract
+/// whose lint was never going to run, as opposed to a milestone that touched
+/// nothing in scope. A git that cannot answer is false: this decides whether
+/// a gate REFUSES.
+pub fn scope_matches_nothing(root: &Path, scope_globs: &[String]) -> bool {
+    let mut argv = vec!["ls-files", "--"];
+    argv.extend(scope_globs.iter().map(String::as_str));
+    let res = proc::git(root, &argv);
+    res.ok() && res.stdout.trim().is_empty()
 }
 
 #[cfg(all(test, unix))]

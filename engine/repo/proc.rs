@@ -62,3 +62,15 @@ pub fn git(dir: &Path, args: &[&str]) -> Output {
     argv.extend_from_slice(args);
     run(dir, &argv)
 }
+
+/// Runs `argv` in `dir` with this process's own streams, and returns its exit
+/// status: 1 when it could not run or was killed.
+pub fn inherit(dir: &Path, argv: &[&str]) -> i32 {
+    let Some((program, args)) = argv.split_first() else {
+        return 1;
+    };
+    match Command::new(program).args(args).current_dir(dir).status() {
+        Ok(s) => s.code().filter(|c| *c >= 0).unwrap_or(1),
+        Err(_) => 1,
+    }
+}

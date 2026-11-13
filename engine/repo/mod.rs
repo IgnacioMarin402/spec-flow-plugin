@@ -5,3 +5,4 @@ pub mod contract;
 pub mod engine;
 pub mod gitscope;
 pub mod proc;
+pub mod unscoped;
