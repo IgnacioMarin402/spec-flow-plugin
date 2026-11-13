@@ -1,9 +1,11 @@
 //! Every hook this plugin registers, run as `spec-flow hook <name>`.
 //!
-//! `guards` decide: each can deny a tool call. Every hook fails open on a
-//! crash: a panic is reported on stderr and the hook exits 0.
+//! `guards` decide: each can deny a tool call. `record` never deny: they
+//! record what happened, or reset what a dead run left. Every hook fails open
+//! on a crash: a panic is reported on stderr and the hook exits 0.
 
 mod guards;
+mod record;
 
 use std::io::{Read, Write};
 use std::panic;
@@ -17,6 +19,8 @@ use crate::payload::{self, Unreadable};
 pub enum Exit {
     /// Exit 0, nothing said.
     Pass,
+    /// Exit 0, this on stdout as it stands.
+    Say(String),
     /// The PreToolUse denial: the message on stderr as it stands, exit 2.
     Fail(String),
 }
@@ -43,7 +47,12 @@ pub type Main = fn(&Input) -> Exit;
 /// The hook registered as `name`.
 pub fn find(name: &str) -> Option<Main> {
     match name {
+        "human-turn" => Some(record::human_turn::run),
+        "model-route" => Some(guards::model_route::run),
         "no-gate-cmds" => Some(guards::no_gate_cmds::run),
+        "register-agent" => Some(record::register_agent::run),
+        "session-start" => Some(record::session_start::run),
+        "stale-resume" => Some(guards::stale_resume::run),
         _ => None,
     }
 }
@@ -59,6 +68,10 @@ pub fn run(main: Main) -> i32 {
     };
     match panic::catch_unwind(panic::AssertUnwindSafe(|| main(&input))) {
         Ok(Exit::Pass) | Err(_) => 0,
+        Ok(Exit::Say(out)) => {
+            let _ = std::io::stdout().write_all(out.as_bytes());
+            0
+        }
         Ok(Exit::Fail(message)) => {
             let _ = std::io::stderr().write_all(message.as_bytes());
             2

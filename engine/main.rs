@@ -1,7 +1,9 @@
 //! `spec-flow` is the whole engine: every hook (`spec-flow hook <name>`) and
 //! every command a terminal, CI or the orchestrator runs.
 
+mod agents;
 mod hooks;
+mod jsre;
 mod payload;
 mod repo;
 mod shell;
