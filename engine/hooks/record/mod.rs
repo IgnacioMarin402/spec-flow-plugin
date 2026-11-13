@@ -4,4 +4,6 @@
 pub mod dispatch_guard;
 pub mod human_turn;
 pub mod register_agent;
+pub mod run_trace;
 pub mod session_start;
+pub mod token_trace;

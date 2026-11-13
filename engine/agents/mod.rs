@@ -2,10 +2,7 @@
 //! (ADR-014), the escalation budgets (ADR-038), who a spawn or a SendMessage
 //! is for, and what a stopped agent handed back.
 
-// The effort levels, the budget roles' order and handbacks are read by the
-// trace and the commands (B74, B75).
-#![allow(dead_code)]
-
+pub mod blocks;
 pub mod handback;
 
 use std::collections::BTreeMap;
@@ -27,6 +24,7 @@ pub const ALIASES: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 
 /// What a subagent's frontmatter may declare. Nothing here APPLIES one: the
 /// project routes a tier, not an effort (ADR-015).
+#[allow(dead_code)] // read by `spec-flow models` (B75)
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// What a shipped agent's frontmatter declares; `effort` `""` inherits the

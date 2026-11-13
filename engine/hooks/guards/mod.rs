@@ -1,5 +1,6 @@
 //! The hooks that can deny a tool call.
 
+pub mod agent_gate;
 pub mod arm_gate;
 pub mod gate;
 pub mod lint_on_write;

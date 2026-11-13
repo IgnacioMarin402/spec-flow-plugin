@@ -72,6 +72,7 @@ pub type OnError = fn(&str) -> Exit;
 /// The hook registered as `name`, and its crash handler.
 pub fn find(name: &str) -> Option<(Main, Option<OnError>)> {
     let main: Main = match name {
+        "agent-gate" => guards::agent_gate::run,
         "arm-gate" => guards::arm_gate::run,
         "dispatch-guard" => record::dispatch_guard::run,
         // The one hook that fails CLOSED: an uncaught failure in a Stop hook
@@ -86,8 +87,10 @@ pub fn find(name: &str) -> Option<(Main, Option<OnError>)> {
         "phase-guard" => guards::phase_guard::run,
         "preflight" => guards::preflight::run,
         "register-agent" => record::register_agent::run,
+        "run-trace" => record::run_trace::run,
         "session-start" => record::session_start::run,
         "stale-resume" => guards::stale_resume::run,
+        "token-trace" => record::token_trace::run,
         _ => return None,
     };
     Some((main, None))
