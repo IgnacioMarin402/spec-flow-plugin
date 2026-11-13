@@ -11,6 +11,7 @@ mod repo;
 mod shell;
 mod spec;
 mod state;
+mod tracelines;
 
 use std::process::exit;
 

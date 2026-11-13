@@ -2,6 +2,8 @@
 //! <command>`. A terminal and CI have neither `${CLAUDE_PLUGIN_ROOT}` nor
 //! Claude Code, so each command resolves the repository it judges itself.
 
+mod run_state;
+
 use std::path::Path;
 
 use crate::repo::{contract, engine, gitscope, proc, unscoped};
@@ -11,8 +13,15 @@ use crate::state;
 pub type Command = fn(&[String]) -> i32;
 
 /// `spec-flow <name>`, by name, sorted.
-pub const COMMANDS: [(&str, Command); 3] =
-    [("check", check), ("config", config), ("trace", trace_cmd)];
+pub const COMMANDS: [(&str, Command); 7] = [
+    ("check", check),
+    ("config", config),
+    ("lines", run_state::lines),
+    ("resume", run_state::resume),
+    ("status", run_state::status),
+    ("telemetry", run_state::telemetry),
+    ("trace", trace_cmd),
+];
 
 /// `spec-flow trace [--list]`.
 fn trace_cmd(args: &[String]) -> i32 {

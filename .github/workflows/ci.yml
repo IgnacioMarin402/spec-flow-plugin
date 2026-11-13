@@ -143,4 +143,4 @@ jobs:
         env:
           SPEC_FLOW_BINARY: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/spec-flow
           SPEC_FLOW_CRASH_BINARY: ${{ github.workspace }}/target/gatecrash/x86_64-unknown-linux-musl/release/spec-flow
-        run: go test ./internal/e2e -count=1 -skip '^TestColdStart$|^TestSkillContract$|^TestGoReadersAgreeWithTheLiveViews$|^TestATestRunWhileItsFileDidNotLoadIsNotRedFirst$|^TestAStubThenARedRunIsRedFirst$|^TestTokenReadersAgree$|^TestEveryOutputCountIsAFloor$|^TestStatsReadsTheScopeOfACRLFSpec$|^TestInit$|^TestModels$|^TestStats$|^TestResume$|^TestRunTraceTestRuns$/(^the_test_argv_init_writes,_run_on_a_path_and_failing,_is_the_runner's_run$)'
+        run: go test ./internal/e2e -count=1 -skip '^TestColdStart$|^TestSkillContract$|^TestATestRunWhileItsFileDidNotLoadIsNotRedFirst$|^TestAStubThenARedRunIsRedFirst$|^TestTokenReadersAgree$|^TestEveryOutputCountIsAFloor$|^TestStatsReadsTheScopeOfACRLFSpec$|^TestInit$|^TestModels$|^TestStats$|^TestRunTraceTestRuns$/(^the_test_argv_init_writes,_run_on_a_path_and_failing,_is_the_runner's_run$)'

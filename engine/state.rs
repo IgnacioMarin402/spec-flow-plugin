@@ -201,6 +201,81 @@ pub fn age(path: &Path) -> Option<std::time::Duration> {
     )
 }
 
+/// An RFC 3339 timestamp, as Go's `time.RFC3339Nano` reads one — `Z` or an
+/// offset, a fraction of any length or none — as milliseconds since the
+/// epoch, the fraction kept.
+pub fn parse_rfc3339(s: &str) -> Option<f64> {
+    let (date, clock) = s.split_once('T')?;
+    let (clock, offset_min) = if let Some(c) = clock.strip_suffix('Z') {
+        (c, 0)
+    } else {
+        let at = clock.rfind(['+', '-'])?;
+        let (c, off) = clock.split_at(at);
+        let (sign, hm) = off.split_at(1);
+        let (h, m) = hm.split_once(':')?;
+        if h.len() != 2 || m.len() != 2 {
+            return None;
+        }
+        let mins = h.parse::<i64>().ok()? * 60 + m.parse::<i64>().ok()?;
+        (c, if sign == "-" { -mins } else { mins })
+    };
+    let mut d = date
+        .splitn(3, '-')
+        .map(|p| (p.len(), p.parse::<i64>().ok()));
+    let (y, mo, da) = match (d.next()?, d.next()?, d.next()?) {
+        ((4, Some(y)), (2, Some(mo)), (2, Some(da))) => (y, mo, da),
+        _ => return None,
+    };
+    let (hms, frac) = clock
+        .split_once('.')
+        .map_or((clock, None), |(a, b)| (a, Some(b)));
+    let mut t = hms.splitn(3, ':').map(|p| (p.len(), p.parse::<i64>().ok()));
+    let (h, mi, se) = match (t.next()?, t.next()?, t.next()?) {
+        ((2, Some(h)), (2, Some(mi)), (2, Some(se))) => (h, mi, se),
+        _ => return None,
+    };
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&mo)
+        || da < 1
+        || da > month_days[(mo - 1) as usize]
+        || h > 23
+        || mi > 59
+        || se > 59
+    {
+        return None;
+    }
+    let frac_ms = match frac {
+        None => 0.0,
+        Some(f) if !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()) => {
+            format!("0.{f}").parse::<f64>().ok()? * 1000.0
+        }
+        Some(_) => return None,
+    };
+    // Howard Hinnant's days_from_civil.
+    let yy = if mo <= 2 { y - 1 } else { y };
+    let era = yy.div_euclid(400);
+    let yoe = yy - era * 400;
+    let doy = (153 * ((mo + 9) % 12) + 2) / 5 + da - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86400 + h * 3600 + mi * 60 + se - offset_min * 60;
+    Some(secs as f64 * 1000.0 + frac_ms)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
@@ -214,6 +289,32 @@ mod tests {
             (4_107_542_399_000, "2100-02-28T23:59:59.000Z"),
         ] {
             assert_eq!(super::iso(UNIX_EPOCH + Duration::from_millis(ms)), want);
+            assert_eq!(super::parse_rfc3339(want), Some(ms as f64), "{want}");
+        }
+    }
+
+    #[test]
+    fn rfc3339_reads_what_go_reads() {
+        assert_eq!(
+            super::parse_rfc3339("2026-11-13T10:00:00Z"),
+            Some(1_794_564_000_000.0)
+        );
+        assert_eq!(
+            super::parse_rfc3339("2026-11-13T11:00:00+01:00"),
+            Some(1_794_564_000_000.0)
+        );
+        assert_eq!(
+            super::parse_rfc3339("2026-11-13T10:00:00.0005Z"),
+            Some(1_794_564_000_000.5)
+        );
+        for bad in [
+            "not a time",
+            "2026-02-30T10:00:00Z",
+            "2026-11-13T10:00:60Z",
+            "2026-11-13T10:00:00.Z",
+            "2026-11-13",
+        ] {
+            assert_eq!(super::parse_rfc3339(bad), None, "{bad}");
         }
     }
 }
