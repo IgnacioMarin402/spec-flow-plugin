@@ -6,26 +6,19 @@ the fix and green after.
 
 ## Open
 
-B70–B77 come first, in this order: the port of the engine to Rust (ADR-054),
+B71–B77 come first, in this order: the port of the engine to Rust (ADR-054),
 one PR each. A hook moves with the readers it needs, and is done when its Go
 e2e cases pass on the Rust binary in CI's `rust` job, its tests joining that
 job's `-run` pattern in the same PR. The Go engine ships until B76.
 
-### B70 — the small hooks, and the agents they read
-
-`session-start`, `human-turn`, `register-agent`, `stale-resume`,
-`model-route`; with them the agents module (routing, budgets, handback) and
-`humanturn`. The first ECMAScript pattern arrives here: `regress` behind the
-`jsre` API, offsets in bytes as Go's are. **Done:** their cases on the Rust
-binary; `jsre_test.go` and `agents_test.go` as `cargo test`, which the `rust`
-job runs.
-
 ### B71 — the spawn guards
 
 `preflight`, `opus-budget`, `arm-gate`, `dispatch-guard`; with them `canrun`,
-`gitscope` (the base and the changed files), `specshape` and `spectime`.
-**Done:** their cases on the Rust binary; `gitscope_test.go`,
-`specshape_test.go` and `spectime_test.go` as `cargo test`.
+`gitscope` (the base and the changed files), `specshape`, `spectime` and the
+reader of `human-turn.log` (`humanturn.Unconfirmed`, which needs `specshape`).
+**Done:** their cases on the Rust binary, `TestStaleResume`'s opus-budget
+cases included; `gitscope_test.go`, `specshape_test.go` and
+`spectime_test.go` as `cargo test`.
 
 ### B72 — the gate and its checks
 
