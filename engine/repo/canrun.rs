@@ -2,14 +2,10 @@
 //! run's first spawn and phase-guard at the write that starts one (ADR-028).
 //! One copy, so the two cannot drift.
 
-// `check_start`, the settings and what a run starts from are phase-guard's
-// (B73).
-#![allow(dead_code)]
-
 use std::path::Path;
 
 use crate::agents;
-use crate::repo::contract::{self, Config};
+use crate::repo::contract;
 use crate::repo::gitscope::{self, Refusal};
 
 /// What in `.claude/spec-flow.config.json` cannot be applied: a cap
@@ -46,16 +42,10 @@ pub fn settings_problems(root: &Path) -> Vec<String> {
     out
 }
 
-/// What a run here starts from.
-pub struct Can {
-    pub config: Config,
-    pub base: String,
-}
-
 /// The first failure, its kind naming it: `no-repository` and `not-root`,
 /// then `contract`, `base`, `foreign-change`. The repository first: a
 /// contract read from a subdirectory is the wrong one (ADR-027).
-pub fn check(root: &Path) -> Result<Can, Refusal> {
+pub fn check(root: &Path) -> Result<(), Refusal> {
     gitscope::assert_repo_root(root)?;
     let config = contract::load(root).map_err(|msg| Refusal {
         kind: "contract",
@@ -84,14 +74,14 @@ pub fn check(root: &Path) -> Result<Can, Refusal> {
             ),
         });
     }
-    Ok(Can { config, base })
+    Ok(())
 }
 
 /// `check` and the settings: what phase-guard asks of the write that starts
 /// a run. Not preflight at each spawn: mid-run each hook applies what it can,
 /// and a refusal there would stop every spawn (ADR-049).
-pub fn check_start(root: &Path) -> Result<Can, Refusal> {
-    let can = check(root)?;
+pub fn check_start(root: &Path) -> Result<(), Refusal> {
+    check(root)?;
     let s = settings_problems(root);
     if !s.is_empty() {
         return Err(Refusal {
@@ -102,5 +92,5 @@ pub fn check_start(root: &Path) -> Result<Can, Refusal> {
             ),
         });
     }
-    Ok(can)
+    Ok(())
 }

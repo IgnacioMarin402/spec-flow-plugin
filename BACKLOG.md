@@ -6,18 +6,10 @@ the fix and green after.
 
 ## Open
 
-B73–B77 come first, in this order: the port of the engine to Rust (ADR-054),
+B74–B77 come first, in this order: the port of the engine to Rust (ADR-054),
 one PR each. A hook moves with the readers it needs, and is done when its Go
-e2e cases pass on the Rust binary in CI's `rust` job, its tests joining that
-job's `-run` pattern in the same PR. The Go engine ships until B76.
-
-### B73 — the file guards
-
-`phase-guard`, `orchestrator-scope`, `lint-on-write`; with them the rest of
-the shell scanner: what a command writes (`Kinds`, `ResolveCd`, the
-phase-write patterns, which need lookahead), and `gitscope`'s pathspec reader
-(`InScope`). **Done:** their cases on the Rust binary,
-`gate_test.go`'s phase-guard cases and the rest of `TestCase3` included.
+e2e cases pass on the Rust binary in CI's `rust` job, its tests leaving that
+job's `-skip` list in the same PR. The Go engine ships until B76.
 
 ### B74 — the trace
 

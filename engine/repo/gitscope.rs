@@ -330,6 +330,131 @@ pub fn scope_matches_nothing(root: &Path, scope_globs: &[String]) -> bool {
     res.ok() && res.stdout.trim().is_empty()
 }
 
+/// `path` from `root` with `/`, or `None` when it is outside it. Absolute
+/// paths are read against the root as spelled, then as the filesystem
+/// resolves both: a root has more than one spelling. A relative path is
+/// taken as written.
+pub fn rel_to(root: &Path, path: &str) -> Option<String> {
+    let p = Path::new(path);
+    let rel = if p.is_absolute() {
+        match p.strip_prefix(root) {
+            Ok(r) => r.to_path_buf(),
+            Err(_) => {
+                let real_root = std::fs::canonicalize(root).ok()?;
+                let real = std::fs::canonicalize(p).ok()?;
+                real.strip_prefix(&real_root).ok()?.to_path_buf()
+            }
+        }
+    } else {
+        p.to_path_buf()
+    };
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    if rel.is_empty() || rel == "." || rel == ".." || rel.starts_with("../") {
+        return None;
+    }
+    Some(rel)
+}
+
+/// Whether a path, absolute or from root, is one the gate's `scope_globs`
+/// select — matched as git matches a pathspec, so the write-time readers and
+/// the gate cannot disagree about what is in scope.
+pub fn in_scope(root: &Path, path: &str, scope_globs: &[String]) -> bool {
+    rel_to(root, path).is_some_and(|rel| scope_globs.iter().any(|g| pathspec(g, &rel)))
+}
+
+/// Whether git would select `path` (from the root, with `/`) by `spec`, a
+/// pathspec with no magic: the path itself; else, with no wildcard, a
+/// directory prefix; else a match where `*` and `?` cross `/`.
+pub fn pathspec(spec: &str, path: &str) -> bool {
+    if spec == path {
+        return true;
+    }
+    if !spec.contains(['*', '?', '[', '\\']) {
+        if spec.ends_with('/') {
+            return path.starts_with(spec);
+        }
+        return path.starts_with(&format!("{spec}/"));
+    }
+    wildmatch(spec.as_bytes(), path.as_bytes())
+}
+
+/// fnmatch(3) without FNM_PATHNAME, as git applies a pathspec.
+fn wildmatch(p: &[u8], s: &[u8]) -> bool {
+    let Some(&first) = p.first() else {
+        return s.is_empty();
+    };
+    match first {
+        b'*' => (0..=s.len()).any(|i| wildmatch(&p[1..], &s[i..])),
+        b'?' => !s.is_empty() && wildmatch(&p[1..], &s[1..]),
+        b'[' => {
+            let Some(&c) = s.first() else { return false };
+            match bracket(p, c) {
+                Some((matched, rest)) => matched && wildmatch(rest, &s[1..]),
+                None => c == b'[' && wildmatch(&p[1..], &s[1..]),
+            }
+        }
+        b'\\' if p.len() > 1 => s.first() == Some(&p[1]) && wildmatch(&p[2..], &s[1..]),
+        _ => s.first() == Some(&first) && wildmatch(&p[1..], &s[1..]),
+    }
+}
+
+/// Whether `c` is in the class `p` opens, and the pattern after it; `None`
+/// when the class never closes.
+fn bracket(p: &[u8], c: u8) -> Option<(bool, &[u8])> {
+    let mut i = 1;
+    let negate = matches!(p.get(i), Some(b'!' | b'^'));
+    if negate {
+        i += 1;
+    }
+    let (mut first, mut matched) = (true, false);
+    while i < p.len() {
+        if p[i] == b']' && !first {
+            return Some((matched != negate, &p[i + 1..]));
+        }
+        first = false;
+        let mut lo = p[i];
+        if lo == b'\\' && i + 1 < p.len() {
+            i += 1;
+            lo = p[i];
+        }
+        let mut hi = lo;
+        if i + 2 < p.len() && p[i + 1] == b'-' && p[i + 2] != b']' {
+            hi = p[i + 2];
+            i += 2;
+        }
+        if lo <= c && c <= hi {
+            matched = true;
+        }
+        i += 1;
+    }
+    None
+}
+
+#[cfg(test)]
+mod pathspec_tests {
+    use super::pathspec;
+
+    /// What `git ls-files -- <spec>` selects, for the specs a contract writes.
+    #[test]
+    fn pathspec_reads_as_git_does() {
+        for (spec, path, want) in [
+            ("*.ts", "lib/a/b.ts", true),
+            ("lib/*.ts", "lib/a/b.ts", true),
+            ("lib", "lib/a/b.ts", true),
+            ("lib/", "lib/a/b.ts", true),
+            ("li", "lib/a/b.ts", false),
+            ("**/*.ts", "a.ts", false),
+            ("**/*.ts", "lib/a.ts", true),
+            ("lib/[ab].ts", "lib/b.ts", true),
+            ("lib/[!ab].ts", "lib/b.ts", false),
+            ("lib/?.ts", "lib/c.ts", true),
+            ("lib/[a", "lib/[a", true),
+        ] {
+            assert_eq!(pathspec(spec, path), want, "{spec} on {path}");
+        }
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::PermissionsExt;

@@ -47,6 +47,24 @@ impl Input {
 
 pub type Main = fn(&Input) -> Exit;
 
+/// The PreToolUse denial as every guard words it.
+pub fn deny(message: &str) -> Exit {
+    Exit::Fail(format!("[spec-flow] Denied: {message}\n"))
+}
+
+thread_local! {
+    static QUIET: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `f`, or the message of the panic it raised, which the hook then says in
+/// its own words: not reported on stderr as the hook's own crash.
+pub fn quietly<T>(f: impl FnOnce() -> T) -> Result<T, String> {
+    QUIET.with(|q| q.set(true));
+    let out = panic::catch_unwind(panic::AssertUnwindSafe(f)).map_err(|p| panic_text(p.as_ref()));
+    QUIET.with(|q| q.set(false));
+    out
+}
+
 /// What a hook's protocol needs said after its crash, given the panic's
 /// message.
 pub type OnError = fn(&str) -> Exit;
@@ -60,9 +78,12 @@ pub fn find(name: &str) -> Option<(Main, Option<OnError>)> {
         // is indistinguishable from a pass to whoever waits on it.
         "gate" => return Some((guards::gate::run, Some(guards::gate::fail_closed))),
         "human-turn" => record::human_turn::run,
+        "lint-on-write" => guards::lint_on_write::run,
         "model-route" => guards::model_route::run,
         "no-gate-cmds" => guards::no_gate_cmds::run,
         "opus-budget" => guards::opus_budget::run,
+        "orchestrator-scope" => guards::orchestrator_scope::run,
+        "phase-guard" => guards::phase_guard::run,
         "preflight" => guards::preflight::run,
         "register-agent" => record::register_agent::run,
         "session-start" => record::session_start::run,
@@ -108,6 +129,9 @@ pub fn run(main: Main, on_error: Option<OnError>) -> i32 {
     // Always, a handler or not: a report that sends a human to the stack on
     // stderr has to find it there.
     panic::set_hook(Box::new(|info| {
+        if QUIET.with(|q| q.get()) {
+            return;
+        }
         let stack = std::backtrace::Backtrace::force_capture();
         let _ = writeln!(std::io::stderr(), "[spec-flow] hook error: {info}\n{stack}");
     }));

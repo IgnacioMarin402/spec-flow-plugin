@@ -100,8 +100,8 @@ jobs:
         run: claude plugin test .
 
   # The Rust port (ADR-054): the binary engine/build.sh writes for this runner,
-  # held to the Go suite's cases for every hook ported so far. A hook joins the
-  # pattern in the change that ports it.
+  # held to every case of the Go suite but those of hooks and commands not
+  # ported yet. A change that ports one removes its cases from the skip list.
   rust:
     name: rust · ubuntu-latest
     runs-on: ubuntu-latest
@@ -139,8 +139,8 @@ jobs:
       - name: Build the crashing copy
         run: CARGO_TARGET_DIR=target/gatecrash cargo build --release --locked --features gatecrash --target x86_64-unknown-linux-musl
 
-      - name: Ported hooks against the Go suite
+      - name: The Go suite against the port
         env:
           SPEC_FLOW_BINARY: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/spec-flow
           SPEC_FLOW_CRASH_BINARY: ${{ github.workspace }}/target/gatecrash/x86_64-unknown-linux-musl/release/spec-flow
-        run: go test ./internal/e2e -count=1 -run 'TestNoGateCmds|TestWholeRepoDenialHandsNoDisarm|TestACommittedPhaseArmsNothing/(does_not_arm_the_whole-repo_deny|is_not_flipped_to_implement_by_arm-gate|is_left_alone_by_session-start)|TestSessionStart|TestRegisterAgent|TestModelRoute|TestStaleResume|TestCase3/(human-turn_records|arm-gate_does_not_engage)|TestPreflight|TestArmGate|TestOpusBudget|TestSettingsMidRun|TestDispatch|TestOutsideARun|TestThePhaseSeal/(a_phase_sealed_to_another_session|a_phase_sealed_to_this_session)|TestGate|TestTrace|TestConfigShowsTheContractAsTheHooksReadIt|TestCheckNoFixWithNoReportOnlyLinter|TestACapabilitySpecWrittenWithCRLFIsReadAsWithLF|TestTheLauncher|TestACloneRunsAsItShips|TestNoHookCreatesStateOutsideTheFlow|TestHooksJSONRegistersRunTraceForAFailingBashCall|TestEveryHookRunsTheLauncherAndAPreToolUseHookContinuesWhereItCannotRun'
+        run: go test ./internal/e2e -count=1 -skip '^TestColdStart$|^TestSkillContract$|^TestGoReadersAgreeWithTheLiveViews$|^TestRunTraceLogsASourceWrite$|^TestAgentGate$|^TestAgentGateSpecWriter$|^TestRunTraceReturns$|^TestRunTraceReads$|^TestRunTraceTestRuns$|^TestEveryHooksJSONEntryRunsAsWritten$|^TestTheClosingTurn$|^TestScopeGlobsAreReadAsTheGateReadsThem$|^TestATestRunWhileItsFileDidNotLoadIsNotRedFirst$|^TestAStubThenARedRunIsRedFirst$|^TestTokenReadersAgree$|^TestEveryOutputCountIsAFloor$|^TestStatsReadsTheScopeOfACRLFSpec$|^TestStats$|^TestModels$|^TestResume$|^TestTokens$|^TestInit$|^TestPhaseGuardQuoting$/^run-trace_closes'
