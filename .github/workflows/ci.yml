@@ -127,7 +127,7 @@ jobs:
       - name: Lints
         run: cargo clippy --release --locked -- -D warnings
 
-      # The readers ported with their Go unit tests: jsre, agents.
+      # The readers ported with their Go unit tests.
       - name: Unit tests
         run: cargo test --release --locked
 
@@ -137,4 +137,4 @@ jobs:
       - name: Ported hooks against the Go suite
         env:
           SPEC_FLOW_BINARY: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/spec-flow
-        run: go test ./internal/e2e -count=1 -run 'TestNoGateCmds|TestWholeRepoDenialHandsNoDisarm|TestACommittedPhaseArmsNothing/(does_not_arm_the_whole-repo_deny|is_left_alone_by_session-start)|TestSessionStart|TestRegisterAgent|TestModelRoute|TestStaleResume/(denies_resuming|lets_a_warm|reads_the_TTL|leaves_an_agent|stands_down|allows_a_recipient)|TestCase3/human-turn_records'
+        run: go test ./internal/e2e -count=1 -run 'TestNoGateCmds|TestWholeRepoDenialHandsNoDisarm|TestACommittedPhaseArmsNothing/(does_not_arm_the_whole-repo_deny|is_not_flipped_to_implement_by_arm-gate|is_left_alone_by_session-start)|TestSessionStart|TestRegisterAgent|TestModelRoute|TestStaleResume|TestCase3/(human-turn_records|arm-gate_does_not_engage)|TestPreflight|TestArmGate|TestOpusBudget|TestSettingsMidRun|TestDispatch|TestOutsideARun|TestThePhaseSeal/(a_phase_sealed_to_another_session|a_phase_sealed_to_this_session)'

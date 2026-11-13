@@ -21,6 +21,9 @@ pub enum Exit {
     Pass,
     /// Exit 0, this on stdout as it stands.
     Say(String),
+    /// Exit 0, this on stderr as it stands: the call goes through, and the
+    /// transcript says why something changed.
+    Note(String),
     /// The PreToolUse denial: the message on stderr as it stands, exit 2.
     Fail(String),
 }
@@ -47,9 +50,13 @@ pub type Main = fn(&Input) -> Exit;
 /// The hook registered as `name`.
 pub fn find(name: &str) -> Option<Main> {
     match name {
+        "arm-gate" => Some(guards::arm_gate::run),
+        "dispatch-guard" => Some(record::dispatch_guard::run),
         "human-turn" => Some(record::human_turn::run),
         "model-route" => Some(guards::model_route::run),
         "no-gate-cmds" => Some(guards::no_gate_cmds::run),
+        "opus-budget" => Some(guards::opus_budget::run),
+        "preflight" => Some(guards::preflight::run),
         "register-agent" => Some(record::register_agent::run),
         "session-start" => Some(record::session_start::run),
         "stale-resume" => Some(guards::stale_resume::run),
@@ -68,6 +75,10 @@ pub fn run(main: Main) -> i32 {
     };
     match panic::catch_unwind(panic::AssertUnwindSafe(|| main(&input))) {
         Ok(Exit::Pass) | Err(_) => 0,
+        Ok(Exit::Note(note)) => {
+            let _ = std::io::stderr().write_all(note.as_bytes());
+            0
+        }
         Ok(Exit::Say(out)) => {
             let _ = std::io::stdout().write_all(out.as_bytes());
             0

@@ -3,10 +3,12 @@
 
 mod agents;
 mod hooks;
+mod humanturn;
 mod jsre;
 mod payload;
 mod repo;
 mod shell;
+mod spec;
 mod state;
 
 use std::process::exit;

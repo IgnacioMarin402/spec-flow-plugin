@@ -4,7 +4,7 @@
 //! port changes what a check accepts. Offsets are bytes into the input, as
 //! everywhere else here.
 
-#![allow(dead_code)] // the readers that split, replace and search arrive with B71–B75
+#![allow(dead_code)] // `has` is read by readers B72–B75 port
 
 use std::ops::Range;
 

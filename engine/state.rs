@@ -71,6 +71,42 @@ pub fn read_phase(root: &Path) -> String {
     phase
 }
 
+/// Whether the repository COMMITTED anything under `.claude/state/`: then
+/// nothing is appended there outside a run (ADR-040).
+pub fn state_is_tracked(root: &Path) -> bool {
+    proc::git(
+        root,
+        &["ls-files", "--error-unmatch", "--", ".claude/state"],
+    )
+    .ok()
+}
+
+/// `read_phase` narrowed to a phase THIS session owns. Only the hooks certain
+/// to fire in the sealing session call it — the gate and token-trace on Stop,
+/// the budget on a spawn (ADR-017). Fails closed: no seal or no session id
+/// leaves the phase honoured.
+pub fn read_owned_phase(root: &Path, session_id: &str) -> String {
+    let phase = read_phase(root);
+    if !is_run_phase(&phase) {
+        return phase;
+    }
+    let owner = read_file_or_default(&phase_owner_path(root), "");
+    if !owner.is_empty() && !session_id.is_empty() && owner != session_id {
+        return String::new();
+    }
+    phase
+}
+
+/// Records this session as the one driving the phase. No session id claims
+/// nothing: an empty seal already reads as unowned.
+pub fn claim_phase(root: &Path, session_id: &str) {
+    if session_id.is_empty() {
+        return;
+    }
+    state_dir(root);
+    write_file(&phase_owner_path(root), session_id);
+}
+
 /// JavaScript's `String.prototype.trim`: whitespace and the BOM.
 pub fn trim(s: &str) -> &str {
     s.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')

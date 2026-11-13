@@ -43,7 +43,16 @@ pub struct Bash {
 #[derive(Deserialize)]
 pub struct AgentCall {
     #[serde(default)]
+    pub tool_name: Option<Value>,
+    #[serde(default)]
     pub tool_input: Option<Map<String, Value>>,
+    #[serde(default)]
+    pub session_id: Option<Value>,
+    #[serde(default, rename = "sessionId")]
+    pub session_id_camel: Option<Value>,
+    /// Set when a subagent makes the call, not the session.
+    #[serde(default)]
+    pub agent_id: Option<Value>,
     #[serde(default)]
     pub transcript_path: Option<Value>,
     #[serde(default, rename = "transcriptPath")]
@@ -54,6 +63,21 @@ impl AgentCall {
     /// The input, or an empty one.
     pub fn input(&self) -> Map<String, Value> {
         self.tool_input.clone().unwrap_or_default()
+    }
+
+    /// The tool called, as JavaScript would print it.
+    pub fn tool(&self) -> String {
+        js_string(self.tool_name.as_ref())
+    }
+
+    /// The session id, as JavaScript would print it.
+    pub fn session(&self) -> String {
+        js_string(self.session_id.as_ref())
+    }
+
+    /// The SendMessage's recipient, as JavaScript would print it.
+    pub fn to(&self) -> String {
+        js_string(self.tool_input.as_ref().and_then(|i| i.get("to")))
     }
 
     /// The session's transcript, `""` when neither spelling names one.

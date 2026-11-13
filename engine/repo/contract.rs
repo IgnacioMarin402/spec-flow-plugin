@@ -9,7 +9,7 @@
 //! fallback would make a version this engine cannot read indistinguishable
 //! from a missing file, and hand that repository someone else's values.
 
-#![allow(dead_code)] // the spike's one hook reads `unscoped_denied` alone
+#![allow(dead_code)] // the hooks ported so far read the base and `unscoped_denied` alone
 
 use std::path::Path;
 
