@@ -16,7 +16,7 @@ use crate::humanturn::LOG;
 use crate::payload::js_string;
 use crate::state;
 
-// `\s` and `\w` spelled out as ASCII: the Go engine's were.
+// `\s` and `\w` spelled out as ASCII: this regex crate's are Unicode.
 static PROMPT_TAG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\t\n\x0C\r ]*<([A-Za-z0-9_-]+)").unwrap());
 

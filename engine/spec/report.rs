@@ -51,7 +51,7 @@ impl Report {
     /// spec-trace binds them. A file that did not load reports no test of its
     /// own — node and vitest name one failed case after the file, jest-junit
     /// reports nothing — so it never reads as a test that failed.
-    #[allow(dead_code)] // its own tests read it; the Go engine's copy has no other reader either
+    #[allow(dead_code)] // its own tests read it; no hook does yet
     pub fn verdict(&self, id: &str) -> Verdict {
         if !self.error.is_empty() {
             return Verdict::Unknown;
@@ -261,9 +261,9 @@ pub fn read(format: &str, path: &str, root: &Path) -> Report {
 #[cfg(test)]
 mod tests {
     //! Every JUnit and TAP capture below is a byte-for-byte copy of a real
-    //! emitter's output, named with the version that produced it, copied from
-    //! the Go suite by script: a parser checked against XML written by hand is
-    //! checked against its author's assumptions.
+    //! emitter's output, named with the version that produced it, copied by
+    //! script: a parser checked against XML written by hand is checked against
+    //! its author's assumptions.
 
     use super::*;
 

@@ -6,31 +6,6 @@ the fix and green after.
 
 ## Open
 
-B76–B77 come first, in this order: the rest of the port of the engine to Rust
-(ADR-054). Every Go e2e case passes on the Rust binary in CI's `rust` job; the
-Go engine ships until B76.
-
-### B76 — the switch
-
-`bin/` built from the Rust source by `engine/build.sh`; a freshness test in
-place of `TestBinariesAreThisSource`, on the Linux leg; the Go engine source
-and `internal/build` removed. Before it: no e2e case imports the Go engine
-(`smoke1_test.go` reads `hooks.All`, `init_test.go` the contract,
-`models_test.go` the agents, `readers_test.go` the readers); `LineEnds` and
-the state names `PluginPaths` collects read the Rust source; the Windows leg
-runs the e2e cases on the `.exe` the Linux build wrote. **Done:** `go test
-./...` green on both legs with every case on the Rust binary the harness
-builds, and ADR-054's status saying the port is complete.
-
-### B77 — where the behaviour suite lives
-
-After B76 the e2e cases and `repocheck` are the only Go left, and a
-contributor needs both toolchains. `repocheck` reads agent contracts with
-`agentblocks.ReturnBlocks` and `UnroutedFields`, which the port has not taken:
-no hook reads them. **Needs a decision first:** keep Go as a
-black-box harness, or move both to `cargo test`. **Done:** that ADR, and
-CLAUDE.md's "Running it" matching it.
-
 ### B36 — test-first is not happening
 
 In the adopting repo, 18 of 18 measured requirements had no red test run before
@@ -81,7 +56,7 @@ Decided together:
   `f554b76` measured on 2.1.294 that it applies and that
   `CLAUDE_CODE_EFFORT_LEVEL` beats it. **Needs a decision first:** an ADR
   superseding ADR-015's measurement, saying whether a project routes effort and
-  from what. **Done, if it does:** a hook test (`internal/e2e`) whose re-routed spawn
+  from what. **Done, if it does:** a hook test (`engine/tests/e2e`) whose re-routed spawn
   carries the effort, red on `620901d`, and `spec-flow models` showing it.
 - **The spec-writer on `haiku`.** ADR-030 and ADR-031 hold the two risks a
   cheaper tier brings. On one real run it cost US$0.18 of US$2.07 (US$0.09 for
@@ -148,7 +123,7 @@ recorded in `decisions/`, whichever way it goes.
 
 A run implements M1..Mn one after another on one branch, and the gate judges
 one tree: the project directory's HEAD, at the orchestrator's stop
-(`internal/hookio`). The planner already writes each milestone's `Depends on`,
+(`engine/state.rs`). The planner already writes each milestone's `Depends on`,
 so those that depend on nothing pending could each run in a worktree on its own
 branch (`Agent` takes `isolation: "worktree"`). Opt-in, in
 `.claude/spec-flow.config.json`, since every milestone leaves a branch behind
@@ -174,7 +149,7 @@ cloud container takes an unmerged one with it. What stands in the way:
 none before them; a chain gains nothing. **Then a decision:** a gate per branch
 (the gate learns to judge a tree other than the project directory) or parallel
 implementers and one gate on the merge (the gate unchanged, a failure routed
-to the milestone whose files it names). **Done:** the ADR, and a gate test (`internal/e2e`)
+to the milestone whose files it names). **Done:** the ADR, and a gate test (`engine/tests/e2e`)
 case in which two branches green apart are red merged and the run does not
 reach `done`.
 
@@ -204,7 +179,7 @@ the interactive prompt resolves the short name is not measured. **Candidate:**
 `human-turn` already hears `UserPromptSubmit`; an unexpanded `/spec-flow` or
 `/spec-fix` is answered with the name that runs. **Needs first:** what that
 payload carries for an expanded command and for an unknown one. **Done:** a
-hook test (`internal/e2e`) for the unexpanded prompt, and the README naming the form a
+hook test (`engine/tests/e2e`) for the unexpanded prompt, and the README naming the form a
 headless run needs.
 
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody

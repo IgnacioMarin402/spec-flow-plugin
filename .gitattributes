@@ -1,8 +1,5 @@
 # The binaries are built from this source byte for byte, and a build hashes
 # every source file: a checkout converting line ends would build other bytes.
-*.go text eol=lf
-go.mod text eol=lf
-go.sum text eol=lf
 *.rs text eol=lf
 Cargo.toml text eol=lf
 Cargo.lock text eol=lf

@@ -52,8 +52,7 @@ pub fn masked(cmd: &[u8], kinds: &[Kind]) -> Vec<u8> {
         .collect()
 }
 
-// `\s` is spelled out: Go's is ASCII without `\v`, and this regex crate's is
-// Unicode.
+// `\s` is spelled out as `[\t\n\f\r ]`: this regex crate's is Unicode.
 static HEREDOC_OP: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\?)([^\t\n\x0C\r ;&|<>()'"]+))"#)
         .unwrap()

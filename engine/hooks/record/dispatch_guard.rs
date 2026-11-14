@@ -14,7 +14,7 @@ use crate::hooks::{Exit, Input};
 use crate::payload::AgentCall;
 use crate::state;
 
-// Go's `\w`, `\s` and `\b`: ASCII, as the Go engine read them.
+// `\w`, `\s` and `\b` spelled out as ASCII: this regex crate's are Unicode.
 static URL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[0-9A-Za-z_]+://[^\t\n\x0C\r ]+").unwrap());
 static VAR_PATH: LazyLock<Regex> =

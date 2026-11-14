@@ -42,3 +42,7 @@ path = "engine/tests/binaries.rs"
 [[test]]
 name = "repocheck"
 path = "engine/tests/repocheck/main.rs"
+
+[[test]]
+name = "e2e"
+path = "engine/tests/e2e/main.rs"

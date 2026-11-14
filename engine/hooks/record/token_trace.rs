@@ -547,8 +547,8 @@ pub fn run(input: &Input) -> Exit {
     Exit::Pass
 }
 
-/// An offset as JSON, its numbers as JavaScript writes them; the field order
-/// is the one the Go engine wrote.
+/// An offset as JSON, its numbers as JavaScript writes them, its fields in
+/// one order: one offset is always one string.
 fn offset_value(o: &Offset) -> Value {
     let mut v = Map::new();
     v.insert(

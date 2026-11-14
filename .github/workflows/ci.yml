@@ -2,9 +2,9 @@ name: CI
 
 # The engine's own gate. It has no consuming repo to check against, so what it
 # verifies is that the engine holds under its documented failure modes (each
-# case builds a throwaway repo and runs the real binary), that the binaries
-# committed in bin/ are the source beside them, and that this repo's prose and
-# code still agree with each other (internal/repocheck).
+# case builds a throwaway repo and runs the committed binary), that the
+# binaries committed in bin/ are the source beside them, and that this repo's
+# prose and code still agree with each other (engine/tests/repocheck).
 
 on:
   push:
@@ -21,11 +21,12 @@ concurrency:
 
 jobs:
   verify:
-    name: go · ${{ matrix.os }}
+    name: rust · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     # Windows too: hooks.json, each OS's shell and every `\`-vs-`/`
     # assumption live exactly where a POSIX-only matrix cannot see them, and
     # Windows runs the launcher through Git Bash, as Claude Code does (ADR-052).
+    # There the cases run the committed .exe the Linux build wrote.
     # `fail-fast: false`: one red leg is a portability fact, not a reason to
     # discard the other.
     strategy:
@@ -35,28 +36,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The release go.mod names: the committed binaries are what that release
-      # builds, byte for byte (internal/build).
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      # rust-toolchain.toml names the release, its components and the targets.
+      - name: Toolchain
+        run: rustup toolchain install
 
       - name: Formatted
         if: runner.os != 'Windows'
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        run: cargo fmt --check
 
-      # go.mod is an input to the reproducible build: kept as tidy writes it.
-      - name: Tidy
-        run: go mod tidy -diff
+      - name: Lints
+        if: runner.os != 'Windows'
+        run: cargo clippy --release --locked --all-targets -- -D warnings
 
-      - name: Vet
-        run: go vet ./...
-
-      # Everything: the engine's behaviour, the binaries' freshness, and the
-      # repository's checks on itself. The cases that run an adopter's Node
-      # repository use the runner's own node, and skip where there is none.
+      # Everything: the engine's readers, its behaviour through the committed
+      # binary (ADR-055), and the repository's checks on itself. The cases that
+      # run an adopter's Node repository use the runner's own node, and skip
+      # where there is none.
       - name: Tests
-        run: go test ./...
+        run: cargo test --release --locked
+
+      # zig links every target; the versions are the ones the build was
+      # measured with.
+      - name: Build toolchain
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m pip install --user --break-system-packages ziglang==0.14.1
+          cargo install cargo-zigbuild --version 0.24.1 --locked
+
+      # The committed binaries are what engine/build.sh writes, byte for byte
+      # (ADR-054): rebuilt here for every platform.
+      - name: The binaries are this source
+        if: runner.os != 'Windows'
+        run: cargo test --release --locked --test binaries -- --ignored
 
   # The live view is a mod: Claude Code loads it, so its only runner is Claude
   # Code's own kit. The newest release, because a release of the early-access
@@ -98,48 +109,3 @@ jobs:
 
       - name: Live view behaviour
         run: claude plugin test .
-
-  # The Rust port (ADR-054): the binary engine/build.sh writes for this runner,
-  # held to every case of the Go suite.
-  rust:
-    name: rust · ubuntu-latest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      # rust-toolchain.toml names the release, its components and the targets.
-      # zig links every target; the versions are the ones the build was
-      # measured with.
-      - name: Toolchain
-        run: |
-          rustup toolchain install
-          python3 -m pip install --user --break-system-packages ziglang==0.14.1
-          cargo install cargo-zigbuild --version 0.24.1 --locked
-
-      - name: Formatted
-        run: cargo fmt --check
-
-      - name: Lints
-        run: cargo clippy --release --locked -- -D warnings
-
-      # The readers ported with their Go unit tests.
-      - name: Unit tests
-        run: cargo test --release --locked
-
-      - name: Build
-        run: TARGETS=x86_64-unknown-linux-musl engine/build.sh
-
-      # The same source with the gate's checks made to panic, for the cases
-      # that hold its fail-closed handler: never a binary that ships.
-      - name: Build the crashing copy
-        run: CARGO_TARGET_DIR=target/gatecrash cargo build --release --locked --features gatecrash --target x86_64-unknown-linux-musl
-
-      - name: The Go suite against the port
-        env:
-          SPEC_FLOW_BINARY: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/spec-flow
-          SPEC_FLOW_CRASH_BINARY: ${{ github.workspace }}/target/gatecrash/x86_64-unknown-linux-musl/release/spec-flow
-        run: go test ./internal/e2e -count=1

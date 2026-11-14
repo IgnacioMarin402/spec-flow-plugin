@@ -1044,7 +1044,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 // The view's copy of the engine's readers, held to the answers the hooks give
-// (internal/e2e/readers_test.go holds the Go copy to the same table).
+// (the engine's own tests, and engine/tests/e2e/readers.rs, hold its copy to the same table).
 test('the live view reads as the hooks do: every answer in readers.golden.ts', () => {
   expect(MAX_BLOCKS).toBe(GOLDEN.maxBlocks)
   expect(KEEP).toBe(GOLDEN.keep)

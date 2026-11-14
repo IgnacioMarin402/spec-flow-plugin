@@ -26,8 +26,9 @@ binary's exit, streams and files.
   that calls one tests a function, not the hook a session runs.
 - The repository checks are a cargo test too, reading the Rust source where
   they read the Go source before.
-- Each case keeps its name and its assertion: a port of a test that changes
-  what it asserts is a new test with an old name.
+- Each case keeps its assertion: a port of a test that changes what it
+  asserts is a new test with an old name. A Go table of cases becomes one
+  test, or one test per case, and a failure names the case.
 
 **Refused.**
 
