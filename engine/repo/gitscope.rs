@@ -330,7 +330,7 @@ pub fn scope_matches_nothing(root: &Path, scope_globs: &[String]) -> bool {
     res.ok() && res.stdout.trim().is_empty()
 }
 
-/// `p` with `.` and `..` resolved as text, as Go's `filepath.Clean` does.
+/// `p` with `.` and `..` resolved as text, never against the filesystem.
 pub fn clean(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {

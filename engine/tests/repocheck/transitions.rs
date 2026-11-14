@@ -29,9 +29,12 @@ pub const TRANSITIONS_EXPECTED: usize = 0;
 
 /// Narrow by measurement: a wider pattern matched ordinary English inside an
 /// invariant. A miss keeps the number flat; a false positive makes it
-/// unreadable.
+/// unreadable. The engine's retired language counts too: a reader described
+/// by the Go library call it once mirrored sends whoever reads it to source
+/// this repository does not have (ADR-054). An adopter's Go test runner is
+/// not the engine, and is not counted.
 static TRANSITION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\bused to\b|\bpreviously\b|\bthe old\b|\bthis replaced\b|\bno longer\b|\bhad been\b|\bfor a while\b|\bonce before\b|\bshipped in exactly\b").unwrap()
+    Regex::new(r"(?i)\bused to\b|\bpreviously\b|\bthe old\b|\bthis replaced\b|\bno longer\b|\bhad been\b|\bfor a while\b|\bonce before\b|\bshipped in exactly\b|\bGo's\b|\bin Go\b|\(Go\)|\bthe Go (?:engine|source|suite|tests?|copy)\b").unwrap()
 });
 static COMMENT_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(//|\*|/\*)").unwrap());
 

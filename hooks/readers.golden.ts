@@ -1,4 +1,4 @@
-// The answers the hooks (Go) and the live view (live-view-readers.ts) give
+// The answers the hooks (the engine) and the live view (live-view-readers.ts) give
 // for the same input. Both read this table: a reader changed in one place
 // fails until the other agrees. `null` is no answer: no return block, no
 // milestone, a cap that is not a whole number of calls.

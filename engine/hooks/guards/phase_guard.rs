@@ -261,8 +261,9 @@ fn record_unreadable_write(root: &Path, c: &PhaseWrite) {
     }
 }
 
-/// A value as Go's `strconv.QuoteToGraphic` shows it, unquoted: a byte the
-/// terminal would swallow is shown, or the refusal reads as one of a phase.
+/// A value, unquoted, its controls, format characters and invalid bytes
+/// escaped: a byte the terminal would swallow is shown, or the refusal reads
+/// as one of a phase.
 fn graphic(b: &[u8]) -> String {
     let mut out = String::new();
     for chunk in b.utf8_chunks() {
@@ -541,7 +542,7 @@ mod tests {
                 "implement",
             ),
             ("echo -e 'spec\\cignored' > .claude/state/phase", "spec"),
-            ("echo -e 'spec\\c ignored' > .claude/state/phase", ""), // two words, as Go's Fields reads them
+            ("echo -e 'spec\\c ignored' > .claude/state/phase", ""), // two words, split on whitespace
             ("cd .claude/state && printf review > phase", "review"),
             ("echo a b > .claude/state/phase", ""),
             ("cat x > .claude/state/phase", ""),

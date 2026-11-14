@@ -112,8 +112,8 @@ fn failed_cases(out: &str) -> Vec<String> {
     names
 }
 
-/// Go's `path.Match`: `*` and `?` never cross `/`; a malformed pattern
-/// matches nothing.
+/// A glob over the whole name: `*` and `?` never cross `/`, `[...]` is a
+/// class, `\` escapes; a malformed pattern matches nothing.
 fn path_match(pattern: &[u8], name: &[u8]) -> bool {
     let Some(&p) = pattern.first() else {
         return name.is_empty();

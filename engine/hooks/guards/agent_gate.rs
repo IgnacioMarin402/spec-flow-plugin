@@ -135,8 +135,8 @@ fn slug_of(root: &Path, raw: &str) -> String {
         .map_or_else(String::new, |m| m[1].to_string())
 }
 
-/// Every capability spec, as Go's `filepath.Walk` finds them: lexical order,
-/// dot-directories included, no symlink followed.
+/// Every capability spec, walked in lexical order, dot-directories included,
+/// no symlink followed.
 fn capability_specs(dir: &Path, not_cap: &[String], out: &mut Vec<shape::Spec>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

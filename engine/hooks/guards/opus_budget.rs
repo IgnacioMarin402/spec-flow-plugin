@@ -113,8 +113,8 @@ pub fn run(input: &Input) -> Exit {
     Exit::Pass
 }
 
-/// The count a counter file holds, as Go's `fmt.Sscan` read it: an optional
-/// sign and the digits that follow; 0 when there are none.
+/// The count a counter file holds: an optional sign and the digits that
+/// follow it, whatever comes after; 0 when there are none.
 fn leading_int(s: &str) -> i64 {
     let (sign, digits) = match s.strip_prefix('-') {
         Some(rest) => (-1, rest),

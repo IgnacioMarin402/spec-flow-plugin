@@ -73,7 +73,7 @@ impl Report {
 static DEC_ENTITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&#([0-9]+);").unwrap());
 static HEX_ENTITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&#x([0-9a-fA-F]+);").unwrap());
 
-/// A code point as Go's `string(rune(n))` writes it: U+FFFD where none is.
+/// The character for a code point: U+FFFD where none is.
 fn char_of(n: Option<u32>) -> Option<char> {
     Some(n.and_then(char::from_u32).unwrap_or('\u{FFFD}'))
 }
