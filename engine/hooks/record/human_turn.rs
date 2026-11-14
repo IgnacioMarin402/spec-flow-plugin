@@ -12,12 +12,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::hooks::{Exit, Input};
+use crate::humanturn::LOG;
 use crate::payload::js_string;
 use crate::state;
-
-/// The record's file under `.claude/state/`, which phase-guard and arm-gate
-/// read.
-pub const LOG: &str = "human-turn.log";
 
 // `\s` and `\w` spelled out as ASCII: the Go engine's were.
 static PROMPT_TAG: LazyLock<Regex> =

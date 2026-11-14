@@ -72,6 +72,22 @@ func crashingEngine(t *testing.T) string {
 		write(t, p, strings.Replace(read(p), find, find+"\n  throw new Error(\"simulated engine defect\");", 1))
 		return engine
 	}
+	// Held to a port, the crash is that port's: the Go build would hold the
+	// Go gate's handler instead, and pass whatever the port does (ADR-054).
+	if os.Getenv("SPEC_FLOW_BINARY") != "" {
+		crash := os.Getenv("SPEC_FLOW_CRASH_BINARY")
+		if crash == "" {
+			t.Fatal("SPEC_FLOW_BINARY is set and SPEC_FLOW_CRASH_BINARY is not: name the port built to crash (cargo's `gatecrash` feature)")
+		}
+		b, err := os.ReadFile(crash)
+		if err != nil {
+			t.Fatalf("SPEC_FLOW_CRASH_BINARY: %v", err)
+		}
+		if err := os.WriteFile(binary(engine), b, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return engine
+	}
 	cmd := exec.Command("go", "build", "-tags", "gatecrash", "-o", binary(engine), "./cmd/spec-flow")
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -506,6 +522,14 @@ func TestGate(t *testing.T) {
 		{"a red test that survives one attempt routes to REPLAN", gateOpts{test: red(), gateAttempts: "1"}, func(t *testing.T, r gateRun) {
 			mustMatch(t, `result=fail:behaviour`, r.history, "expected fail:behaviour")
 			mustMatch(t, `MODE=REPLAN`, r.Stdout, "attempt 2 did not route to REPLAN")
+		}},
+		// The cap: the fifth failure in a row hands the run to a human instead
+		// of looping again.
+		{"the fifth failure in a row stops the loop and blocks the run for a human", gateOpts{test: red(), gateAttempts: "4"}, func(t *testing.T, r gateRun) {
+			mustMatch(t, `attempt=5 result=fail:behaviour`, r.history, "the fifth failure was not recorded as attempt 5")
+			mustMatch(t, `GATE FAILED 5 times`, r.Reason(), "the fifth failure did not stop the loop")
+			mustMatch(t, `phase is now 'blocked'`, r.Reason(), "the fifth failure did not hand the run to a human")
+			mustNotMatch(t, `MODE=REPLAN`, r.Reason(), "the fifth failure looped back to REPLAN")
 		}},
 		{"an extra_check declared class:'behaviour' routes like a red test, not like lint", gateOpts{extraChecks: []map[string]any{{"name": "fixture-behaviour-check", "field": "beh", "green": "(ok)", "hint": "fixture hint", "cmd": toAny(toolCmd("exit=1")), "class": "behaviour"}}}, func(t *testing.T, r gateRun) {
 			mustMatch(t, `result=fail:behaviour`, r.history, "expected fail:behaviour")

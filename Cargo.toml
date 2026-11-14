@@ -9,6 +9,11 @@ publish = false
 name = "spec-flow"
 path = "engine/main.rs"
 
+[features]
+# The gate's tests build a copy whose unscoped checks panic, to hold its
+# fail-closed handler to a real throw. Never in a shipped binary.
+gatecrash = []
+
 [dependencies]
 regex = "1"
 # ECMAScript patterns: lookaround, and JavaScript's line terminators (ADR-054).

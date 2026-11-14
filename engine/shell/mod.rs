@@ -14,6 +14,8 @@ use std::sync::LazyLock;
 
 use regex::bytes::Regex;
 
+use crate::jsre::Re;
+
 /// What each byte of a command is to a shell.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -721,5 +723,185 @@ fn write_words(
                 k += w;
             }
         }
+    }
+}
+
+/// Names the phase file in a path or a command, anchored past the name:
+/// `phase.session` and `phase-guard-unmatched.log` are not the phase.
+pub static PHASE_FILE: LazyLock<Re> =
+    LazyLock::new(|| Re::new(r"\.claude[\\/]state[\\/]phase(?![\w.-])", ""));
+
+const REDIRECT_OP: &str = r">>?\|?";
+const WRITE_OP: &str = r">>?\|?|\btee(?:\s+-a)?";
+const INTO_PHASE: &str = r#"\s*(?:"[^"]*"|'[^']*'|[^'"\s|;&])*?(?:"[^"]*?|'[^']*?|[^'"\s|;&]*?)\.claude[\\/]state[\\/]phase(?![\w.-])"#;
+
+/// A redirect into the phase file, its path quoted or not, whole or in
+/// parts. Test it on the `text` of `phase_write_text`.
+pub static PHASE_REDIRECT: LazyLock<Re> =
+    LazyLock::new(|| Re::new(&format!("(?:{REDIRECT_OP}){INTO_PHASE}"), ""));
+/// A redirect or a `tee` into the phase file.
+pub static PHASE_WRITE: LazyLock<Re> =
+    LazyLock::new(|| Re::new(&format!("(?:{WRITE_OP}){INTO_PHASE}"), ""));
+
+/// Programs that run text they are handed as code, where a `>` writes a file.
+static RUNS_TEXT: LazyLock<Re> = LazyLock::new(|| {
+    Re::new(
+        r"(?:^|[\s;&|(`])(?:[^\s;&|()`]*\/)?(?:a?sh|bash|zsh|dash|ksh|mksh|fish|t?csh|busybox|eval|su|watch|script|parallel|[gmn]?awk|perl)(?=$|[\s;&|)`])",
+        "",
+    )
+});
+
+/// What each byte of `cmd` is to a shell, or `None` when the command runs
+/// text as code and none of it is text. What runs inside quotes stays code —
+/// `$(…)`, backquotes, an unquoted heredoc line holding one — and quoting this
+/// cannot close is left as code: read as code, a command names more writes,
+/// never fewer.
+pub fn kinds(cmd: &str) -> Option<Vec<Kind>> {
+    let (kinds, _) = scan(cmd.as_bytes());
+    let masked = String::from_utf8_lossy(&masked(cmd.as_bytes(), &kinds)).into_owned();
+    if RUNS_TEXT.test(&masked) {
+        None
+    } else {
+        Some(kinds)
+    }
+}
+
+/// `cmd` with what a shell reads as text masked, byte for byte. A redirect
+/// or `tee` target stays: it is the path written.
+pub fn quoted_as_text(cmd: &str) -> String {
+    match kinds(cmd) {
+        Some(k) => String::from_utf8_lossy(&masked(cmd.as_bytes(), &k)).into_owned(),
+        None => cmd.into(),
+    }
+}
+
+/// `s` with what `mask_char` moved put back.
+pub fn unmask(s: &str) -> String {
+    s.chars()
+        .map(|c| match c as u32 {
+            n @ 0xE000..=0xE07F => char::from_u32(n - 0xE000).unwrap_or(c),
+            _ => c,
+        })
+        .collect()
+}
+
+static SEPARATORS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r";|&&|\n").unwrap());
+static CD_WORD: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"^[\t\n\x0C\r ]*\(?[\t\n\x0C\r ]*cd[\t\n\x0C\r ]+((?:"[^"]*"|'[^']*'|[^'"\t\n\x0C\r ;&|)])+)"#)
+        .unwrap()
+});
+static QUOTES: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"["']"#).unwrap());
+static TRAILING_SEP: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(.)[\\/]+$").unwrap());
+static ABSOLUTE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^([\\/~]|[A-Za-z]:)").unwrap());
+static WRITE_TARGET: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r#"(>>?\|?|(?-u:\b)tee(?:[\t\n\x0C\r ]+-a)?)([\t\n\x0C\r ]*)(['"]?)([^'"\t\n\x0C\r ;&|<>]+)"#,
+    )
+    .unwrap()
+});
+
+/// Each relative redirect or `tee` target after a `cd` written under that
+/// directory, so `cd .claude/state && printf done > phase` names the phase
+/// file. Linear: a `cd` in a subshell is taken as lasting, which can only
+/// name more paths, never fewer. Cut where `quoted_as_text` leaves a
+/// separator.
+pub fn resolve_cd(cmd: &str) -> String {
+    let text = quoted_as_text(cmd);
+    let mut pieces: Vec<&str> = Vec::new();
+    let mut last = 0;
+    for m in SEPARATORS.find_iter(&text) {
+        pieces.push(&cmd[last..m.start()]);
+        pieces.push(&cmd[m.start()..m.end()]);
+        last = m.end();
+    }
+    pieces.push(&cmd[last..]);
+
+    let mut dir = String::new();
+    let mut out = String::with_capacity(cmd.len());
+    for piece in pieces {
+        if let Some(m) = CD_WORD.captures(piece) {
+            let unquoted = QUOTES.replace_all(&m[1], "");
+            let to = TRAILING_SEP.replace_all(&unquoted, "$1").into_owned();
+            dir = if ABSOLUTE.is_match(&to) || dir.is_empty() {
+                to
+            } else {
+                format!("{dir}/{to}")
+            };
+            out.push_str(piece);
+            continue;
+        }
+        if dir.is_empty() {
+            out.push_str(piece);
+            continue;
+        }
+        let open = if dir.contains([' ', '\t', '\n', '\r', '\x0C']) {
+            "\""
+        } else {
+            ""
+        };
+        let replaced = WRITE_TARGET.replace_all(piece, |g: &regex::Captures| {
+            let (op, space, quote) = (&g[1], &g[2], &g[3]);
+            let tgt = g[4].strip_prefix("./").unwrap_or(&g[4]);
+            if quote.is_empty() {
+                format!("{op}{space}{open}{dir}/{tgt}{open}")
+            } else {
+                format!("{op}{space}{quote}{dir}/{tgt}")
+            }
+        });
+        out.push_str(&replaced);
+    }
+    out
+}
+
+/// A Bash command as the phase-write readers take it: `cmd` with its `cd`s
+/// resolved, and `text`, the same length, with what a shell reads as text
+/// masked. Match on `text`; read values from `cmd` at the same place.
+pub struct PhaseWrite {
+    pub cmd: String,
+    pub text: String,
+}
+
+/// `command` as the phase-write readers take it.
+pub fn phase_write_text(command: &str) -> PhaseWrite {
+    let cmd = resolve_cd(command);
+    let text = quoted_as_text(&cmd);
+    PhaseWrite { cmd, text }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resolve_cd_names_the_file_a_write_lands_in() {
+        for (cmd, want) in [
+            (
+                "cd .claude/state && printf done > phase",
+                "cd .claude/state && printf done > .claude/state/phase",
+            ),
+            (
+                "cd .claude && cd state; echo x | tee -a ./phase",
+                "cd .claude && cd state; echo x | tee -a .claude/state/phase",
+            ),
+            (
+                "cd 'my dir/' && echo x > out",
+                "cd 'my dir/' && echo x > \"my dir/out\"",
+            ),
+            ("cd /abs && echo x >'f'", "cd /abs && echo x >'/abs/f'"),
+            ("echo 'cd x; y' > f", "echo 'cd x; y' > f"),
+        ] {
+            assert_eq!(super::resolve_cd(cmd), want, "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_command_that_runs_text_has_no_text() {
+        assert!(super::kinds("sh -c 'echo x > f'").is_none());
+        assert!(super::kinds("echo 'x > f'").is_some());
+        assert_eq!(
+            super::quoted_as_text("echo 'a;b' > f"),
+            "echo '\x01\x01\x01' > f"
+        );
     }
 }

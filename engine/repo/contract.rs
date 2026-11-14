@@ -9,8 +9,6 @@
 //! fallback would make a version this engine cannot read indistinguishable
 //! from a missing file, and hand that repository someone else's values.
 
-#![allow(dead_code)] // the spike's one hook reads `unscoped_denied` alone
-
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
@@ -63,6 +61,7 @@ pub struct Report {
 }
 
 /// One of `extra_checks`, or spec-trace.
+#[derive(Clone)]
 pub struct Check {
     pub name: String,
     pub field: String,
@@ -417,4 +416,45 @@ pub fn load(root: &Path) -> Result<Config, String> {
         ));
     }
     Ok(build(&merged, source))
+}
+
+impl Config {
+    /// spec-trace, then whatever the contract declared, in that order.
+    pub fn checklist(&self) -> Vec<Check> {
+        let mut all = vec![spec_trace_check()];
+        all.extend(self.extra_checks.iter().cloned());
+        all
+    }
+}
+
+/// Engine core: always present and first, never opted into. No `cmd`: it is
+/// compiled into this binary.
+pub fn spec_trace_check() -> Check {
+    Check {
+        name: "spec-trace".into(),
+        field: "spec".into(),
+        green: "(specs and tests agree)".into(),
+        hint: "Name the requirement id in the test that proves it, or correct the requirement in the capability spec.".into(),
+        class: "lint/trace".into(),
+        cmd: Vec::new(),
+    }
+}
+
+/// Readies `trace.report.path` for the suite about to write it: the
+/// directory exists, and no report from an earlier run is left. Every caller
+/// that runs `verify.test` calls it first. Only a file that READS as a report
+/// naming a test case is removed: the path is the adopter's to write.
+pub fn prepare_report(root: &Path, cfg: &Config) {
+    let Some(r) = cfg.trace.report.as_ref().filter(|r| !r.path.is_empty()) else {
+        return;
+    };
+    let file = root.join(&r.path);
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let previous = crate::spec::report::read(&r.format, &r.path, root);
+    if !previous.error.is_empty() || previous.names.len() + previous.skipped == 0 {
+        return;
+    }
+    let _ = std::fs::remove_file(file);
 }

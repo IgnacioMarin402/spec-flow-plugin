@@ -4,8 +4,6 @@
 //! port changes what a check accepts. Offsets are bytes into the input, as
 //! everywhere else here.
 
-#![allow(dead_code)] // the readers that split, replace and search arrive with B71–B75
-
 use std::ops::Range;
 
 /// A compiled ECMAScript pattern.

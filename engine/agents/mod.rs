@@ -2,10 +2,7 @@
 //! (ADR-014), the escalation budgets (ADR-038), who a spawn or a SendMessage
 //! is for, and what a stopped agent handed back.
 
-// Budgets, dispatch records and handbacks are read by the spawn guards and
-// the trace (B71, B74).
-#![allow(dead_code)]
-
+pub mod blocks;
 pub mod handback;
 
 use std::collections::BTreeMap;
@@ -17,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::jsre::Re;
-use crate::payload::js_string;
+use crate::payload::{AgentCall, js_string};
 use crate::repo::engine;
 use crate::state;
 
@@ -452,7 +449,7 @@ pub fn dispatched_in(phase: &str) -> Option<&'static [&'static str]> {
 /// the log is read back by a whitespace split.
 pub fn record_dispatch(
     root: &Path,
-    payload: &Map<String, Value>,
+    call: &AgentCall,
     phase: &str,
     agent: &str,
     result: &str,
@@ -466,11 +463,11 @@ pub fn record_dispatch(
             .collect();
         if v.is_empty() { "-".into() } else { v }
     }
-    let session = ["session_id", "sessionId"]
+    let session = [&call.session_id, &call.session_id_camel]
         .iter()
-        .find_map(|k| payload.get(*k)?.as_str().filter(|s| WORD_ID.is_match(s)))
+        .find_map(|v| v.as_ref()?.as_str().filter(|s| WORD_ID.is_match(s)))
         .map_or_else(String::new, |s| format!(" session={s}"));
-    let tool = js_string(payload.get("tool_name"));
+    let tool = call.tool();
     let fields = [
         ("agent", agent),
         ("tool", tool.as_str()),

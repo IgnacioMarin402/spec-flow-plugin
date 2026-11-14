@@ -6,52 +6,9 @@ the fix and green after.
 
 ## Open
 
-B71–B77 come first, in this order: the port of the engine to Rust (ADR-054),
-one PR each. A hook moves with the readers it needs, and is done when its Go
-e2e cases pass on the Rust binary in CI's `rust` job, its tests joining that
-job's `-run` pattern in the same PR. The Go engine ships until B76.
-
-### B71 — the spawn guards
-
-`preflight`, `opus-budget`, `arm-gate`, `dispatch-guard`; with them `canrun`,
-`gitscope` (the base and the changed files), `specshape`, `spectime` and the
-reader of `human-turn.log` (`humanturn.Unconfirmed`, which needs `specshape`).
-**Done:** their cases on the Rust binary, `TestStaleResume`'s opus-budget
-cases included; `gitscope_test.go`, `specshape_test.go` and
-`spectime_test.go` as `cargo test`.
-
-### B72 — the gate and its checks
-
-`gate`, its crash handler blocking the stop (a crash that exits 0 allows a stop
-nothing judged); `unscoped`, `spectrace` and `testreport`; and `spec-flow
-trace`, `check` and `config`, which run the same pipeline. **Done:**
-`gate_test.go` and `trace*_test.go` on the Rust binary; `testreport_test.go`
-and `unscoped_test.go` as `cargo test`; a panic put in a copy of the gate
-blocks the stop.
-
-### B73 — the file guards
-
-`phase-guard`, `orchestrator-scope`, `lint-on-write`; with them the rest of
-the shell scanner: what a command writes (`Kinds`, `ResolveCd`, the
-phase-write patterns, which need lookahead). **Done:** their cases on the Rust
-binary, `gate_test.go`'s phase-guard cases included.
-
-### B74 — the trace
-
-`run-trace`, `agent-gate`, `token-trace`; with them `agentblocks` and
-`tracelines`. These write what the live view reads, so the Rust readers are
-held to `hooks/readers.golden.ts` as the Go ones are; `readers_test.go` calls
-the Go readers in-process and needs a Rust counterpart. **Done:** their cases
-on the Rust binary (`token_test.go` included); the golden table read by a
-`cargo test`; `agentblocks_test.go` ported.
-
-### B75 — the commands
-
-`resume`, `status`, `lines` (the live view streams a long log through it),
-`telemetry`, `models`, `init`, `stats`. `stats` and `models` gate nothing:
-before either is ported, list what each does and who else does it, with B39.
-**Done:** `init_test.go`, `resume_test.go`, `stats_test.go` and
-`models_test.go` on the Rust binary.
+B76–B77 come first, in this order: the rest of the port of the engine to Rust
+(ADR-054). Every Go e2e case passes on the Rust binary in CI's `rust` job; the
+Go engine ships until B76.
 
 ### B76 — the switch
 
@@ -68,7 +25,9 @@ builds, and ADR-054's status saying the port is complete.
 ### B77 — where the behaviour suite lives
 
 After B76 the e2e cases and `repocheck` are the only Go left, and a
-contributor needs both toolchains. **Needs a decision first:** keep Go as a
+contributor needs both toolchains. `repocheck` reads agent contracts with
+`agentblocks.ReturnBlocks` and `UnroutedFields`, which the port has not taken:
+no hook reads them. **Needs a decision first:** keep Go as a
 black-box harness, or move both to `cargo test`. **Done:** that ADR, and
 CLAUDE.md's "Running it" matching it.
 

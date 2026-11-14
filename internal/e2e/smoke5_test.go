@@ -75,6 +75,18 @@ func TestLintOnWrite(t *testing.T) {
 			t.Fatal("the linter never ran on an in-scope write mid-implement")
 		}
 	})
+	// A linter that ran and failed is said to the agent that wrote the file,
+	// with what it said: one that ran in silence looks like one that passed.
+	t.Run("hands the linter's findings back when it fails on the file", func(t *testing.T) {
+		repo := makeRepo(t, repoOpts{})
+		editContract(t, repo, func(c map[string]any) {
+			sub(c, "verify")["lint_no_fix"] = toAny(toolCmd("out=thing.ts:1 no-unused-vars", "exit=1"))
+		})
+		write(t, filepath.Join(repo, "thing.ts"), "export const a = 1;\n")
+		r := runHook(t, "lint-on-write", map[string]any{"tool_input": map[string]any{"file_path": filepath.Join(repo, "thing.ts")}}, repo)
+		expectStatus(t, r, 2, "a failing linter was read as a pass")
+		mustMatch(t, `no-unused-vars`, r.Stderr, "the linter's findings were not handed back")
+	})
 }
 
 // Fix (a): `scope_globs` are git pathspecs, from the repository root, for the
