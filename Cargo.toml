@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 
+[lib]
+name = "spec_flow"
+path = "engine/lib.rs"
+
 [[bin]]
 name = "spec-flow"
 path = "engine/main.rs"
@@ -34,3 +38,7 @@ panic = "unwind"
 [[test]]
 name = "binaries"
 path = "engine/tests/binaries.rs"
+
+[[test]]
+name = "repocheck"
+path = "engine/tests/repocheck/main.rs"

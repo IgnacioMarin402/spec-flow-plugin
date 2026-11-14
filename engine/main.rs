@@ -1,19 +1,9 @@
 //! `spec-flow` is the whole engine: every hook (`spec-flow hook <name>`) and
 //! every command a terminal, CI or the orchestrator runs.
 
-mod agents;
-mod cli;
-mod hooks;
-mod humanturn;
-mod jsre;
-mod payload;
-mod repo;
-mod shell;
-mod spec;
-mod state;
-mod tracelines;
-
 use std::process::exit;
+
+use spec_flow::{cli, hooks};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
