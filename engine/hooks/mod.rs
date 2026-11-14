@@ -69,31 +69,36 @@ pub fn quietly<T>(f: impl FnOnce() -> T) -> Result<T, String> {
 /// message.
 pub type OnError = fn(&str) -> Exit;
 
+/// Every hook, by the name hooks.json runs it under, and its crash handler.
+/// Only the gate has one: it is the one hook that fails CLOSED, because an
+/// uncaught failure in a Stop hook is indistinguishable from a pass to
+/// whoever waits on it.
+pub const HOOKS: [(&str, Main, Option<OnError>); 17] = [
+    ("agent-gate", guards::agent_gate::run, None),
+    ("arm-gate", guards::arm_gate::run, None),
+    ("dispatch-guard", record::dispatch_guard::run, None),
+    ("gate", guards::gate::run, Some(guards::gate::fail_closed)),
+    ("human-turn", record::human_turn::run, None),
+    ("lint-on-write", guards::lint_on_write::run, None),
+    ("model-route", guards::model_route::run, None),
+    ("no-gate-cmds", guards::no_gate_cmds::run, None),
+    ("opus-budget", guards::opus_budget::run, None),
+    ("orchestrator-scope", guards::orchestrator_scope::run, None),
+    ("phase-guard", guards::phase_guard::run, None),
+    ("preflight", guards::preflight::run, None),
+    ("register-agent", record::register_agent::run, None),
+    ("run-trace", record::run_trace::run, None),
+    ("session-start", record::session_start::run, None),
+    ("stale-resume", guards::stale_resume::run, None),
+    ("token-trace", record::token_trace::run, None),
+];
+
 /// The hook registered as `name`, and its crash handler.
 pub fn find(name: &str) -> Option<(Main, Option<OnError>)> {
-    let main: Main = match name {
-        "agent-gate" => guards::agent_gate::run,
-        "arm-gate" => guards::arm_gate::run,
-        "dispatch-guard" => record::dispatch_guard::run,
-        // The one hook that fails CLOSED: an uncaught failure in a Stop hook
-        // is indistinguishable from a pass to whoever waits on it.
-        "gate" => return Some((guards::gate::run, Some(guards::gate::fail_closed))),
-        "human-turn" => record::human_turn::run,
-        "lint-on-write" => guards::lint_on_write::run,
-        "model-route" => guards::model_route::run,
-        "no-gate-cmds" => guards::no_gate_cmds::run,
-        "opus-budget" => guards::opus_budget::run,
-        "orchestrator-scope" => guards::orchestrator_scope::run,
-        "phase-guard" => guards::phase_guard::run,
-        "preflight" => guards::preflight::run,
-        "register-agent" => record::register_agent::run,
-        "run-trace" => record::run_trace::run,
-        "session-start" => record::session_start::run,
-        "stale-resume" => guards::stale_resume::run,
-        "token-trace" => record::token_trace::run,
-        _ => return None,
-    };
-    Some((main, None))
+    HOOKS
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(_, main, on_error)| (*main, *on_error))
 }
 
 /// The message a panic carried.

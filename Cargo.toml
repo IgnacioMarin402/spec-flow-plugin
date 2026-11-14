@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 
+[lib]
+name = "spec_flow"
+path = "engine/lib.rs"
+
 [[bin]]
 name = "spec-flow"
 path = "engine/main.rs"
@@ -30,3 +34,15 @@ strip = true
 # A hook that crashes is caught and answered by its own protocol, so a panic
 # must unwind to the runner, not abort the process.
 panic = "unwind"
+
+[[test]]
+name = "binaries"
+path = "engine/tests/binaries.rs"
+
+[[test]]
+name = "repocheck"
+path = "engine/tests/repocheck/main.rs"
+
+[[test]]
+name = "e2e"
+path = "engine/tests/e2e/main.rs"

@@ -26,7 +26,7 @@ import type { LiveAgent, LiveOrchestrator, LiveRun, LiveTokens, LiveTurn } from 
 
 const PANE = 'spec-flow-live'
 const PREFIX = 'spec-flow:'
-// The phase vocabulary the hooks arm on (`internal/hookio`).
+// The phase vocabulary the hooks arm on (`RUN_PHASES` in engine/state.rs).
 const ARMED = ['spec', 'plan', 'review', 'implement', 'blocked']
 const BAR = ['spec', 'plan', 'review', 'implement', 'done']
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'

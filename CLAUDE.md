@@ -46,21 +46,21 @@ Details: `.claude/skills/engine-comments`.
 **Less is the goal.** Delete prose that restates the code, the git history or a
 check. Prefer a check over a sentence — counts written as prose drift.
 
-New prose files or directories go in `NoRepoFiles` / `NoRepoDirs` in
-`internal/repocheck/norepo.go`, and in the written-out list in
-`internal/repocheck/fixture_test.go`. `PluginPaths` checks that every
+New prose files or directories go in `NO_REPO_FILES` / `NO_REPO_DIRS` in
+`engine/tests/repocheck/norepo.rs`, and in the written-out list in
+`engine/tests/repocheck/fixtures.rs`. `PluginPaths` checks that every
 `${CLAUDE_PLUGIN_ROOT}/...` path an instruction names actually ships.
 
 ## Running it
 
-- `go test ./...` is every check: the engine's behaviour, and this repository's
-  checks on itself (`internal/repocheck`). `SPEC_FLOW_ORACLE=<dir>` runs the
-  behaviour tests against another engine checkout instead of this one.
-- The Rust port (ADR-054): `engine/build.sh` builds it, and
-  `SPEC_FLOW_BINARY=<binary> go test ./internal/e2e -run <ported>` holds a
-  ported hook to the Go engine's cases.
-- The binaries in `bin/` are built from the source in the same commit; a test
-  fails when they are not. Rebuild them with `go run ./internal/build`.
+- `cargo test` is every check: the engine's readers, its behaviour through the
+  binary `bin/` commits for this platform (`engine/tests/e2e`, ADR-055), and
+  this repository's checks on itself (`engine/tests/repocheck`).
+  `SPEC_FLOW_BINARY=<binary> cargo test --test e2e` runs the behaviour cases
+  against another build, before `bin/` is rebuilt.
+- The binaries in `bin/` are built from the source in the same commit by
+  `engine/build.sh` (ADR-054); `cargo test --test binaries -- --ignored`
+  rebuilds them and fails when they are not.
 - Evals run a model, so CI runs none:
   `claude plugin eval . --scaffold --no-publish --allow-tools Write Edit --judge-model sonnet`.
-  `TestEvals` holds each grader to its case's scaffold.
+  The `evals` repocheck holds each grader to its case's scaffold.

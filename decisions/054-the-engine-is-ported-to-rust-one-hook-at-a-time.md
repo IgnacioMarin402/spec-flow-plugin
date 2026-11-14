@@ -1,6 +1,6 @@
 # ADR-054 — the engine is ported to Rust, one hook at a time, held to the Go engine's cases
 
-**Date:** 2026-11-05 · **Status:** accepted; the hooks ported are those CI's `rust` job runs, the Go engine still ships · **Governs:** `engine/`, `Cargo.toml`, `rust-toolchain.toml`, `internal/e2e/harness_test.go`, `internal/repocheck`, `.github/workflows/ci.yml` · **Amends:** [ADR-051](051-the-engine-is-one-binary-per-platform-committed-with-its-source.md) (the language, once the port completes) · **Keeps:** [ADR-052](052-every-hook-runs-the-launcher-in-a-shell.md)
+**Date:** 2026-11-05 · **Status:** accepted; complete — every hook is the Rust engine's, `bin/` is built from it, and the Go engine is gone (ADR-055) · **Governs:** `engine/`, `Cargo.toml`, `rust-toolchain.toml`, `engine/build.sh`, `.github/workflows/ci.yml` · **Amends:** [ADR-051](051-the-engine-is-one-binary-per-platform-committed-with-its-source.md) (the language, once the port completes) · **Keeps:** [ADR-052](052-every-hook-runs-the-launcher-in-a-shell.md)
 
 **Question.** The Go engine is a file-for-file port of the Node scripts
 (ADR-051's table): twenty packages, shaped by the `.mjs` files they came

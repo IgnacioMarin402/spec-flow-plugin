@@ -157,12 +157,12 @@ instruction. The three flowcharts are in
 ## Developing the engine
 
 ```bash
-go test ./...                # every check; none needs the network
-go run ./internal/build      # after changing the source: rebuilds bin/
+cargo test                   # every check; none needs the network
+engine/build.sh              # after changing the source: rebuilds bin/
 ```
 
-CI runs both on Linux and Windows, and fails when a committed binary is not
-what its source builds. `TestColdStart` is the one that fails when *adoption*
+CI runs the checks on Linux and Windows, and fails when a committed binary is
+not what its source builds. `cold_start` is the one that fails when *adoption*
 breaks: it takes a Node repo from nothing to a green `check` through the route
 above.
 

@@ -19,6 +19,48 @@ pub const MAX_BLOCKS: usize = 2;
 pub const MAX_OPEN_QUESTIONS: usize = 3;
 
 static LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\r?\n").unwrap());
+static BLOCK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new("(?s)```\\r?\\n(STATUS:.*?)```").unwrap());
+static KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([A-Z][A-Z_]+):").unwrap());
+
+/// The field names declared across every fenced block that opens with
+/// `STATUS:`, in declaration order, and how many blocks there were: a caller
+/// tells "this agent declares none" from "the anchor stopped matching" by
+/// that count.
+pub fn return_blocks(text: &str) -> (usize, Vec<String>) {
+    let mut fields: Vec<String> = Vec::new();
+    let mut blocks = 0;
+    for m in BLOCK.captures_iter(text) {
+        blocks += 1;
+        for line in LINE.split(&m[1]) {
+            if let Some(k) = KEY.captures(line)
+                && !fields.iter().any(|f| f == &k[1])
+            {
+                fields.push(k[1].into());
+            }
+        }
+    }
+    (blocks, fields)
+}
+
+/// The fields no command names, as whole field names: `QUESTIONS` is not
+/// named by `OPEN_QUESTIONS`.
+pub fn unrouted_fields<S: AsRef<str>>(
+    fields: &[S],
+    commands_text: &str,
+    exempt: &[&str],
+) -> Vec<String> {
+    fields
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|f| !exempt.contains(f))
+        .filter(|f| {
+            !Re::new(&format!("(?<![A-Za-z0-9_]){f}(?![A-Za-z0-9_])"), "").test(commands_text)
+        })
+        .map(String::from)
+        .collect()
+}
+
 static STATUS_DECL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new("```\\r?\\nSTATUS:[ \\t]*([A-Z_]+)").unwrap());
 
@@ -123,6 +165,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn return_blocks_read_either_line_end() {
+        let block = [
+            "```",
+            "STATUS: FOLDED",
+            "ARCHIVED: specflow/archive/x/",
+            "GAPS: none",
+            "```",
+        ];
+        for end in ["\n", "\r\n"] {
+            assert_eq!(
+                return_blocks(&block.join(end)),
+                (1, vec!["STATUS".into(), "ARCHIVED".into(), "GAPS".into()]),
+                "{end:?}"
+            );
+        }
+        // The caller tells "declares none" from "the anchor moved" by this count.
+        for text in ["# just prose\n", "", "```bash\nSTATUS=1 npm test\n```"] {
+            assert_eq!(return_blocks(text), (0, Vec::new()), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn unrouted_fields_read_whole_names() {
+        // A field named only inside a longer field name is not routed.
+        assert_eq!(
+            unrouted_fields(&["QUESTIONS"], "route `OPEN_QUESTIONS:` to the human", &[]),
+            ["QUESTIONS"]
+        );
+        assert_eq!(
+            unrouted_fields(&["READ"], "expect `STATUS: SPEC_READY`", &[]),
+            ["READ"]
+        );
+        assert!(
+            unrouted_fields(&["GAPS", "STATUS"], "read its `GAPS:` line", &["STATUS"]).is_empty()
+        );
+    }
+
+    #[test]
     fn declared_statuses_read_either_line_end() {
         let md = "x\n```\nSTATUS: NEEDS_INPUT\nOPEN_QUESTIONS:\n```\ny\r\n```\r\nSTATUS: SPEC_READY\r\nSPEC_PATH: a\r\n```\r\n";
         assert_eq!(declared_statuses(md), ["NEEDS_INPUT", "SPEC_READY"]);
@@ -179,7 +259,7 @@ mod tests {
     /// The live view carries its own copy of these readers (a mod runs no
     /// binary's code). hooks/readers.golden.ts holds the answers both give;
     /// this holds the engine's to them, and hooks/live-view.test.tsx the
-    /// view's. `spec-flow lines` and `keep` are the commands' (B75).
+    /// view's; `spec-flow lines` is held to it through the binary.
     #[test]
     fn the_readers_agree_with_the_live_views() {
         use serde_json::Value;
@@ -192,6 +272,7 @@ mod tests {
             .expect("no `export default` table");
         let g: Value = serde_json::from_str(&text[at + "export default ".len()..]).unwrap();
         assert_eq!(g["maxBlocks"], MAX_BLOCKS);
+        assert_eq!(g["keep"], crate::cli::run_state::KEEP);
         let budgets = g["budgets"].as_object().unwrap();
         assert_eq!(budgets.len(), agents::BUDGET_ROLES.len());
         for (role, b) in budgets {
