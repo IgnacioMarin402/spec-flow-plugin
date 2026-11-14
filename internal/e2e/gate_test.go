@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -59,10 +60,14 @@ type gateOpts struct {
 
 type gateRepo struct{ engine, repo, gitDir string }
 
-var crashEngine string
+var (
+	crashOnce  sync.Once
+	crashBuilt string
+	crashErr   error
+)
 
 // crashingEngine is an engine whose unscoped checks throw: a second build
-// under the `gatecrash` tag in Go, the same sabotage the JavaScript copy took.
+// with cargo's `gatecrash` feature, the same sabotage the JavaScript copy took.
 func crashingEngine(t *testing.T) string {
 	t.Helper()
 	engine := copyEngine(t)
@@ -72,26 +77,31 @@ func crashingEngine(t *testing.T) string {
 		write(t, p, strings.Replace(read(p), find, find+"\n  throw new Error(\"simulated engine defect\");", 1))
 		return engine
 	}
-	// Held to a port, the crash is that port's: the Go build would hold the
-	// Go gate's handler instead, and pass whatever the port does (ADR-054).
-	if os.Getenv("SPEC_FLOW_BINARY") != "" {
-		crash := os.Getenv("SPEC_FLOW_CRASH_BINARY")
-		if crash == "" {
-			t.Fatal("SPEC_FLOW_BINARY is set and SPEC_FLOW_CRASH_BINARY is not: name the port built to crash (cargo's `gatecrash` feature)")
+	// The crash is the shipped engine's own source with one panic added
+	// (cargo's `gatecrash` feature), built here unless CI built it already.
+	crash := os.Getenv("SPEC_FLOW_CRASH_BINARY")
+	if crash == "" {
+		crashOnce.Do(func() {
+			target := filepath.Join(os.TempDir(), "spec-flow-gatecrash")
+			cmd := exec.Command("cargo", "build", "--release", "--locked", "--features", "gatecrash")
+			cmd.Dir = repoRoot
+			cmd.Env = append(os.Environ(), "CARGO_TARGET_DIR="+target)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				crashErr = fmt.Errorf("building the crashing engine: %v\n%s", err, out)
+			}
+			crashBuilt = filepath.Join(target, "release", exe("spec-flow"))
+		})
+		if crashErr != nil {
+			t.Fatal(crashErr)
 		}
-		b, err := os.ReadFile(crash)
-		if err != nil {
-			t.Fatalf("SPEC_FLOW_CRASH_BINARY: %v", err)
-		}
-		if err := os.WriteFile(binary(engine), b, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		return engine
+		crash = crashBuilt
 	}
-	cmd := exec.Command("go", "build", "-tags", "gatecrash", "-o", binary(engine), "./cmd/spec-flow")
-	cmd.Dir = repoRoot
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building the crashing engine: %v\n%s", err, out)
+	b, err := os.ReadFile(crash)
+	if err != nil {
+		t.Fatalf("the crashing engine: %v", err)
+	}
+	if err := os.WriteFile(binary(engine), b, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	return engine
 }

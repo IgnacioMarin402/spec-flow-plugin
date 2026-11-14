@@ -1,54 +1,20 @@
 package e2e
 
 // The live view carries its own copy of the readers the hooks use (a mod runs
-// no binary's code). hooks/readers.golden.ts holds the answers; this holds
-// the Go readers to them, and hooks/live-view.test.tsx the TypeScript ones.
+// no binary's code). hooks/readers.golden.ts holds the answers: the engine's
+// readers are held to it by a cargo test, hooks/live-view.test.tsx holds the
+// TypeScript ones, and this holds `spec-flow lines`, which the view runs on a
+// log one read cannot take, through the binary.
 
 import (
 	"encoding/json"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agentblocks"
-	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agents"
-	enginecli "github.com/IgnacioMarin402/spec-flow-plugin/internal/cli"
 )
 
 type golden struct {
-	MaxBlocks int `json:"maxBlocks"`
-	Keep      int `json:"keep"`
-	Budgets   map[string]struct {
-		Key      string `json:"key"`
-		Fallback int    `json:"fallback"`
-		Counter  string `json:"counter"`
-	} `json:"budgets"`
-	ParseReturn []struct {
-		Text string `json:"text"`
-		Want *struct {
-			Status string            `json:"status"`
-			Fields map[string]string `json:"fields"`
-		} `json:"want"`
-	} `json:"parseReturn"`
-	ProjectConfig []struct {
-		Text     string         `json:"text"`
-		Settings map[string]any `json:"settings"`
-		Problem  string         `json:"problem"`
-	} `json:"projectConfig"`
-	BudgetCap []struct {
-		Text string `json:"text"`
-		Role string `json:"role"`
-		Want *int   `json:"want"`
-	} `json:"budgetCap"`
-	MilestoneRef []struct {
-		Prompt any `json:"prompt"`
-		Want   *struct {
-			Change    string `json:"change"`
-			Milestone string `json:"milestone"`
-		} `json:"want"`
-	} `json:"milestoneRef"`
 	LinesOf []struct {
 		Text   string `json:"text"`
 		Needle string `json:"needle"`
@@ -74,57 +40,12 @@ func readGolden(t *testing.T) golden {
 	return g
 }
 
-func TestGoReadersAgreeWithTheLiveViews(t *testing.T) {
-	changedInPort(t, "the readers' Go copies are this engine's")
+func TestLinesAgreesWithTheLiveView(t *testing.T) {
+	changedInPort(t, "`spec-flow lines` is this engine's")
 	g := readGolden(t)
-	if agentblocks.MaxBlocks != g.MaxBlocks || enginecli.Keep != g.Keep {
-		t.Errorf("MaxBlocks %d, Keep %d; the table says %d, %d", agentblocks.MaxBlocks, enginecli.Keep, g.MaxBlocks, g.Keep)
+	if len(g.LinesOf) == 0 {
+		t.Fatal("the golden table holds no linesOf case")
 	}
-	for role, b := range g.Budgets {
-		if got := agents.Budgets[role]; got.Key != b.Key || got.Fallback != b.Fallback || got.Counter != b.Counter {
-			t.Errorf("budget %s: %+v, the table says %+v", role, got, b)
-		}
-	}
-	if len(agents.Budgets) != len(g.Budgets) {
-		t.Errorf("%d budgets, the table has %d", len(agents.Budgets), len(g.Budgets))
-	}
-	for _, c := range g.ParseReturn {
-		got := agentblocks.ParseReturn(c.Text)
-		switch {
-		case c.Want == nil && got != nil, c.Want != nil && got == nil:
-			t.Errorf("ParseReturn(%q) = %+v, want %+v", c.Text, got, c.Want)
-		case c.Want != nil && (got.Status != c.Want.Status || !reflect.DeepEqual(got.Fields, c.Want.Fields) && len(got.Fields)+len(c.Want.Fields) > 0):
-			t.Errorf("ParseReturn(%q) = %+v, want %+v", c.Text, got, c.Want)
-		}
-	}
-	for _, c := range g.ProjectConfig {
-		settings, problem := agents.ProjectConfig(c.Text)
-		kind := ""
-		if strings.Contains(problem, "does not parse") {
-			kind = "parse"
-		} else if problem != "" {
-			kind = "object"
-		}
-		if kind != c.Problem || !reflect.DeepEqual(settings, c.Settings) && len(settings)+len(c.Settings) > 0 {
-			t.Errorf("ProjectConfig(%q) = %v %q, want %v %q", c.Text, settings, problem, c.Settings, c.Problem)
-		}
-	}
-	for _, c := range g.BudgetCap {
-		want := -1
-		if c.Want != nil {
-			want = *c.Want
-		}
-		if got := agents.BudgetCap(c.Text, c.Role); got != want {
-			t.Errorf("BudgetCap(%q, %s) = %d, want %d", c.Text, c.Role, got, want)
-		}
-	}
-	for _, c := range g.MilestoneRef {
-		change, milestone, ok := agents.MilestoneRef(c.Prompt)
-		if ok != (c.Want != nil) || ok && (change != c.Want.Change || milestone != c.Want.Milestone) {
-			t.Errorf("MilestoneRef(%v) = %q %q %v, want %+v", c.Prompt, change, milestone, ok, c.Want)
-		}
-	}
-	// `spec-flow lines` is what the view runs on a log one read cannot take.
 	for _, c := range g.LinesOf {
 		path := filepath.Join(t.TempDir(), "run-trace.log")
 		write(t, path, c.Text)

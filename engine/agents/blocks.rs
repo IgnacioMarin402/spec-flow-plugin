@@ -179,7 +179,7 @@ mod tests {
     /// The live view carries its own copy of these readers (a mod runs no
     /// binary's code). hooks/readers.golden.ts holds the answers both give;
     /// this holds the engine's to them, and hooks/live-view.test.tsx the
-    /// view's. `spec-flow lines` and `keep` are the commands' (B75).
+    /// view's; `spec-flow lines` is held to it through the binary.
     #[test]
     fn the_readers_agree_with_the_live_views() {
         use serde_json::Value;
@@ -192,6 +192,7 @@ mod tests {
             .expect("no `export default` table");
         let g: Value = serde_json::from_str(&text[at + "export default ".len()..]).unwrap();
         assert_eq!(g["maxBlocks"], MAX_BLOCKS);
+        assert_eq!(g["keep"], crate::cli::run_state::KEEP);
         let budgets = g["budgets"].as_object().unwrap();
         assert_eq!(budgets.len(), agents::BUDGET_ROLES.len());
         for (role, b) in budgets {

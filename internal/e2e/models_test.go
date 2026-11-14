@@ -12,8 +12,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/IgnacioMarin402/spec-flow-plugin/internal/agents"
 )
 
 // Model ids are assembled, never spelled: the model-pins check scans this file.
@@ -42,7 +40,7 @@ func models(t *testing.T, files map[string]string, env ...string) Result {
 		}
 	}
 	clean := []string{"CLAUDE_CODE_EFFORT_LEVEL="}
-	for _, tier := range agents.Aliases {
+	for _, tier := range []string{"opus", "sonnet", "haiku", "fable"} {
 		clean = append(clean, "ANTHROPIC_DEFAULT_"+strings.ToUpper(tier)+"_MODEL=")
 	}
 	return run(root, append(clean, env...), "", cliArgv(engineDir, "models")...)
@@ -61,9 +59,16 @@ func row(out, agent string) string {
 
 func TestModels(t *testing.T) {
 	t.Parallel()
-	agents.AgentsDir = func() string { return filepath.Join(engineDir, "agents") }
-	// The reviewer as this repo ships it, read rather than restated.
-	reviewer := agents.Shipped()["reviewer"]
+	// The reviewer as this repo ships it, read off its frontmatter rather than
+	// restated.
+	frontmatter := read(filepath.Join(engineDir, "agents", "reviewer.md"))
+	field := func(k string) string {
+		if m := regexp.MustCompile(`(?m)^` + k + `:[ \t]*(\S+)`).FindStringSubmatch(frontmatter); m != nil {
+			return m[1]
+		}
+		return ""
+	}
+	reviewer := struct{ Model, Effort string }{field("model"), field("effort")}
 	elsewhere := ""
 	for _, tier := range []string{"haiku", "sonnet", "opus"} {
 		if tier != reviewer.Model {

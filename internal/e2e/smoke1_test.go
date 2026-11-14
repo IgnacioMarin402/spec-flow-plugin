@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/IgnacioMarin402/spec-flow-plugin/internal/hooks"
 )
 
 var spawnSpecWriter = map[string]any{"tool_input": map[string]any{"subagent_type": "spec-writer"}}
@@ -84,9 +83,15 @@ func TestSessionStartResetsAStalePlanPhase(t *testing.T) {
 func TestNoHookCreatesStateOutsideTheFlow(t *testing.T) {
 	bare := t.TempDir()
 	write(t, filepath.Join(bare, "package.json"), "{}")
-	names := make([]string, 0, len(hooks.All))
-	for n := range hooks.All {
-		names = append(names, n)
+	// Every hook hooks.json registers, read off the file Claude Code reads.
+	var names []string
+	for _, m := range regexp.MustCompile(`spec-flow\\?" hook ([a-z-]+)`).FindAllStringSubmatch(read(filepath.Join(repoRoot, "hooks", "hooks.json")), -1) {
+		if !slices.Contains(names, m[1]) {
+			names = append(names, m[1])
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("hooks/hooks.json registers no hook this case can read")
 	}
 	sort.Strings(names)
 	for _, n := range names {

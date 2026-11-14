@@ -30,3 +30,7 @@ strip = true
 # A hook that crashes is caught and answered by its own protocol, so a panic
 # must unwind to the runner, not abort the process.
 panic = "unwind"
+
+[[test]]
+name = "binaries"
+path = "engine/tests/binaries.rs"

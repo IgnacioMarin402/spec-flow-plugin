@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/IgnacioMarin402/spec-flow-plugin/internal/contract"
 )
 
 type bin struct{ name, pkg, entry string }
@@ -145,8 +144,10 @@ func readWritten(t *testing.T, dir string) written {
 func loadsThroughTheEngine(t *testing.T, dir string) error {
 	t.Helper()
 	if oracle == "" {
-		_, err := contract.Load(dir)
-		return err
+		if r := run(dir, []string{"CLAUDE_PROJECT_DIR=" + dir}, "", cliArgv(engineDir, "config")...); r.Status != 0 {
+			return fmt.Errorf("%s", r.Out())
+		}
+		return nil
 	}
 	r := run(dir, nil, "", "node", "--input-type=module", "-e",
 		`import { loadConfig } from `+toJSON("file://"+filepath.ToSlash(filepath.Join(oracle, "scripts", "spec-flow-config.mjs")))+`; loadConfig(process.argv[1]);`, dir)

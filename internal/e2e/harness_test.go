@@ -6,11 +6,13 @@
 // the JavaScript suite is shown to hold there too, and how a regression test
 // is shown to fail on the code before its fix.
 //
-// SPEC_FLOW_BINARY=<a built engine binary> runs every case against that
-// binary instead of this checkout's Go build, launcher and plugin files
-// unchanged: how a hook ported to Rust is held to the cases written for the
-// Go engine (ADR-054). SPEC_FLOW_CRASH_BINARY is that binary built to crash
-// in the gate's checks, for the cases that hold its fail-closed handler.
+// Every case runs the binary this checkout COMMITS for the platform it is on,
+// bin/<os>-<arch>/: what a session runs is what is tested, and a freshness
+// test holds those bytes to the source (ADR-054). SPEC_FLOW_BINARY=<a built
+// engine binary> runs every case against that one instead, launcher and
+// plugin files unchanged: how a change is tested before bin/ is rebuilt.
+// SPEC_FLOW_CRASH_BINARY is a binary built to crash in the gate's checks, for
+// the cases that hold its fail-closed handler; unset, cargo builds one.
 package e2e
 
 import (
@@ -85,20 +87,16 @@ func setup() (int, error) {
 	if b, err := os.ReadFile(filepath.Join(repoRoot, "bin", "spec-flow")); err == nil {
 		_ = os.WriteFile(launcher, b, 0o755)
 	}
-	if bin := os.Getenv("SPEC_FLOW_BINARY"); bin != "" {
-		b, err := os.ReadFile(bin)
-		if err != nil {
-			return 1, fmt.Errorf("SPEC_FLOW_BINARY: %v", err)
-		}
-		_ = os.MkdirAll(filepath.Dir(binary(engineDir)), 0o755)
-		return 0, os.WriteFile(binary(engineDir), b, 0o755)
+	bin := os.Getenv("SPEC_FLOW_BINARY")
+	if bin == "" {
+		bin = binary(repoRoot)
 	}
-	cmd := exec.Command("go", "build", "-o", binary(engineDir), "./cmd/spec-flow")
-	cmd.Dir = repoRoot
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return 1, fmt.Errorf("building spec-flow: %v\n%s", err, out)
+	b, err := os.ReadFile(bin)
+	if err != nil {
+		return 1, fmt.Errorf("the engine binary: %v", err)
 	}
-	return 0, nil
+	_ = os.MkdirAll(filepath.Dir(binary(engineDir)), 0o755)
+	return 0, os.WriteFile(binary(engineDir), b, 0o755)
 }
 
 func copyTree(from, to string) error {
