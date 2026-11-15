@@ -14,7 +14,7 @@ use crate::repo::{gitscope, proc};
 pub fn root() -> PathBuf {
     let exe = std::env::current_exe().ok();
     if let Some(exe) = &exe {
-        let real = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.clone());
+        let real = super::real_path(exe).unwrap_or_else(|_| exe.clone());
         for dir in real.ancestors().skip(1) {
             if dir.join(".claude-plugin").join("plugin.json").exists() {
                 return dir.to_path_buf();

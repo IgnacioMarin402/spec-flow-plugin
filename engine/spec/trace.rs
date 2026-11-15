@@ -42,7 +42,7 @@ fn walk(
     found: &mut Vec<PathBuf>,
     seen: &mut HashSet<PathBuf>,
 ) {
-    let Ok(real) = std::fs::canonicalize(dir) else {
+    let Ok(real) = crate::repo::real_path(dir) else {
         return;
     };
     if !seen.insert(real) {
