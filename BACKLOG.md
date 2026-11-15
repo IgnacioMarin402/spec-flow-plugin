@@ -162,12 +162,6 @@ its case's scaffold. **Open:** the
 orchestrator refusing to write code, and triage run under a phase, so
 `agent-gate` judges the return as it does in a run.
 
-### B33 — `Record:` shas in `decisions/` are unchecked
-
-Two of four were wrong and were corrected by hand. Checking them needs
-`fetch-depth: 0` in CI — slower on every job — to guard four frozen records;
-records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
-
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody
 
 Each fixture pins a payload shape measured once on one build: `background_tasks`
