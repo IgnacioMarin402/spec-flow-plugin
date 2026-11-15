@@ -170,8 +170,8 @@ fn lint_on_write_hands_the_linters_findings_back_when_it_fails_on_the_file() {
 }
 
 /// On Windows a package manager's command is a `.cmd` shim: a contract naming
-/// `npx` or a linter's bare name must still start, as Go's engine started it,
-/// not read as "could not be spawned" and stand the hook down.
+/// `npx` or a linter's bare name must still start, not read as "could not be
+/// spawned" and stand the hook down.
 #[cfg(windows)]
 #[test]
 fn lint_on_write_starts_a_linter_that_is_a_cmd_shim_on_path() {
