@@ -597,3 +597,24 @@ fn run_trace_logs_a_source_write() {
         trace_text(&repo)
     );
 }
+
+/// The instruction a denial prints is one the model can run. On Windows the
+/// engine's own path, resolved, came back verbatim (`//?/C:/...`), which
+/// Git Bash cannot run.
+#[cfg(windows)]
+#[test]
+fn a_denial_names_the_engine_in_a_spelling_a_shell_can_run() {
+    let repo = make_repo(RepoOpts::default());
+    let r = run_hook("no-gate-cmds", bash("npm run test"), &repo);
+    expect_status(&r, 2, "no-gate-cmds");
+    must_match(
+        "bin/spec-flow check",
+        &r.stderr,
+        "the denial names no scoped check",
+    );
+    must_not_match(
+        r"[\\/]{2}\?[\\/]",
+        &r.stderr,
+        "the denial names the engine by a verbatim path",
+    );
+}
