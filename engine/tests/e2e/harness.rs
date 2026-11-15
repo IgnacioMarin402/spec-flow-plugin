@@ -177,7 +177,17 @@ pub fn temp_dir() -> Dir {
         .join(format!("t{}", N.fetch_add(1, Ordering::Relaxed)));
     std::fs::create_dir_all(&p).unwrap();
     // The canonical spelling: a path the engine prints is compared with it.
-    Dir(std::fs::canonicalize(&p).unwrap_or(p))
+    Dir(std::fs::canonicalize(&p).map_or(p, |r| plain(&r)))
+}
+
+/// A Windows verbatim path (`\\?\C:\x`) in the spelling git, node and the
+/// engine use (`C:\x`); anything else as it is.
+fn plain(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => p.to_path_buf(),
+    }
 }
 
 pub fn engine_dir() -> &'static Path {

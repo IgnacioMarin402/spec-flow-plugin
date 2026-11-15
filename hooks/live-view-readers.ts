@@ -1,10 +1,10 @@
 /**
  * What the live view reads with the engine's own rules: a return block, the
  * escalation caps, the settings file, a milestone named in a prompt, and which
- * log lines count. The hooks read these in Go; a mod runs no binary's code, so
- * the view carries its own copy, and `hooks/readers.golden.ts` holds both
- * copies to the same answers — the Go tests and live-view.test.tsx each read
- * it. A copy that drifts shows a cap the hook does not deny at (ADR-047).
+ * log lines count. The hooks read these in the engine's binary; a mod runs no
+ * binary's code, so the view carries its own copy, and `hooks/readers.golden.ts`
+ * holds both copies to the same answers — the engine's cargo tests and
+ * live-view.test.tsx each read it. A copy that drifts shows a cap the hook does not deny at (ADR-047).
  */
 
 /** How many times the agent gate sends one return back before it lets it through. */

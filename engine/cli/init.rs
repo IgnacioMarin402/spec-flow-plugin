@@ -36,7 +36,7 @@ const SOURCE_EXTENSIONS: [&str; 6] = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cj
 /// that exact shape is stripped, since a bare `<pm> <word>` may be a script.
 const PACKAGE_MANAGERS: [&str; 4] = ["npm", "pnpm", "yarn", "bun"];
 
-/// A file's extension with its dot, as Go's `filepath.Ext` reads it.
+/// A file's extension with its dot: from the base name's last `.`, else `""`.
 fn ext(name: &str) -> &str {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     base.rfind('.').map_or("", |i| &base[i..])
@@ -342,7 +342,7 @@ fn detect_package_manager(root: &Path) -> &'static str {
     .map_or("npm", |(_, pm)| pm)
 }
 
-/// Go's `path.Clean`: `/`-separated, lexical.
+/// `.` and `..` resolved as text, `/`-separated; `"."` when nothing is left.
 fn clean_posix(p: &str) -> String {
     let rooted = p.starts_with('/');
     let mut out: Vec<&str> = Vec::new();
@@ -963,7 +963,7 @@ fn translator_stub(test_name: &str) -> String {
 enum Node {
     Obj(Vec<(String, Node)>),
     Arr(Vec<Node>),
-    /// A string, decoded; it is written again as Go's encoder writes one.
+    /// A string, decoded; it is written again by `json_string`.
     Str(String),
     /// A number, `true`, `false` or `null`, as written.
     Raw(String),
@@ -1041,9 +1041,9 @@ fn parse_ordered(s: &[u8], at: &mut usize) -> Node {
     }
 }
 
-/// A string as Go's encoder writes one with HTML escaping off: U+2028 and
-/// U+2029 escaped, as it always does.
-fn go_string(s: &str) -> String {
+/// A string as JSON, `<`, `>` and `&` as they are, U+2028 and U+2029
+/// escaped: the bytes `init` has always written into `package.json`.
+fn json_string(s: &str) -> String {
     serde_json::to_string(s)
         .unwrap_or_default()
         .replace('\u{2028}', "\\u2028")
@@ -1060,7 +1060,7 @@ fn write_ordered(out: &mut String, v: &Node, indent: &str, at: &str) {
             out.push_str("{\n");
             for (i, (k, v)) in m.iter().enumerate() {
                 out.push_str(&inner);
-                out.push_str(&go_string(k));
+                out.push_str(&json_string(k));
                 out.push_str(": ");
                 write_ordered(out, v, indent, &inner);
                 out.push_str(if i + 1 < m.len() { ",\n" } else { "\n" });
@@ -1078,7 +1078,7 @@ fn write_ordered(out: &mut String, v: &Node, indent: &str, at: &str) {
             out.push_str(at);
             out.push(']');
         }
-        Node::Str(s) => out.push_str(&go_string(s)),
+        Node::Str(s) => out.push_str(&json_string(s)),
         Node::Raw(r) => out.push_str(r),
     }
 }

@@ -7,3 +7,7 @@ rust-toolchain.toml text eol=lf
 bin/** -text -diff
 # After bin/**, which it overrides: the launcher is a script every hook runs.
 bin/spec-flow text eol=lf diff
+# The eval cases are exact text: a grader's pattern is built from a fixture
+# byte for byte, and a fixture.sh is run by bash. A Windows checkout's CRLF
+# breaks both, and the repocheck that reads their frontmatter.
+evals/** text eol=lf

@@ -201,9 +201,8 @@ pub fn age(path: &Path) -> Option<std::time::Duration> {
     )
 }
 
-/// An RFC 3339 timestamp, as Go's `time.RFC3339Nano` reads one — `Z` or an
-/// offset, a fraction of any length or none — as milliseconds since the
-/// epoch, the fraction kept.
+/// An RFC 3339 timestamp — `Z` or an offset, a fraction of any length or
+/// none — as milliseconds since the epoch, the fraction kept.
 pub fn parse_rfc3339(s: &str) -> Option<f64> {
     let (date, clock) = s.split_once('T')?;
     let (clock, offset_min) = if let Some(c) = clock.strip_suffix('Z') {

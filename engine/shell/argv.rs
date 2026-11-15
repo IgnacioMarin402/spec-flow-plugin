@@ -141,7 +141,8 @@ pub fn resolve_local_bin(root: &std::path::Path, bin_name: &str) -> String {
     if meta.file_type().is_symlink() {
         // A resolved path is named from the resolved root: a root has more
         // than one spelling (a short name on Windows, a symlink elsewhere).
-        let (Ok(real), Ok(real_root)) = (std::fs::canonicalize(&shim), std::fs::canonicalize(root))
+        let (Ok(real), Ok(real_root)) =
+            (crate::repo::real_path(&shim), crate::repo::real_path(root))
         else {
             return String::new();
         };

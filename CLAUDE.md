@@ -57,7 +57,8 @@ New prose files or directories go in `NO_REPO_FILES` / `NO_REPO_DIRS` in
   binary `bin/` commits for this platform (`engine/tests/e2e`, ADR-055), and
   this repository's checks on itself (`engine/tests/repocheck`).
   `SPEC_FLOW_BINARY=<binary> cargo test --test e2e` runs the behaviour cases
-  against another build, before `bin/` is rebuilt.
+  against another build, before `bin/` is rebuilt. The cases that run an
+  adopter's Node suite fail without `node`; `SPEC_FLOW_SKIP_NODE=1` skips them.
 - The binaries in `bin/` are built from the source in the same commit by
   `engine/build.sh` (ADR-054); `cargo test --test binaries -- --ignored`
   rebuilds them and fails when they are not.

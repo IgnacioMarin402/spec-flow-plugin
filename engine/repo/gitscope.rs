@@ -23,7 +23,7 @@ pub struct Refusal {
 /// The directory as the filesystem resolves it, `\` read as `/`, case folded
 /// where the default filesystem folds it.
 fn spelled(p: &Path) -> String {
-    let real = std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p));
+    let real = super::real_path(p).unwrap_or_else(|_| PathBuf::from(p));
     let s = real.to_string_lossy().replace('\\', "/");
     let s = s.trim_end_matches('/').to_string();
     if cfg!(any(windows, target_os = "macos")) {
@@ -330,7 +330,7 @@ pub fn scope_matches_nothing(root: &Path, scope_globs: &[String]) -> bool {
     res.ok() && res.stdout.trim().is_empty()
 }
 
-/// `p` with `.` and `..` resolved as text, as Go's `filepath.Clean` does.
+/// `p` with `.` and `..` resolved as text, never against the filesystem.
 pub fn clean(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
@@ -357,8 +357,8 @@ pub fn rel_to(root: &Path, path: &str) -> Option<String> {
         match p.strip_prefix(root) {
             Ok(r) => r.to_path_buf(),
             Err(_) => {
-                let real_root = std::fs::canonicalize(root).ok()?;
-                let real = std::fs::canonicalize(p).ok()?;
+                let real_root = super::real_path(root).ok()?;
+                let real = super::real_path(p).ok()?;
                 real.strip_prefix(&real_root).ok()?.to_path_buf()
             }
         }

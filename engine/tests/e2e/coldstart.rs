@@ -25,10 +25,10 @@ pub fn documented(dir: &Path, args: &[&str]) -> Output {
     )
 }
 
-/// An ordinary Node repository, committed on main; None where there is no node.
+/// An ordinary Node repository, committed on main; None where there is no
+/// node and SPEC_FLOW_SKIP_NODE says to skip.
 pub fn node_repo(scripts: Value, files: &Files) -> Option<Dir> {
     if !have_node() {
-        eprintln!("skipped: a Node repository's own suite needs node");
         return None;
     }
     let repo = temp_dir();

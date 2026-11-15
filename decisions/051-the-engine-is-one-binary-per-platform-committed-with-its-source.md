@@ -1,6 +1,6 @@
 # ADR-051 — the engine is one binary per platform, committed with its source
 
-**Date:** 2026-10-31 · **Status:** accepted; the exec form and the Windows binary's place superseded by [ADR-052](052-every-hook-runs-the-launcher-in-a-shell.md) · **Governs:** `cmd/spec-flow`, `internal/`, `bin/`, `hooks/hooks.json`, `internal/build`, `.github/workflows/ci.yml` · **Replaces:** ADR-016 and ADR-019, deleted · **Withdraws:** the Node half of ADR-004
+**Date:** 2026-10-31 · **Status:** accepted; the exec form and the Windows binary's place superseded by [ADR-052](052-every-hook-runs-the-launcher-in-a-shell.md); the language, Go, amended to Rust by [ADR-054](054-the-engine-is-ported-to-rust-one-hook-at-a-time.md) · **Governs:** `cmd/spec-flow`, `internal/`, `bin/`, `hooks/hooks.json`, `internal/build`, `.github/workflows/ci.yml` · **Replaces:** ADR-016 and ADR-019, deleted · **Withdraws:** the Node half of ADR-004
 
 **Question.** Every hook, script and check ran on Node: a floor every machine
 that adopted the engine had to meet (ADR-004), a process start on every hook

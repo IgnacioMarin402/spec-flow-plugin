@@ -50,7 +50,7 @@ jobs:
 
       # Everything: the engine's readers, its behaviour through the committed
       # binary (ADR-055), and the repository's checks on itself. The cases that
-      # run an adopter's Node repository use the runner's own node, and skip
+      # run an adopter's Node repository use the runner's own node, and fail
       # where there is none.
       - name: Tests
         run: cargo test --release --locked
