@@ -109,6 +109,9 @@ is published to a registry, and `spec-flow` on npm is someone else's package
 /spec-flow users can reset their password by email
 ```
 
+Under `claude -p`, type `/spec-flow:spec-flow`: the short name is not a
+command there.
+
 1. The run refuses to start if the contract does not load, the base branch
    does not resolve, or `.claude/spec-flow.config.json` holds a setting the
    hooks cannot apply.

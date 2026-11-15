@@ -168,26 +168,13 @@ Two of four were wrong and were corrected by hand. Checking them needs
 `fetch-depth: 0` in CI — slower on every job — to guard four frozen records;
 records since ADR-005 use `Governs:` and carry no sha. Open as a cost call.
 
-### B62 — a command that does not expand starts no run, and nothing says so
-
-Under `claude -p` on 2.1.310, with the plugin loaded by `--plugin-dir`, the
-command registers as `spec-flow:spec-flow`; a prompt typed
-`/spec-flow <requirement>` reached the model as text. The session implemented
-the requirement itself: no phase, so no hook armed, no spec and no gate, and it
-widened an existing requirement in place — the `CHANGED` ADR-009 refuses. How
-the interactive prompt resolves the short name is not measured. **Candidate:**
-`human-turn` already hears `UserPromptSubmit`; an unexpanded `/spec-flow` or
-`/spec-fix` is answered with the name that runs. **Needs first:** what that
-payload carries for an expanded command and for an unknown one. **Done:** a
-hook test (`engine/tests/e2e`) for the unexpanded prompt, and the README naming the form a
-headless run needs.
-
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody
 
 Each fixture pins a payload shape measured once on one build: `background_tasks`
 on `Stop` (ADR-023), `agent_id` on tool calls (ADR-034), cache lifetimes read
 off transcripts (ADR-025), `CLAUDE_CODE_SESSION_ATTENDED` (ADR-023), when
-the handback lands (ADR-050), how a command name resolves (B62). ADR-050's is
+the handback lands (ADR-050), that a command's short name is no command
+under `claude -p` and arrives as typed either way (`human-turn`). ADR-050's is
 one that moved, and every fixture stayed green. **Candidate:** a scheduled
 job, off the push workflow whose checks need no network, that
 runs one real `/spec-flow` under `claude -p` on a frozen throwaway repo with a
