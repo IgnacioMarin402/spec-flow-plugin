@@ -169,6 +169,38 @@ fn lint_on_write_hands_the_linters_findings_back_when_it_fails_on_the_file() {
     );
 }
 
+/// On Windows a package manager's command is a `.cmd` shim: a contract naming
+/// `npx` or a linter's bare name must still start, as Go's engine started it,
+/// not read as "could not be spawned" and stand the hook down.
+#[cfg(windows)]
+#[test]
+fn lint_on_write_starts_a_linter_that_is_a_cmd_shim_on_path() {
+    let repo = make_repo(RepoOpts::default());
+    let shims = temp_dir();
+    write(
+        shims.join("flint.cmd"),
+        "@echo thing.ts:1 flagged-by-a-cmd-shim\r\n@exit /b 1\r\n",
+    );
+    edit_contract(&repo, |c| c["verify"]["lint_no_fix"] = json!(["flint"]));
+    write(repo.join("thing.ts"), "export const a = 1;\n");
+    let path = format!(
+        "PATH={};{}",
+        shims.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let r = Hook {
+        env: vec![path],
+        ..Default::default()
+    }
+    .run(
+        "lint-on-write",
+        json!({"tool_input": {"file_path": repo.join("thing.ts")}}),
+        &repo,
+    );
+    expect_status(&r, 2, "a linter that is a .cmd shim on PATH");
+    must_match("flagged-by-a-cmd-shim", &r.out(), "the shim never ran");
+}
+
 /// `scope_globs` are git pathspecs, from the repository root, for the
 /// write-time readers as for the gate: the absolute path Claude Code sends is
 /// read from there.
