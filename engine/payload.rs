@@ -14,15 +14,65 @@ use serde_json::{Map, Value};
 pub struct Unreadable(#[allow(dead_code)] pub String);
 
 /// The first JSON value on stdin as `T`; anything after it is not read.
+///
+/// Read whole whatever text it carries: a lone surrogate escape or a byte
+/// that is not UTF-8 reads as U+FFFD, and a key written twice as its last
+/// value. `serde_json` refuses all three, and one refused character anywhere
+/// — a comment after a command, a file's content — would make the whole call
+/// unreadable and stand every guard down. `JSON.stringify`, which writes
+/// these payloads, writes a lone surrogate as its escape.
 pub fn parse<T: DeserializeOwned>(raw: &[u8]) -> Result<T, Unreadable> {
-    match serde_json::Deserializer::from_slice(raw)
-        .into_iter::<T>()
+    let text = lone_surrogates_replaced(String::from_utf8_lossy(raw).as_bytes());
+    // Through a `Value`, whose map keeps a repeated key's last value.
+    let value = match serde_json::Deserializer::from_slice(&text)
+        .into_iter::<Value>()
         .next()
     {
-        Some(Ok(v)) => Ok(v),
-        Some(Err(e)) => Err(Unreadable(e.to_string())),
-        None => Err(Unreadable("no payload".into())),
+        Some(Ok(v)) => v,
+        Some(Err(e)) => return Err(Unreadable(e.to_string())),
+        None => return Err(Unreadable("no payload".into())),
+    };
+    serde_json::from_value(value).map_err(|e| Unreadable(e.to_string()))
+}
+
+/// `\uD800`–`\uDFFF` escapes that are not a high and a low in that order
+/// replaced by `\uFFFD`. An escaped backslash is skipped whole, so `\\uD800`
+/// stays the text it is.
+fn lone_surrogates_replaced(raw: &[u8]) -> Vec<u8> {
+    let unit = |at: usize| -> Option<u16> {
+        if raw.get(at) != Some(&b'\\') || raw.get(at + 1) != Some(&b'u') {
+            return None;
+        }
+        let hex = std::str::from_utf8(raw.get(at + 2..at + 6)?).ok()?;
+        u16::from_str_radix(hex, 16).ok()
+    };
+    let mut out = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] != b'\\' {
+            out.push(raw[i]);
+            i += 1;
+            continue;
+        }
+        match unit(i) {
+            Some(0xD800..=0xDBFF) if matches!(unit(i + 6), Some(0xDC00..=0xDFFF)) => {
+                out.extend_from_slice(&raw[i..i + 12]);
+                i += 12;
+            }
+            Some(0xD800..=0xDFFF) => {
+                out.extend_from_slice(br"\uFFFD");
+                i += 6;
+            }
+            _ => {
+                // Any other escape, its second byte included: `\\` must not
+                // leave a backslash behind to start a false `\u`.
+                let end = (i + 2).min(raw.len());
+                out.extend_from_slice(&raw[i..end]);
+                i = end;
+            }
+        }
     }
+    out
 }
 
 /// A `PreToolUse` or `PostToolUse` call, its input read as `I`.
@@ -129,7 +179,31 @@ pub fn keys_json(m: &Map<String, Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn a_payload_is_read_whole_whatever_text_it_carries() {
+        let command = |raw: &[u8]| -> String {
+            let v: Value = super::parse(raw).unwrap_or_else(|e| panic!("{e:?}: {raw:?}"));
+            v["c"].as_str().unwrap().to_string()
+        };
+        for (raw, want) in [
+            (&br#"{"c":"a\ud800b"}"#[..], "a\u{FFFD}b"),
+            (br#"{"c":"a\uDC00"}"#, "a\u{FFFD}"),
+            (br#"{"c":"\ud800"}"#, "\u{FFFD}"),
+            (br#"{"c":"\ud800\ud800\udc00"}"#, "\u{FFFD}\u{10000}"),
+            (br#"{"c":"\ud83d\ude00"}"#, "\u{1F600}"),
+            (br#"{"c":"\\ud800"}"#, "\\ud800"),
+            (br#"{"c":"\\\ud800"}"#, "\\\u{FFFD}"),
+            (br#"{"c":"\u0041\n"}"#, "A\n"),
+            (b"{\"c\":\"a\xffb\"}", "a\u{FFFD}b"),
+            (br#"{"c":"first","c":"last"}"#, "last"),
+        ] {
+            assert_eq!(command(raw), want, "{}", String::from_utf8_lossy(raw));
+        }
+        assert!(super::parse::<Value>(b"not json").is_err());
+        assert!(super::parse::<Value>(b"").is_err());
+    }
 
     #[test]
     fn js_string_prints_as_javascript_does() {

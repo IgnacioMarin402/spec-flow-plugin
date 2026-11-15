@@ -12,6 +12,7 @@ mod init;
 mod launcher;
 mod models;
 mod package;
+mod payload_text;
 mod readers;
 mod resume;
 mod runner_output;

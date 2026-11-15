@@ -163,11 +163,23 @@ fn loads_through_the_engine(dir: &Path) -> Result<(), String> {
     if r.status == 0 { Ok(()) } else { Err(r.out()) }
 }
 
+/// Whether node is here to run an adopter's own suite. Its absence fails the
+/// case: cargo has no "skipped", and a case that returned early reads `ok`,
+/// exactly as one that ran and passed. SPEC_FLOW_SKIP_NODE=1 skips it
+/// knowingly, and says so on stderr.
 pub fn have_node() -> bool {
-    std::process::Command::new("node")
+    let here = std::process::Command::new("node")
         .arg("--version")
         .output()
-        .is_ok_and(|o| o.status.success())
+        .is_ok_and(|o| o.status.success());
+    if !here {
+        assert!(
+            std::env::var_os("SPEC_FLOW_SKIP_NODE").is_some_and(|v| !v.is_empty()),
+            "this case runs an adopter's Node suite and there is no node on PATH. Install node, or set SPEC_FLOW_SKIP_NODE=1 to skip it knowingly."
+        );
+        eprintln!("skipped: no node on PATH, and SPEC_FLOW_SKIP_NODE is set");
+    }
+    here
 }
 
 fn missing_lines(out: &str) -> Vec<&str> {
@@ -254,7 +266,6 @@ init_case!(
     complete(),
     |dir| {
         if !have_node() {
-            eprintln!("skipped: needs node");
             return;
         }
         run_init(dir, &["--translator"]);
