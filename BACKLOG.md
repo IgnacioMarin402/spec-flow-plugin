@@ -157,10 +157,10 @@ reach `done`.
 
 `evals/` holds cases for the reviewer's verdicts and the `/spec-fix` triage;
 `claude plugin eval` runs them (the command line is in `CLAUDE.md`), and CI
-runs no model (a key per run, as B64): `TestEvals` holds each grader against
-its case's scaffold. **Open:** the
-orchestrator refusing to write code, and triage run under a phase, so
-`agent-gate` judges the return as it does in a run.
+runs no model (a key per run, as B64): the `evals` repocheck holds each grader
+against its case's scaffold. **Open:** the orchestrator refusing to write code,
+and triage run under a phase, so `agent-gate` judges the return as it does in a
+run.
 
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody
 
