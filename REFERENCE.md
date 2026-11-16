@@ -546,7 +546,9 @@ armed.
 - **Without a terminal** (`claude -p`, the Agent SDK, CI) a run needs
   `--permission-mode auto` or `bypassPermissions`. `.claude/` is a protected
   path: in `default` and `acceptEdits` the phase write asks a human who is not
-  there, no allow rule pre-approves it, and the run never starts.
+  there, no allow rule pre-approves it, and the run never starts. The command
+  is `/spec-flow:spec-flow` (or `/spec-flow:spec-fix`): there the short name
+  is no command, reaches the session as text, and `human-turn` tells it so.
 
 ---
 

@@ -34,7 +34,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
+      # The whole history: the record-shas check resolves the commits the
+      # first decisions name, and fails in a shallow clone rather than pass.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # rust-toolchain.toml names the release, its components and the targets.
       - name: Toolchain
