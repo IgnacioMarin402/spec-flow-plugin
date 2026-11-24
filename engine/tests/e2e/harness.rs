@@ -233,8 +233,45 @@ impl Output {
     }
 }
 
-/// `argv` in dir, with env (`K=V`) added and stdin given.
+/// Whether `out` is a program that never started because another case still
+/// held its file open for writing (ETXTBSY). Cases run in parallel, and a
+/// child one case forks inherits, until its own exec, the descriptor another
+/// case is copying the engine through: that copy's first exec then fails,
+/// either the spawn of the launcher or the launcher's `exec` of the binary.
+/// Either way nothing ran: the launcher reads no input and writes nothing
+/// before its `exec`, so running the call again repeats nothing.
+fn never_started_busy(out: &Output) -> bool {
+    cfg!(unix)
+        && out.stdout.is_empty()
+        && match out.status {
+            -1 => out.stderr.contains("(os error 26)"),
+            126 => {
+                out.stderr.lines().count() == 1
+                    && out.stderr.trim_end().ends_with(": Text file busy")
+            }
+            _ => false,
+        }
+}
+
+/// `argv` in dir, with env (`K=V`) added and stdin given; a start refused by
+/// a file another case is still writing is tried again, for a bounded time.
 pub fn run<S: AsRef<str>>(
+    dir: &Path,
+    env: &[S],
+    stdin: &str,
+    argv: &[impl AsRef<std::ffi::OsStr>],
+) -> Output {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let out = run_once(dir, env, stdin, argv);
+        if !never_started_busy(&out) || std::time::Instant::now() >= deadline {
+            return out;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn run_once<S: AsRef<str>>(
     dir: &Path,
     env: &[S],
     stdin: &str,
@@ -477,4 +514,62 @@ pub fn iso_ms(t: SystemTime) -> String {
         rem % 3600 / 60,
         rem % 60
     )
+}
+
+/// The race behind ETXTBSY, made to last: a file still open for writing
+/// cannot be executed. In the suite the writer is a child another case forked
+/// while this one was copying the engine; here it is a handle held on purpose
+/// and dropped a moment later.
+#[cfg(unix)]
+#[test]
+fn a_program_still_open_for_writing_runs_once_the_writer_lets_go() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = temp_dir();
+    let script = dir.join("busy.sh");
+    let mut f = std::fs::File::create(&script).unwrap();
+    f.write_all(b"#!/bin/sh\necho ran\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        drop(f);
+    });
+    let r = run(&dir, &[] as &[&str], "", &[&script]);
+    writer.join().unwrap();
+    assert_eq!(
+        (r.status, r.stdout.trim()),
+        (0, "ran"),
+        "the spawn gave up on a busy file: {}",
+        r.stderr
+    );
+}
+
+/// The same race one exec later: the launcher started, and the binary it
+/// `exec`s is the file still open for writing.
+#[cfg(unix)]
+#[test]
+fn a_binary_the_launcher_execs_still_open_for_writing_runs_once_the_writer_lets_go() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = temp_dir();
+    std::fs::create_dir_all(dir.join("bin").join(platform())).unwrap();
+    std::fs::copy(
+        engine_dir().join("bin").join("spec-flow"),
+        dir.join("bin").join("spec-flow"),
+    )
+    .unwrap();
+    let bin = binary(&dir);
+    let mut f = std::fs::File::create(&bin).unwrap();
+    f.write_all(b"#!/bin/sh\necho ran \"$@\"\n").unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        drop(f);
+    });
+    let r = run(&dir, &[] as &[&str], "", &launch(&dir, &["hook", "gate"]));
+    writer.join().unwrap();
+    assert_eq!(
+        (r.status, r.stdout.trim()),
+        (0, "ran hook gate"),
+        "the launcher's exec gave up on a busy binary: {}",
+        r.stderr
+    );
 }
