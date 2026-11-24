@@ -1297,6 +1297,71 @@ fn human_turn_records_turn_ends_prompts_by_source_and_answered_questions_and_not
     );
 }
 
+// Under `claude -p` a prompt typed `/spec-flow <requirement>` is no command:
+// the session did the work itself, with no phase, so no hook armed.
+
+fn short_name_context(prompt: &str, at: &Path) -> String {
+    let r = run_hook(
+        "human-turn",
+        json!({"session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": prompt}),
+        at,
+    );
+    assert_eq!(r.status, 0, "{prompt:?}: {}", r.out());
+    let out: Value = serde_json::from_str(&r.stdout).unwrap_or(Value::Null);
+    out["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap_or("")
+        .to_string()
+}
+
+#[test]
+fn a_prompt_typed_as_a_commands_short_name_is_told_the_form_that_runs() {
+    let repo = make_repo(RepoOpts::default());
+    let said = short_name_context("/spec-flow add a ping endpoint", &repo);
+    assert!(
+        said.contains("`/spec-flow:spec-flow`") && said.contains("Do not carry out the request"),
+        "an unexpanded /spec-flow was not answered: {said:?}"
+    );
+    assert_eq!(
+        non_empty_lines(&read(state_path(&repo, "human-turn.log")))
+            .iter()
+            .map(|l| l.split_once(' ').unwrap().1)
+            .collect::<Vec<_>>(),
+        ["prompt from=human"],
+        "answering it stopped the prompt being recorded"
+    );
+    // Answering writes nothing, so it does not wait for adoption.
+    let bare = temp_dir();
+    assert!(
+        short_name_context("/spec-fix\nthe ping is wrong", &bare).contains("`/spec-flow:spec-fix`"),
+        "an unexpanded /spec-fix was not answered where the engine is not adopted"
+    );
+    assert!(
+        !exists(bare.join(".claude")),
+        "it wrote state into a repository that never adopted the engine"
+    );
+}
+
+// Guard: a form that runs, and a prompt that only mentions the command, are
+// left alone.
+
+#[test]
+fn the_namespaced_command_and_a_mention_of_the_short_name_get_no_context() {
+    let repo = make_repo(RepoOpts::default());
+    for prompt in [
+        "/spec-flow:spec-flow add a ping endpoint",
+        "/spec-flow:spec-fix the ping is wrong",
+        "/spec-flowing",
+        "why did /spec-flow not start a run?",
+    ] {
+        assert_eq!(short_name_context(prompt, &repo), "", "{prompt:?}");
+    }
+    assert!(
+        !short_name_context("/spec-flow", &repo).is_empty(),
+        "the bare short name was not answered"
+    );
+}
+
 // Guards: an answered case 3 goes on, and a build that never records an
 // answer is not held forever.
 

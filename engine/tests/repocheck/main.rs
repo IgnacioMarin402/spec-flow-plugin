@@ -174,10 +174,11 @@ pub fn repo() -> PathBuf {
 #[test]
 fn the_repository() {
     let root = repo();
-    let checks: [fn(&Path) -> Report; 7] = [
+    let checks: [fn(&Path) -> Report; 8] = [
         norepo::no_repo_refs,
         modelpins::model_pins,
         decisions::decisions,
+        decisions::record_shas,
         transitions::transitions,
         agentcontracts::agent_contracts,
         pluginpaths::plugin_paths,
