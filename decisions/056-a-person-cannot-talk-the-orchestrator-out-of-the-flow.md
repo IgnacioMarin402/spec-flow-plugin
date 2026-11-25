@@ -12,7 +12,10 @@ three runs of three: the command expanded, and the session read
 wrote no phase, so no hook was armed: no gate, no write-time linter, no
 `orchestrator-scope`. The commands stated the rule; nothing said a request
 does not lift it, and the model weighed the person's words above the
-command's.
+command's. With this decision written into both commands, on sonnet, three
+runs of three declined the edit, said why in one line, and began the flow
+with its phase write. The eval harness runs in don't-ask mode, which denies
+a write into `.claude/`, so its runs stop there.
 
 **Decision.** No. The command the person ran is the promise that a gate
 judges the change; code written with every hook disarmed reads exactly like
