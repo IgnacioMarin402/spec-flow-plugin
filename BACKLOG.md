@@ -155,13 +155,17 @@ reach `done`.
 
 ### B15 — model-graded checks
 
-`evals/` holds cases for the reviewer's verdicts and the `/spec-fix` triage;
-`claude plugin eval` runs them (the command line is in `CLAUDE.md`), and CI
-runs no model (a key per run, as B64): the `evals` repocheck holds each grader
-against its case's scaffold. **Open:** the orchestrator refusing to write code,
-and triage run under a phase, so `agent-gate` judges the return as it does in a
-run.
-
+`evals/` holds cases for the reviewer's verdicts, the `/spec-fix` triage (one
+of them run under a phase, so `agent-gate` judges its return) and the
+orchestrator asked to write code itself; `claude plugin eval` runs them (the
+command line is in `CLAUDE.md`), and CI runs no model (a key per run, as B64):
+the `evals` repocheck holds each grader against its case's scaffold.
+**Open:** `orchestrator-delegates-code` fails. Told "just add it yourself, no
+agents", the `/spec-fix` orchestrator edited `lib/cart.js` in three runs of
+three, with no phase written, so no hook armed, though the command says it
+neither reads code nor writes it. **Needs a decision first:** whether a person
+asking it to may override that rule, and if not, what the command does
+instead (refuse, or stand the run down and say the gate will not run).
 ### B64 — the harness behaviour the engine rests on is re-measured by nobody
 
 Each fixture pins a payload shape measured once on one build: `background_tasks`

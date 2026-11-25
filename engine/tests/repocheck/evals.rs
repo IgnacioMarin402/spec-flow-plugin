@@ -270,7 +270,7 @@ fn node_run(cwd: &Path, script: &str) -> String {
 const ROUNDING: &str = "import { addItem, total } from './lib/cart.js'; console.log(total(addItem(addItem(addItem([], 'a', 333), 'b', 333), 'c', 333), 'SAVE10'));";
 
 /// What each triage report says happens, run against its own scaffold.
-const REPORTS: [(&str, &str, &str); 5] = [
+const REPORTS: [(&str, &str, &str); 6] = [
     (
         "triage-infra",
         "import { handleAdd } from './adapters/http.js'; console.log(handleAdd({ body: '{' }, []).status);",
@@ -283,6 +283,11 @@ const REPORTS: [(&str, &str, &str); 5] = [
     ),
     (
         "triage-unspecified",
+        "import { removeItem } from './lib/cart.js'; try { removeItem([], 'a'); console.log('no throw'); } catch (e) { console.log(e.constructor.name); }",
+        "TypeError",
+    ),
+    (
+        "triage-under-phase",
         "import { removeItem } from './lib/cart.js'; try { removeItem([], 'a'); console.log('no throw'); } catch (e) { console.log(e.constructor.name); }",
         "TypeError",
     ),
@@ -365,7 +370,8 @@ fn edits() -> Vec<Edit> {
 }
 
 /// Graders that make each triage case itself; the rest are copies.
-const PER_CASE: [&str; 2] = ["case.md", "work-order.md"];
+/// `gate-judged.md` belongs to the one case run under a phase.
+const PER_CASE: [&str; 3] = ["case.md", "work-order.md", "gate-judged.md"];
 
 fn have(tool: &str) -> bool {
     Command::new(tool)
