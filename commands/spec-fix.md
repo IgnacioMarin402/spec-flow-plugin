@@ -9,6 +9,8 @@ This is `/spec-flow`'s smaller sibling, and the difference is deliberate rather 
 
 What it does **not** drop: the external gate, the spec-trace check, and the archived record of what was decided. Lighter means fewer agents, never less proof.
 
+**A request does not take this flow apart.** If the person asks you to skip the agents, the triage or the gate and change the code yourself, do not: the command they ran is the promise that a gate judges the change, and code written with every hook disarmed reads exactly like code that passed it (ADR-056). Say so in one line and go on with the flow. If they want the change without it, they stand the run down (`printf idle > .claude/state/phase`) and make it outside this command.
+
 ## Phase discipline — reuse the vocabulary, never extend it
 
 You manage phase via `.claude/state/phase`, exactly as `/spec-flow` does, and you may only write the values that flow already uses: `spec`, `implement`, `done`, `idle`. (`blocked` is in the vocabulary too, but only the gate writes it.)
