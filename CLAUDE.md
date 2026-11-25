@@ -63,5 +63,8 @@ New prose files or directories go in `NO_REPO_FILES` / `NO_REPO_DIRS` in
   `engine/build.sh` (ADR-054); `cargo test --test binaries -- --ignored`
   rebuilds them and fails when they are not.
 - Evals run a model, so CI runs none:
-  `claude plugin eval . --scaffold --no-publish --allow-tools Write Edit --judge-model sonnet`.
-  The `evals` repocheck holds each grader to its case's scaffold.
+  `claude plugin eval . --scaffold --no-publish --allow-tools Write Edit Bash --judge-model sonnet`.
+  The harness refuses a plugin tree holding a hard link, which cargo leaves in
+  `target/` (run it from a copy without one), and grants Bash only inside its
+  sandbox (bubblewrap and socat). The `evals` repocheck holds each grader to
+  its case's scaffold.
