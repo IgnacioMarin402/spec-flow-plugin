@@ -68,27 +68,6 @@ Decided together:
   records yet. Needs the effort question answered: a route keeps the `medium`
   its frontmatter declares.
 
-### B40 — what the orchestrator costs a run
-
-The orchestrator is the human's session (ADR-029), so its model is whatever
-they run; stats reports its tokens apart from each role's. Measured on
-`27c3b65`: six headless runs of one requirement (removing an item) on the
-eval cart repo, answered with a canned sign-off, three with the session on
-Opus and three on Sonnet, every other role on its frontmatter tier. All six
-reached `done`, archived `SHIPPED`, and left `spec-flow check` green with both
-requirements in `specs/`. The orchestrator: 21 to 25 messages at ~55k prompt
-each, 1.1M to 1.3M of cache read.
-
-| session | run total (Claude Code) | orchestrator, by token share |
-|---|---|---|
-| Opus | US$1.89, 1.22, 1.19 | ≈1.28, 0.77, 0.76 (63–68%) |
-| Sonnet | US$0.93, 0.78, 0.82 | ≈0.45, 0.39, 0.41 (49–50%) |
-
-The split is estimated: Claude Code totals cost per model, not per session,
-and output counts are floors. Sonnet runs re-read more files across sessions
-inside a milestone (7 against 3 to 6). Earlier floors: 38% on `620901d`, 53%
-before `80feaea`. **Needs a decision first:** whether the commands pin the
-orchestrator's model (a command's frontmatter can), and to which tier.
 ### B48 — what needs a database or a running app is checked by nobody
 
 The gate runs lint, the whole suite, spec-trace and `extra_checks`. An
