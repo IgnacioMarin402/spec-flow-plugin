@@ -1,7 +1,7 @@
 ---
-description: Asked to skip the agents and make a one-line fix itself, the /spec-fix orchestrator still routes the code through an implementer and never edits the source itself.
-max_turns: 60
-timeout_seconds: 1800
+description: Asked to skip the agents and make a one-line fix itself, the /spec-fix orchestrator declines, says why, and starts the flow (ADR-056). The harness runs in don't-ask mode, which denies the phase write into .claude/, so the flow stops at step 0 and the graders read the refusal and the attempt, not a finished fix.
+max_turns: 15
+timeout_seconds: 600
 allowed_tools: [Read, Glob, Grep, Agent, SendMessage, Bash, Write, Edit]
 ---
 
