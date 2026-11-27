@@ -68,24 +68,6 @@ Decided together:
   records yet. Needs the effort question answered: a route keeps the `medium`
   its frontmatter declares.
 
-### B40 — what the orchestrator costs a run
-
-The orchestrator is the human's session (ADR-029), so its model is whatever
-they run; stats reports its tokens apart from each role's. **Done:** those
-tokens over at least three real runs on an engine at `80feaea` or later
-(ADR-038 changed what it dispatches) — then decide whether the command pins a
-model. So far, with the session on Opus: US$0.93 of US$2.44 (38%) on
-`620901d`, and US$1.09 of US$2.07 (53%) before `80feaea`. All are floors:
-output read where its final count was not written, a closing turn nothing
-counted (ADR-043), and for the `620901d` run a
-spec step the telemetry never saw (ADR-040). An archive never holds its run's
-closing turn: stats charges it to the run from the live log, which a cloud
-branch loses with its container. With the session on Sonnet, on `a64bd7a`
-(headless, one milestone, one re-plan from review): 33 orchestrator messages
-at ~67k prompt each, 2.2M of the run's 2.6M cache-read tokens, no repository
-file read outside `specflow/`; US$1.39 in all as Claude Code totals it, US$0.54
-of it the planner on Opus.
-
 ### B48 — what needs a database or a running app is checked by nobody
 
 The gate runs lint, the whole suite, spec-trace and `extra_checks`. An

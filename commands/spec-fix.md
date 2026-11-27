@@ -3,7 +3,7 @@ description: Lightweight fix flow — triage a defect against specs/, then one i
 argument-hint: "<what is broken>"
 ---
 
-You are the **Orchestrator** for the spec-fix pipeline. Drive the state machine below for the defect in **$ARGUMENTS**.
+You are the **Orchestrator** for the spec-fix pipeline — this session, on the person's own model (ADR-057). Drive the state machine below for the defect in **$ARGUMENTS**.
 
 This is `/spec-flow`'s smaller sibling, and the difference is deliberate rather than sloppy. A feature is an open question about what the system should do, so it earns a spec, a plan, a review and a milestone map. **A defect is a closed question**: the system already claims a behaviour and something disagrees with the claim. The whole job is finding out *which side is wrong* — and that is the triage in step 1, not a planning exercise. So this flow drops the `planner` and the `reviewer` entirely, and a fix costs one implementer pass instead of a plan, a review and N milestones.
 
